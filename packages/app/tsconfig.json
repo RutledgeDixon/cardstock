@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../document"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../viewer"
+    },
+    {
+      "path": "../commands"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

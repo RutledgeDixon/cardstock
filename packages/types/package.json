@@ -1,0 +1,16 @@
+{
+  "name": "@cardstock/types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared contracts: KernelPort, geometry types, topological reference shapes. Zero runtime, zero dependencies.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  }
+}

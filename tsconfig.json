@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/document" },
+    { "path": "packages/kernel" },
+    { "path": "packages/viewer" },
+    { "path": "packages/commands" },
+    { "path": "packages/ui" },
+    { "path": "packages/app" }
+  ]
+}

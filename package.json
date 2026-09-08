@@ -1,0 +1,30 @@
+{
+  "name": "cardstock",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "CARDstock — Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "npm run dev -w @cardstock/app",
+    "build": "tsc -b && npm run build -w @cardstock/app",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "boundaries": "node tools/check-boundaries.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^5.0.0",
+    "eslint": "^10.10.0",
+    "prettier": "^3.4.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.70.0",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  }
+}

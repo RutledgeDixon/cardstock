@@ -1,0 +1,24 @@
+{
+  "name": "@cardstock/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Composition root: wiring, persistence, settings.",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "@cardstock/types": "*",
+    "@cardstock/document": "*",
+    "@cardstock/kernel": "*",
+    "@cardstock/viewer": "*",
+    "@cardstock/commands": "*",
+    "@cardstock/ui": "*"
+  }
+}
