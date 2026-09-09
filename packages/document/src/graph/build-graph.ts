@@ -3,8 +3,19 @@ import type { ParameterTable } from '../params/parameters.js';
 import type { Feature } from '../features/feature.js';
 import { DependencyGraph, featureNode, paramNode } from './dependency-graph.js';
 
-/** Wire a graph from the current parameters and features. */
-export function buildGraph(params: ParameterTable, features: readonly Feature[]): DependencyGraph {
+/**
+ * Wire a graph from the current parameters and features.
+ *
+ * `sketches` is how a sketch feature declares its parameter dependencies. A sketch has no
+ * feature `values` at all — its dimensions live inside its constraints — so without this
+ * the graph cannot see that a sketch depends on `width`, and editing `width` rebuilds
+ * everything except the sketch that was drawn from it.
+ */
+export function buildGraph(
+  params: ParameterTable,
+  features: readonly Feature[],
+  sketches?: (id: string) => { referencedParameters(): string[] } | null,
+): DependencyGraph {
   const graph = new DependencyGraph();
 
   // Parameters rank ahead of every feature; features rank by document position, so
@@ -32,6 +43,13 @@ export function buildGraph(params: ParameterTable, features: readonly Feature[])
         continue; // a malformed expression surfaces as a compute error, not a graph error
       }
       for (const name of names) {
+        if (params.has(name)) graph.addEdge(paramNode(name), node);
+      }
+    }
+
+    // Parameters a sketch's dimensions name.
+    if (feature.sketchId && sketches) {
+      for (const name of sketches(feature.sketchId)?.referencedParameters() ?? []) {
         if (params.has(name)) graph.addEdge(paramNode(name), node);
       }
     }

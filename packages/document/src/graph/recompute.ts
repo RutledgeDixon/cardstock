@@ -1,7 +1,9 @@
 import type {
   FeatureId, KernelPort, ShapeDescription, ShapeHandle, ShapeHistory,
 } from '@cardstock/types';
+import type { SolverPort } from '@cardstock/types';
 import { resolveTopoRef, type HistoryStep } from '../toporef/resolver.js';
+import type { Sketch } from '../sketch/sketch.js';
 import type { TopoRef } from '../toporef/types.js';
 import { evaluate, parse } from '../params/expression.js';
 import type { ParameterTable } from '../params/parameters.js';
@@ -60,6 +62,13 @@ export interface RecomputeResult {
   readonly cancelled: boolean;
 }
 
+/** Used when no solver was supplied: sketch features then fail with a clear reason. */
+const noSolver: SolverPort = {
+  async solve() {
+    throw new Error('no constraint solver is available');
+  },
+};
+
 export class CancellationToken {
   #cancelled = false;
   get cancelled(): boolean { return this.#cancelled; }
@@ -82,9 +91,15 @@ export class RecomputeEngine {
   /** Insertion-ordered hashes, for LRU-ish eviction. */
   #previous: Map<FeatureId, FeatureState> | null = null;
 
+  /** Numeric parameter values for the run in progress, for sketch dimensions. */
+  #parameterValues: Record<string, number> = {};
+
   constructor(
     private readonly kernel: KernelPort,
     readonly registry: FeatureRegistry,
+    private readonly solver: SolverPort = noSolver,
+    /** Looks up a sketch by id; supplied by the Document that owns them. */
+    private readonly sketches?: (id: string) => Sketch | null,
   ) {}
 
   get cacheSize(): number { return this.#cache.size; }
@@ -114,7 +129,7 @@ export class RecomputeEngine {
     options: RecomputeOptions = {},
   ): Promise<RecomputeResult> {
     const token = options.token ?? new CancellationToken();
-    const graph = buildGraph(params, features);
+    const graph = buildGraph(params, features, this.sketches);
     const { order, cyclic } = graph.topologicalOrder();
 
     const byId = new Map(features.map((f) => [f.id, f]));
@@ -130,6 +145,11 @@ export class RecomputeEngine {
     const skipped: FeatureId[] = [];
 
     const scope = params.scope();
+    // Snapshot parameter values once per run, for any sketch that names one.
+    this.#parameterValues = {};
+    for (const [name, value] of params.evaluateAll()) {
+      if (value.ok) this.#parameterValues[name] = value.value;
+    }
     const cyclicFeatures = cyclic.filter(isFeatureNode).map((n) => nodeName(n) as FeatureId);
     for (const id of cyclicFeatures) {
       states.set(id, {
@@ -273,11 +293,29 @@ export class RecomputeEngine {
 
     // --- content hash: same inputs, same geometry, so reuse it. Hashing the RESOLVED
     // indices means a reference that re-resolves to where it was is a cache hit.
+    //
+    // A sketch feature has no values and no inputs, so without folding the sketch itself
+    // in, every sketch hashes identically and the cache hands back whatever face was
+    // built first — silently, for any edit at all.
+    const sketch = feature.sketchId ? this.sketches?.(feature.sketchId) ?? null : null;
+    const sketchHash = sketch
+      ? contentHash({
+          plane: sketch.plane,
+          geometry: sketch.geometry,
+          constraints: sketch.constraints,
+          // The values its dimensions resolve to, not just their names.
+          parameters: Object.fromEntries(
+            sketch.referencedParameters().map((n) => [n, this.#parameterValues[n]]),
+          ),
+        })
+      : null;
+
     const hash = contentHash({
       type: feature.type,
       values,
       selections,
       inputs: inputHashes,
+      sketch: sketchHash,
     });
 
     const hit = this.#cache.get(hash);
@@ -289,7 +327,11 @@ export class RecomputeEngine {
     // --- actually build it
     try {
       const result = await definition.compute({
-        kernel: this.kernel, feature, values, shapes, selections,
+        kernel: this.kernel,
+        solver: this.solver,
+        sketch,
+        parameters: this.#parameterValues,
+        feature, values, shapes, selections,
       });
       computed.push(feature.id);
       this.#cache.set(hash, result.handle);

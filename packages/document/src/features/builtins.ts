@@ -1,5 +1,6 @@
 import type { Vec3 } from '@cardstock/types';
 import { type FeatureDefinition, FeatureRegistry } from './feature.js';
+import { extrudeFeature, sketchFeature } from './sketch-features.js';
 
 /**
  * The Phase 2 feature set: enough shapes and operations to exercise the recompute graph
@@ -121,6 +122,7 @@ export const moveFeature: FeatureDefinition = {
 
 export const BUILTIN_FEATURES: readonly FeatureDefinition[] = [
   boxFeature, cylinderFeature, sphereFeature,
+  sketchFeature, extrudeFeature,
   unionFeature, cutFeature, intersectFeature,
   filletFeature, chamferFeature, moveFeature,
 ];

@@ -1,4 +1,5 @@
-import { type FeatureId, asFeatureId, type KernelPort } from '@cardstock/types';
+import { type FeatureId, asFeatureId, type KernelPort, type SolverPort } from '@cardstock/types';
+import { Sketch, type SketchPlane } from './sketch/sketch.js';
 import { ParameterTable, type Parameter } from './params/parameters.js';
 import type { FeatureRegistry } from './features/feature.js';
 import { type Feature } from './features/feature.js';
@@ -70,9 +71,19 @@ export class Document {
    */
   cacheLimit = 128;
 
-  constructor(kernel: KernelPort, registry: FeatureRegistry = createBuiltinRegistry()) {
+  /** Sketches, keyed by id. Features reference one via `sketchId`. */
+  readonly sketches = new Map<string, Sketch>();
+  #nextSketchId = 0;
+
+  constructor(
+    kernel: KernelPort,
+    registry: FeatureRegistry = createBuiltinRegistry(),
+    solver?: SolverPort,
+  ) {
     this.registry = registry;
-    this.engine = new RecomputeEngine(kernel, registry);
+    this.engine = new RecomputeEngine(
+      kernel, registry, solver, (id) => this.sketches.get(id) ?? null,
+    );
     const now = new Date().toISOString();
     this.#meta = {
       name: 'Untitled', created: now, modified: now, units: 'mm', application: 'CARDstock',
@@ -113,7 +124,7 @@ export class Document {
 
   /** Dependents of a node, computed against the CURRENT graph (call before removing). */
   #markDependentsDirty(node: NodeId): void {
-    const graph = buildGraph(this.parameters, this.#features);
+    const graph = buildGraph(this.parameters, this.#features, (id) => this.sketches.get(id) ?? null);
     for (const n of graph.dirtyFrom([node])) this.#dirty.add(n);
   }
 
@@ -458,6 +469,28 @@ export class Document {
     doc.clearHistory();
     doc.invalidateAll();
     return doc;
+  }
+
+  /** Create a sketch and the feature that turns it into a face. */
+  addSketch(plane: SketchPlane, opts: EditOptions = {}): { sketch: Sketch; id: FeatureId } {
+    const sketchId = `sk${++this.#nextSketchId}`;
+    const sketch = new Sketch(plane);
+    // The origin is fixed so a sketch is never free to float away from its own plane.
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    this.sketches.set(sketchId, sketch);
+
+    const id = this.newFeatureId('sketch');
+    this.addFeature(
+      { id, type: 'sketch', name: `Sketch ${this.#nextSketchId}`, values: {}, inputs: {}, sketchId },
+      undefined,
+      { label: 'Add sketch', ...opts },
+    );
+    return { sketch, id };
+  }
+
+  sketchFor(featureId: FeatureId): Sketch | null {
+    const feature = this.feature(featureId);
+    return feature?.sketchId ? this.sketches.get(feature.sketchId) ?? null : null;
   }
 
   rename(name: string, opts: EditOptions = {}): void {

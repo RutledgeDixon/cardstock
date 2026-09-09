@@ -54,3 +54,11 @@ export {
   type Inference, type InferenceOptions,
 } from './sketch/inference.js';
 export { MockSolver } from './sketch/mock-solver.js';
+export {
+  buildProfile, outerLoop, signedArea,
+  type ProfileLoop, type ProfileResult,
+} from './sketch/profile.js';
+export {
+  ORIGIN_PLANES, resolvePlacement, toSketch, toWorld,
+} from './sketch/placement.js';
+export { extrudeFeature, sketchFeature } from './features/sketch-features.js';

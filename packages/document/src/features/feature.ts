@@ -1,5 +1,6 @@
 import type { FeatureId } from '@cardstock/types';
-import type { GeometryResult, KernelPort, ShapeHandle } from '@cardstock/types';
+import type { GeometryResult, KernelPort, ShapeHandle, SolverPort } from '@cardstock/types';
+import type { Sketch } from '../sketch/sketch.js';
 import type { TopoRef } from '../toporef/types.js';
 
 /**
@@ -26,10 +27,24 @@ export interface Feature {
    * definitions never deal with naming. See docs/toponaming.md.
    */
   readonly selections?: Readonly<Record<string, readonly TopoRef[]>>;
+  /**
+   * The sketch this feature draws from, for sketch-based features.
+   *
+   * Sketches live in the document's own table rather than inline, because they are large
+   * mutable objects with their own editing session, while a Feature is a small
+   * declarative record the engine hashes on every rebuild.
+   */
+  readonly sketchId?: string;
 }
 
 export interface ComputeContext {
   readonly kernel: KernelPort;
+  /** For sketch-based features. */
+  readonly solver: SolverPort;
+  /** The feature's sketch, already looked up, when it has one. */
+  readonly sketch: Sketch | null;
+  /** Document parameters, for solving sketch dimensions that name one. */
+  readonly parameters: Readonly<Record<string, number>>;
   readonly feature: Feature;
   /** Value expressions, already evaluated against the parameter table. */
   readonly values: Readonly<Record<string, number>>;
