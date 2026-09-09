@@ -13,6 +13,7 @@ import type { EntityKind, FeatureId } from '@cardstock/types';
 /** What the user is pointing at, or the absence of a target. */
 export type CommandContext =
   | 'always'      // available regardless of selection
+  | 'sketch'      // a sketch is open for editing
   | 'empty'       // right-clicked background
   | 'body'
   | 'face'
@@ -41,6 +42,10 @@ export interface CommandState {
   readonly canRedo: boolean;
   readonly busy: boolean;
   readonly focusedFeature: FeatureId | null;
+  /** A sketch is open for editing; most modelling commands stand aside while it is. */
+  readonly sketching: boolean;
+  /** Active drawing tool, when sketching. */
+  readonly sketchTool: 'select' | 'line' | 'rectangle' | 'circle' | null;
 }
 
 /** `true` to enable, or a sentence saying WHY not — shown in the tooltip. */

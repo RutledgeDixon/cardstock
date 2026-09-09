@@ -62,3 +62,6 @@ export {
   ORIGIN_PLANES, resolvePlacement, toSketch, toWorld,
 } from './sketch/placement.js';
 export { extrudeFeature, sketchFeature } from './features/sketch-features.js';
+export {
+  SketchTools, type ToolKind, type ToolPreview, type ToolResult,
+} from './sketch/tools.js';

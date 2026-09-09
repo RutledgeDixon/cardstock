@@ -5,7 +5,7 @@ import { CommandRegistry } from './registry.js';
 const state: CommandState = {
   selectionKind: null, selectionCount: 0, hoverKind: null,
   hasModel: true, featureCount: 2, bodyCount: 2, canUndo: false, canRedo: false,
-  busy: false, focusedFeature: null,
+  busy: false, focusedFeature: null, sketching: false, sketchTool: null,
 };
 
 const cmd = (over: Partial<Command> & { id: string }): Command => ({

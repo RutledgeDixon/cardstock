@@ -30,6 +30,13 @@ export interface HostDeps {
   focused: () => FeatureId | null;
   setFocused: (id: FeatureId | null) => void;
   busy: () => boolean;
+
+  // --- sketching
+  beginSketch: (plane: 'xy' | 'xz' | 'yz') => Promise<void>;
+  finishSketch: () => Promise<void>;
+  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle') => void;
+  sketching: () => boolean;
+  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | null;
 }
 
 export function createHost(deps: HostDeps): CommandHost {
@@ -70,6 +77,8 @@ export function createHost(deps: HostDeps): CommandHost {
       canRedo: doc.canRedo,
       busy: deps.busy(),
       focusedFeature: deps.focused(),
+      sketching: deps.sketching(),
+      sketchTool: deps.sketchTool(),
     }),
 
     selection: (): readonly EntityRef[] => viewer.selection.selected,
@@ -184,6 +193,27 @@ export function createHost(deps: HostDeps): CommandHost {
     lookAtSelection: () => viewer.lookAtHoveredFace(),
     pivotToSelection: () => viewer.pivotToPointer(),
     cycleSelectionFilter: (direction) => viewer.selection.cycleFilter(direction),
+
+    beginSketch: (plane) => deps.beginSketch(plane),
+    finishSketch: () => deps.finishSketch(),
+    setSketchTool: (tool) => deps.setSketchTool(tool),
+
+    async extrudeSketch() {
+      // The most recent sketch is the one just drawn, which is what "extrude" means
+      // immediately after finishing one.
+      const sketchFeature = [...doc.features].reverse().find((f) => f.type === 'sketch');
+      if (!sketchFeature) { deps.notify('Draw a sketch first', 'error'); return null; }
+      const id = doc.newFeatureId('extrude');
+      doc.addFeature({
+        id, type: 'extrude', name: nameFor('extrude'),
+        values: { distance: '10' }, inputs: { profile: sketchFeature.id },
+      });
+      deps.setFocused(id);
+      await deps.rebuild();
+      viewer.fitAll();
+      deps.openPanel(id);
+      return id;
+    },
 
     exportStl: () => deps.exportStl(),
     openPalette: () => deps.openPalette(),

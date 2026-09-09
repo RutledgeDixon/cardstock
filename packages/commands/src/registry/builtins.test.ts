@@ -18,7 +18,7 @@ const stubHost = (): CommandHost => new Proxy({} as CommandHost, {
 const state: CommandState = {
   selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: true,
   featureCount: 2, bodyCount: 2, canUndo: true, canRedo: true, busy: false,
-  focusedFeature: null,
+  focusedFeature: null, sketching: false, sketchTool: null,
 };
 
 const build = () => {
@@ -41,7 +41,8 @@ describe('the built-in command set', () => {
 
   it('lays out every context without losing a command to a full ring', () => {
     const registry = build();
-    const contexts: CommandContext[] = ['empty', 'body', 'face', 'edge', 'vertex', 'tree-item'];
+    const contexts: CommandContext[] =
+      ['empty', 'body', 'face', 'edge', 'vertex', 'tree-item', 'sketch'];
     for (const context of contexts) {
       const resolved = registry.forContext(context, state);
       const sectors = resolved
@@ -64,7 +65,7 @@ describe('the built-in command set', () => {
   it('offers the two groups, and only those', () => {
     const registry = build();
     const groups = registry.all().filter((c) => registry.isGroup(c.id)).map((c) => c.id);
-    expect(groups.sort()).toEqual(['create.shape', 'modify.edge']);
+    expect(groups.sort()).toEqual(['create.shape', 'modify.edge', 'sketch.new']);
   });
 
   it('puts every primitive behind the New shape group rather than on the toolbar', () => {

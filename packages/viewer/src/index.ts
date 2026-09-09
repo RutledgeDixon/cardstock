@@ -1,5 +1,8 @@
 export { Viewer, type ViewerOptions } from './scene/viewer.js';
 export { BodyView } from './scene/body-view.js';
+export {
+  DEFAULT_SKETCH_COLOURS, SketchView, type SketchViewColours,
+} from './scene/sketch-view.js';
 export { Grid, chooseGridSpacing, type GridOptions } from './scene/grid.js';
 
 export {

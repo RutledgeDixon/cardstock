@@ -1,4 +1,9 @@
-import { Color, OrthographicCamera, Scene, Vector2, WebGLRenderer } from 'three';
+import {
+  Color, OrthographicCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer,
+} from 'three';
+
+const _plane = new Plane();
+const _raycaster = new Raycaster();
 import type { EntityRef, TessellatedBody } from '@cardstock/types';
 import { CameraController } from '../camera/controller.js';
 import { Picker, type PickResult } from '../picking/picker.js';
@@ -153,6 +158,32 @@ export class Viewer {
   clickAt(clientX: number, clientY: number, additive = false): EntityRef | null {
     this.setPointer(clientX, clientY);
     return this.clickAtPointer(additive);
+  }
+
+  /**
+   * Where the cursor falls on a sketch plane, in sketch coordinates.
+   *
+   * Sketching happens in 2D, so every pointer position has to come back through the
+   * plane. Returns null when the plane is edge-on and the ray never meets it.
+   */
+  pointerOnPlane(placement: {
+    origin: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+    xAxis: { x: number; y: number; z: number };
+  }): { x: number; y: number } | null {
+    if (!this.#pointerInside) return null;
+    const normal = new Vector3(placement.normal.x, placement.normal.y, placement.normal.z).normalize();
+    const origin = new Vector3(placement.origin.x, placement.origin.y, placement.origin.z);
+    _plane.setFromNormalAndCoplanarPoint(normal, origin);
+
+    _raycaster.setFromCamera(this.#pointer, this.camera);
+    const hit = _raycaster.ray.intersectPlane(_plane, new Vector3());
+    if (!hit) return null;
+
+    const xAxis = new Vector3(placement.xAxis.x, placement.xAxis.y, placement.xAxis.z).normalize();
+    const yAxis = new Vector3().crossVectors(normal, xAxis);
+    const delta = hit.sub(origin);
+    return { x: delta.dot(xAxis), y: delta.dot(yAxis) };
   }
 
   /** Re-centre the orbit on whatever is under the cursor — the '.' key. */

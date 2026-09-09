@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
 import { asFeatureId, type FeatureId } from '@cardstock/types';
 import { Document, evaluateExpression } from '@cardstock/document';
-import { createWorkerKernel } from '@cardstock/kernel';
+import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
 import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
 import {
   CommandRegistry, chordFromEvent, contextForSelection, createBuiltinCommands,
@@ -15,6 +16,7 @@ import {
   captureEdgeRefs, rebuild, terminalFeature, type RebuildReport,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
+import { SketchSession } from './wiring/sketch-session.js';
 import { downloadStl } from './wiring/download.js';
 
 /** Features whose output nothing else consumes — the things a boolean can combine. */
@@ -32,6 +34,22 @@ const FIELD_LABELS: Record<string, string> = {
   radius: 'radius', height: 'height', distance: 'distance',
   x: 'x', y: 'y', z: 'z',
 };
+
+/**
+ * Loads PlaneGCS on first use.
+ *
+ * The Document needs a SolverPort at construction, but the WASM module is async. Waiting
+ * for it before showing anything would delay the whole app for a solver most sessions
+ * never touch.
+ */
+class LazySolver implements SolverPort {
+  #solver: Promise<SolverPort> | null = null;
+
+  solve(request: SolveRequest): Promise<SolveResult> {
+    this.#solver ??= PlaneGcsSolver.create();
+    return this.#solver.then((solver) => solver.solve(request));
+  }
+}
 
 /**
  * Start the things that cleanup tears down: the render loop, camera keys, resize.
@@ -66,6 +84,10 @@ export function App() {
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
+  const [sketchInfo, setSketchInfo] = useState<{
+    open: boolean; tool: string; dof: number | null; status: string; inference: string | null;
+  } | null>(null);
+  const sessionRef = useRef<SketchSession | null>(null);
   const [report, setReport] = useState<{
     rebuildMs: number | null; meshMs: number | null;
     triangles: number | null; faces: number | null; cached: number; error: string | null;
@@ -94,7 +116,11 @@ export function App() {
 
     const viewer = new Viewer(canvas);
     const kernel = createWorkerKernel();
-    const doc = new Document(kernel);
+    // The constraint solver runs on the main thread: it boots in ~13ms and solves a
+    // sketch in under a millisecond (ADR-0003), so a worker hop would cost more than it
+    // saves and would put a round trip in the middle of dragging.
+    const solver = new LazySolver();
+    const doc = new Document(kernel, undefined, solver);
     const registry = new CommandRegistry();
     const handles = new Map<string, string>();
     core.current = { viewer, doc, kernel, registry, busy: false, handles };
@@ -117,6 +143,17 @@ export function App() {
       repaint();
     };
 
+    const syncSketch = (inference: string | null = null) => {
+      const session = sessionRef.current;
+      setSketchInfo(session ? {
+        open: true,
+        tool: session.tools.kind,
+        dof: session.sketch.dof,
+        status: session.sketch.status,
+        inference,
+      } : null);
+    };
+
     const host = createHost({
       doc, viewer,
       terminalFeature: () => terminalFeature(doc),
@@ -134,6 +171,31 @@ export function App() {
       openPalette: () => setPaletteOpen(true),
       openPanel: (id) => setFocused(id),
       notify,
+      beginSketch: async (plane) => {
+        sessionRef.current?.close();
+        const session = SketchSession.open(doc, viewer, plane);
+        sessionRef.current = session;
+        session.alignCamera();
+        // Selecting the body underneath while drawing on top of it is only confusing.
+        viewer.selection.clear();
+        session.setTool('line');
+        await doRebuild();
+        syncSketch();
+      },
+      finishSketch: async () => {
+        const session = sessionRef.current;
+        if (!session) return;
+        session.close();
+        sessionRef.current = null;
+        setSketchInfo(null);
+        await doRebuild();
+        viewer.fitAll();
+        repaint();
+      },
+      setSketchTool: (tool) => { sessionRef.current?.setTool(tool); syncSketch(); },
+      sketching: () => sessionRef.current !== null,
+      sketchTool: () => sessionRef.current?.tools.kind ?? null,
+
       focused: () => focusedRef.current,
       setFocused: (id) => { focusedRef.current = id; setFocused(id); },
       busy: () => core.current!.busy,
@@ -185,7 +247,7 @@ export function App() {
       return {
         selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: false,
         featureCount: 0, bodyCount: 0, canUndo: false, canRedo: false,
-        busy: true, focusedFeature: null,
+        busy: true, focusedFeature: null, sketching: false, sketchTool: null,
       };
     }
     return {
@@ -199,6 +261,8 @@ export function App() {
       canRedo: c.doc.canRedo,
       busy: c.busy,
       focusedFeature: focusedRef.current,
+      sketching: sessionRef.current !== null,
+      sketchTool: sessionRef.current?.tools.kind ?? null,
     };
   }, []);
 
@@ -272,11 +336,34 @@ export function App() {
         ref={canvasRef}
         id="stage"
         tabIndex={0}
-        onPointerMove={(e) => core.current?.viewer.setPointer(e.clientX, e.clientY)}
+        onPointerMove={(e) => {
+          core.current?.viewer.setPointer(e.clientX, e.clientY);
+          const session = sessionRef.current;
+          if (session) {
+            const inference = session.updatePreview();
+            // Only re-render React when the hint actually changes; this fires on every
+            // mouse move.
+            if (inference !== sketchInfo?.inference) {
+              setSketchInfo((current) => (current ? { ...current, inference } : current));
+            }
+          }
+        }}
         onPointerLeave={() => core.current?.viewer.clearPointer()}
         onPointerDown={(e) => {
           canvasRef.current?.focus();
-          if (e.button === 0) core.current?.viewer.clickAt(e.clientX, e.clientY, e.shiftKey);
+          if (e.button !== 0) return;
+          const session = sessionRef.current;
+          if (session) {
+            // While sketching, a click draws rather than selects.
+            core.current?.viewer.setPointer(e.clientX, e.clientY);
+            if (session.click()) {
+              setSketchInfo((current) => (current ? {
+                ...current, dof: session.sketch.dof, status: session.sketch.status,
+              } : current));
+            }
+            return;
+          }
+          core.current?.viewer.clickAt(e.clientX, e.clientY, e.shiftKey);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -362,6 +449,40 @@ export function App() {
           onRun={run}
           onClose={() => setPaletteOpen(false)}
         />
+      )}
+
+      {sketchInfo?.open && (
+        <div className="sketchbar">
+          <span className="sketchbar-title">Sketch</span>
+          <span className="sketchbar-tools">
+            {(['line', 'rectangle', 'circle', 'select'] as const).map((tool) => (
+              <button
+                key={tool}
+                type="button"
+                className={sketchInfo.tool === tool ? 'is-active' : ''}
+                onClick={() => run(`sketch.${tool}`)}
+              >
+                {tool}
+              </button>
+            ))}
+          </span>
+
+          {/* The number you are always asking about while sketching. */}
+          <span className={`sketchbar-dof status-${sketchInfo.status}`}>
+            {sketchInfo.dof === null ? '—'
+              : sketchInfo.dof === 0 ? 'fully constrained'
+              : `${sketchInfo.dof} DOF`}
+          </span>
+
+          {/* Say what is about to be assumed, before the click lands. */}
+          {sketchInfo.inference && (
+            <span className="sketchbar-inference">{sketchInfo.inference}</span>
+          )}
+
+          <button type="button" className="sketchbar-finish" onClick={() => run('sketch.finish')}>
+            Finish
+          </button>
+        </div>
       )}
 
       {notice && <div className={`notice notice-${notice.kind}`}>{notice.text}</div>}

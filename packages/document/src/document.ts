@@ -488,6 +488,21 @@ export class Document {
     return { sketch, id };
   }
 
+  /**
+   * Mark a sketch's feature dirty after the sketch itself was edited.
+   *
+   * A Sketch is a live object the drawing tools mutate directly, so nothing goes through
+   * `updateFeature` and the graph would otherwise never learn it changed — the rebuild
+   * would keep serving whatever the sketch produced before the user drew anything.
+   *
+   * Deliberately does NOT record undo history: a drawing session is a stream of small
+   * edits, and one history entry per click would bury everything else.
+   */
+  markSketchChanged(featureId: FeatureId): void {
+    this.#markDirty(featureNode(featureId));
+    this.#meta = { ...this.#meta, modified: new Date().toISOString() };
+  }
+
   sketchFor(featureId: FeatureId): Sketch | null {
     const feature = this.feature(featureId);
     return feature?.sketchId ? this.sketches.get(feature.sketchId) ?? null : null;

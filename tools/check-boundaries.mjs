@@ -23,6 +23,8 @@ const ALLOWED = {
   viewer: ['types'],
   commands: ['types', 'document'],
   ui: ['types', 'document', 'commands', 'viewer'],
+  // app may touch three directly: it composes viewer objects and needs vector maths at
+  // the seams. Nothing below it may.
   app: ['types', 'document', 'kernel', 'viewer', 'commands', 'ui'],
   // Integration tests sit outside the layering on purpose: they exist to drive the real
   // document against the real kernel, which no production package may do.

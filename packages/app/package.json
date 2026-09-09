@@ -19,7 +19,8 @@
     "@cardstock/kernel": "*",
     "@cardstock/viewer": "*",
     "@cardstock/commands": "*",
-    "@cardstock/ui": "*"
+    "@cardstock/ui": "*",
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "vite": "^8.2.2"

@@ -37,6 +37,15 @@ export interface CommandHost {
   pivotToSelection(): boolean;
   cycleSelectionFilter(direction: 1 | -1): void;
 
+  // --- sketching
+  /** Open a new sketch on an origin plane and enter sketch mode. */
+  beginSketch(plane: 'xy' | 'xz' | 'yz'): Promise<void>;
+  /** Leave sketch mode, rebuilding whatever the sketch feeds. */
+  finishSketch(): Promise<void>;
+  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle'): void;
+  /** Extrude the sketch that was just finished. */
+  extrudeSketch(): Promise<FeatureId | null>;
+
   // --- output
   exportStl(): Promise<void>;
 
