@@ -18,6 +18,23 @@ const needsSelection = (kind: 'face' | 'edge' | 'body', what: string) =>
 const needsModel = (state: CommandState) =>
   state.hasModel ? true : 'Nothing in the model yet';
 
+/**
+ * Two bodies, and not mid-sketch.
+ *
+ * The old message said "Needs two separate bodies" whatever the reason, which is
+ * unhelpful precisely when the user believes they HAVE selected two — the count is of
+ * bodies in the MODEL, not of what is selected. It now names which problem it is.
+ */
+const combineEnabled = (state: CommandState): true | string => {
+  if (state.sketching) return 'Finish the sketch first';
+  if (state.bodyCount < 2) {
+    return state.bodyCount === 1
+      ? 'Only one body — make a second to combine with'
+      : 'Nothing to combine yet';
+  }
+  return true;
+};
+
 export function createBuiltinCommands(host: CommandHost): Command[] {
   return [
     // ---------------------------------------------------------------- sketching
@@ -128,6 +145,140 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       keys: ['m'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('dimension'),
+    },
+    {
+      id: 'sketch.constrain',
+      title: 'Constrain',
+      hint: 'Pin the sketch down: parallel, perpendicular, equal, tangent…',
+      icon: '⌗',
+      contexts: ['sketch'],
+      sector: { sketch: 3 },
+      children: ['constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.symmetric', 'constrain.fix'],
+      enabled: (s) => (s.sketching
+        ? (s.sketchSelectionCount > 0 ? true : 'Select sketch geometry first')
+        : 'Open a sketch first'),
+      run: () => {},
+    },
+    {
+      id: 'constrain.coincident',
+      title: 'Coincident',
+      hint: 'Join two points',
+      icon: '⌖',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('coincident') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('coincident'); },
+    },
+    {
+      id: 'constrain.horizontal',
+      title: 'Horizontal',
+      hint: 'Level a line',
+      icon: '―',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('horizontal') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('horizontal'); },
+    },
+    {
+      id: 'constrain.vertical',
+      title: 'Vertical',
+      hint: 'Stand a line upright',
+      icon: '│',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('vertical') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('vertical'); },
+    },
+    {
+      id: 'constrain.parallel',
+      title: 'Parallel',
+      hint: 'Keep two lines parallel',
+      icon: '∥',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('parallel') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('parallel'); },
+    },
+    {
+      id: 'constrain.perpendicular',
+      title: 'Perpendicular',
+      hint: 'Hold two lines at a right angle',
+      icon: '⊥',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('perpendicular') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('perpendicular'); },
+    },
+    {
+      id: 'constrain.tangent',
+      title: 'Tangent',
+      hint: 'Meet a circle smoothly',
+      icon: '◟',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('tangent') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('tangent'); },
+    },
+    {
+      id: 'constrain.equal',
+      title: 'Equal',
+      hint: 'Same length, or same radius',
+      icon: '=',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('equal') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('equal'); },
+    },
+    {
+      id: 'constrain.concentric',
+      title: 'Concentric',
+      hint: 'Share a centre',
+      icon: '◎',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('concentric') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('concentric'); },
+    },
+    {
+      id: 'constrain.pointOnLine',
+      title: 'Point on line',
+      hint: 'Hold a point on a line',
+      icon: '⋅',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('pointOnLine') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('pointOnLine'); },
+    },
+    {
+      id: 'constrain.symmetric',
+      title: 'Symmetric',
+      hint: 'Mirror two points about a line',
+      icon: '⇔',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('symmetric') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('symmetric'); },
+    },
+    {
+      id: 'constrain.fix',
+      title: 'Fix in place',
+      hint: 'Pin a point where it is',
+      icon: '⚓',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('fix') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('fix'); },
     },
     {
       id: 'sketch.finish',
@@ -382,7 +533,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       sector: { body: 2 },
       toolbar: { order: 40 },
       children: ['boolean.cut', 'boolean.union', 'boolean.intersect'],
-      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
+      enabled: combineEnabled,
       run: () => {},
     },
     {
@@ -391,7 +542,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Subtract the last body from the one before it',
       icon: '⊖',
       contexts: ['body', 'always'],
-      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
+      enabled: combineEnabled,
       run: async () => { await host.addBoolean('cut'); },
     },
     {
@@ -400,7 +551,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Fuse the last two bodies',
       icon: '⊕',
       contexts: ['body', 'always'],
-      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
+      enabled: combineEnabled,
       run: async () => { await host.addBoolean('union'); },
     },
     {
@@ -409,7 +560,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Keep only where the last two bodies overlap',
       icon: '⊗',
       contexts: ['body'],
-      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
+      enabled: combineEnabled,
       run: async () => { await host.addBoolean('intersect'); },
     },
 

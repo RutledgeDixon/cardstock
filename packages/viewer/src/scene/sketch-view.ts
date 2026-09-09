@@ -1,7 +1,10 @@
 import {
   BufferGeometry, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial,
-  LineSegments, Points, PointsMaterial, Vector3,
+  Points, PointsMaterial, Vector3,
 } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { PlanePlacement, SketchGeometry, Vec2 } from '@cardstock/types';
 
 /**
@@ -10,9 +13,19 @@ import type { PlanePlacement, SketchGeometry, Vec2 } from '@cardstock/types';
  * Rebuilt wholesale whenever the sketch changes rather than diffed: a sketch is tens of
  * entities, the geometry is trivial to regenerate, and a diffing layer would be a source
  * of stale-state bugs for no measurable gain.
+ *
+ * Lines are three's FAT lines, not LineBasicMaterial. `linewidth` on LineBasicMaterial is
+ * ignored by every WebGL implementation that matters — it renders one pixel wide whatever
+ * you ask for — and the thing you are actively drawing needs to read more strongly than
+ * the model behind it.
  */
 
 const ARC_SEGMENTS = 64;
+const LINE_WIDTH = 3.4;
+/** Selected geometry is both recoloured and thickened: colour alone is easy to miss. */
+const SELECTED_LINE_WIDTH = 5.5;
+const POINT_SIZE = 8;
+const SELECTED_POINT_SIZE = 12;
 
 export interface SketchViewColours {
   geometry: number;
@@ -20,6 +33,7 @@ export interface SketchViewColours {
   point: number;
   preview: number;
   fullyConstrained: number;
+  selected: number;
 }
 
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
@@ -28,42 +42,85 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   point: 0xffa03a,
   preview: 0x7fb2ff,
   fullyConstrained: 0x6fd39a,
+  // The same orange the 3D selection uses, so "selected" means one thing across the app.
+  selected: 0xff9e38,
 };
 
 export class SketchView {
   readonly group = new Group();
 
-  #solid = new LineSegments(new BufferGeometry(), new LineBasicMaterial());
-  #construction = new LineSegments(new BufferGeometry(), new LineBasicMaterial());
+  #solid = fatLine();
+  #selectedLines = fatLine();
+  #construction = fatLine();
+  #preview = fatLine();
   #points = new Points(new BufferGeometry(), new PointsMaterial());
-  #preview = new LineSegments(new BufferGeometry(), new LineBasicMaterial());
+  #selectedPoints = new Points(new BufferGeometry(), new PointsMaterial());
   #previewCircle = new Line(new BufferGeometry(), new LineBasicMaterial());
+
+  /** Ids the user has selected. Drawn recoloured and thicker. */
+  #selected: ReadonlySet<string> = new Set();
+  /** Kept so a selection change can redraw without the caller re-supplying geometry. */
+  #geometry: readonly SketchGeometry[] = [];
 
   constructor(
     public placement: PlanePlacement,
     private readonly colours: SketchViewColours = DEFAULT_SKETCH_COLOURS,
   ) {
-    (this.#solid.material as LineBasicMaterial).color = new Color(colours.geometry);
-    const construction = this.#construction.material as LineBasicMaterial;
-    construction.color = new Color(colours.construction);
-    construction.transparent = true;
-    construction.opacity = 0.75;
+    this.#solid.material.color = new Color(colours.geometry);
+    this.#solid.material.linewidth = LINE_WIDTH;
 
-    const points = this.#points.material as PointsMaterial;
+    this.#selectedLines.material.color = new Color(colours.selected);
+    this.#selectedLines.material.linewidth = SELECTED_LINE_WIDTH;
+
+    this.#construction.material.color = new Color(colours.construction);
+    this.#construction.material.linewidth = LINE_WIDTH * 0.7;
+    this.#construction.material.transparent = true;
+    this.#construction.material.opacity = 0.75;
+
+    this.#preview.material.color = new Color(colours.preview);
+    this.#preview.material.linewidth = LINE_WIDTH;
+
+    const points = this.#points.material;
     points.color = new Color(colours.point);
-    points.size = 7;
+    points.size = POINT_SIZE;
     points.sizeAttenuation = false;
 
-    for (const line of [this.#preview, this.#previewCircle]) {
-      (line.material as LineBasicMaterial).color = new Color(colours.preview);
-    }
+    const selectedPoints = this.#selectedPoints.material;
+    selectedPoints.color = new Color(colours.selected);
+    selectedPoints.size = SELECTED_POINT_SIZE;
+    selectedPoints.sizeAttenuation = false;
+
+    (this.#previewCircle.material as LineBasicMaterial).color = new Color(colours.preview);
 
     // Draw over the solid: a sketch you cannot see through the body you are sketching on
-    // is not much use.
-    for (const object of [this.#solid, this.#construction, this.#points, this.#preview, this.#previewCircle]) {
+    // is not much use. Selected geometry sits above the rest so a thick highlight is not
+    // hidden by the ordinary line underneath it.
+    for (const object of this.#all()) {
       object.renderOrder = 10;
-      (object.material as LineBasicMaterial).depthTest = false;
+      (object.material as { depthTest: boolean }).depthTest = false;
       this.group.add(object);
+    }
+    this.#selectedLines.renderOrder = 11;
+    this.#selectedPoints.renderOrder = 12;
+    this.#points.renderOrder = 11;
+  }
+
+  #all(): (LineSegments2 | Points | Line)[] {
+    return [
+      this.#solid, this.#construction, this.#selectedLines, this.#preview,
+      this.#points, this.#selectedPoints, this.#previewCircle,
+    ];
+  }
+
+  /**
+   * Pixel width only means something once the material knows the canvas size.
+   *
+   * Without this fat lines render at a nonsense width that changes with the window, so
+   * the viewer calls it on every resize.
+   */
+  setResolution(width: number, height: number): void {
+    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview]) {
+      line.material.resolution.set(width, height);
     }
   }
 
@@ -81,15 +138,24 @@ export class SketchView {
 
   /** Colour the geometry by how pinned down the sketch is — the state you always want. */
   setFullyConstrained(fully: boolean): void {
-    (this.#solid.material as LineBasicMaterial).color = new Color(
+    this.#solid.material.color = new Color(
       fully ? this.colours.fullyConstrained : this.colours.geometry,
     );
   }
 
+  /** What the user has selected. Redraws from the geometry already held. */
+  setSelection(ids: Iterable<string>): void {
+    this.#selected = new Set(ids);
+    this.update(this.#geometry);
+  }
+
   update(geometry: readonly SketchGeometry[]): void {
+    this.#geometry = geometry;
     const solid: number[] = [];
     const construction: number[] = [];
+    const selectedLines: number[] = [];
     const points: number[] = [];
+    const selectedPoints: number[] = [];
 
     const positionOf = (id: string): Vec2 | null => {
       const entity = geometry.find((e) => e.id === id);
@@ -103,13 +169,17 @@ export class SketchView {
     };
 
     for (const entity of geometry) {
+      const isSelected = this.#selected.has(entity.id);
+
       if (entity.type === 'point') {
         const world = this.toWorld({ x: entity.x, y: entity.y });
-        points.push(world.x, world.y, world.z);
+        (isSelected ? selectedPoints : points).push(world.x, world.y, world.z);
         continue;
       }
 
-      const into = entity.construction ? construction : solid;
+      const into = isSelected ? selectedLines
+        : entity.construction ? construction
+        : solid;
 
       if (entity.type === 'line') {
         const a = positionOf(entity.p1);
@@ -118,7 +188,7 @@ export class SketchView {
         continue;
       }
 
-      const centre = positionOf(entity.type === 'circle' ? entity.centre : entity.centre);
+      const centre = positionOf(entity.centre);
       if (!centre) continue;
       const from = entity.type === 'circle' ? 0 : entity.startAngle;
       let to = entity.type === 'circle' ? Math.PI * 2 : entity.endAngle;
@@ -136,9 +206,11 @@ export class SketchView {
       }
     }
 
-    setPositions(this.#solid.geometry, solid);
-    setPositions(this.#construction.geometry, construction);
+    setSegments(this.#solid, solid);
+    setSegments(this.#construction, construction);
+    setSegments(this.#selectedLines, selectedLines);
     setPositions(this.#points.geometry, points);
+    setPositions(this.#selectedPoints.geometry, selectedPoints);
   }
 
   /** Rubber-band feedback while drawing. */
@@ -152,7 +224,7 @@ export class SketchView {
       const to = this.toWorld(segment.to);
       flat.push(from.x, from.y, from.z, to.x, to.y, to.z);
     }
-    setPositions(this.#preview.geometry, flat);
+    setSegments(this.#preview, flat);
 
     const ring: number[] = [];
     if (circle && circle.radius > 1e-9) {
@@ -171,12 +243,36 @@ export class SketchView {
   clearPreview(): void { this.setPreview([]); }
 
   dispose(): void {
-    for (const object of [this.#solid, this.#construction, this.#points, this.#preview, this.#previewCircle]) {
+    for (const object of this.#all()) {
       object.geometry.dispose();
-      (object.material as LineBasicMaterial).dispose();
+      (object.material as { dispose(): void }).dispose();
     }
     this.group.clear();
   }
+}
+
+function fatLine(): LineSegments2 {
+  const line = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial());
+  // Fat lines are screen-space quads; without this they are invisible until the viewer
+  // reports its size.
+  line.material.resolution.set(1, 1);
+  return line;
+}
+
+/**
+ * Feed a flat xyz list to a fat line.
+ *
+ * An EMPTY list has to short-circuit: LineSegmentsGeometry.setPositions on no points
+ * produces a degenerate instanced geometry that three then tries to draw.
+ */
+function setSegments(line: LineSegments2, values: number[]): void {
+  if (values.length === 0) {
+    line.visible = false;
+    return;
+  }
+  line.visible = true;
+  line.geometry.setPositions(values);
+  line.computeLineDistances();
 }
 
 function setPositions(geometry: BufferGeometry, values: number[]): void {

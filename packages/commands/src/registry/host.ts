@@ -54,6 +54,15 @@ export interface CommandHost {
   editSketch(): Promise<boolean>;
   /** Delete whatever is selected inside the open sketch. */
   deleteSketchSelection(): boolean;
+  /**
+   * Apply a geometric constraint to the current sketch selection.
+   *
+   * @returns null when applied, or the reason it could not — which the caller shows,
+   *          because "Perpendicular is disabled" teaches nothing on its own.
+   */
+  applySketchConstraint(type: string): string | null;
+  /** Why this constraint cannot be applied right now, or null when it can. */
+  sketchConstraintBlocker(type: string): string | null;
   /** Leave sketch mode, rebuilding whatever the sketch feeds. */
   finishSketch(): Promise<void>;
   setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension'): void;

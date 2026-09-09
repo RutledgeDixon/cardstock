@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
 import { asFeatureId, type FeatureId } from '@cardstock/types';
 import {
-  Document, evaluateExpression, placementForFaceIndex, resolvePlacement, resolveTopoRef,
+  Document, applyConstraint, constraintFromSelection, evaluateExpression,
+  placementForFaceIndex, resolvePlacement, resolveTopoRef,
+  type ApplicableConstraint,
 } from '@cardstock/document';
 import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
 import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
@@ -340,6 +342,32 @@ export function App() {
         const removed = sessionRef.current?.deleteSelected() ?? false;
         if (removed) { syncSketch(); void doRebuild(); }
         return removed;
+      },
+
+      applySketchConstraint: (type) => {
+        const session = sessionRef.current;
+        if (!session) return 'Open a sketch first';
+        const reason = applyConstraint(
+          session.sketch, type as ApplicableConstraint, session.selected,
+        );
+        if (reason) { notify(reason, 'error'); return reason; }
+        // The tools mutate the Sketch directly, so the graph has to be told, and the
+        // solver only re-runs on a rebuild.
+        session.selected.clear();
+        session.refresh();
+        doc.markSketchChanged(session.featureId);
+        syncSketch();
+        void doRebuild();
+        return null;
+      },
+
+      sketchConstraintBlocker: (type) => {
+        const session = sessionRef.current;
+        if (!session) return 'Open a sketch first';
+        const result = constraintFromSelection(
+          session.sketch, type as ApplicableConstraint, session.selected,
+        );
+        return result.ok ? null : result.reason;
       },
 
       setSketchTool: (tool) => { sessionRef.current?.setTool(tool); syncSketch(); },
@@ -768,6 +796,37 @@ export function App() {
             <span className="sketchbar-inference">{sketchInfo.inference}</span>
           )}
 
+          {/* What the active tool wants next. The dimension tool in particular gives no
+              clue on its own — the button turns on and nothing appears to happen. */}
+          {TOOL_HINTS[sketchInfo.tool] && (
+            <span className="sketchbar-hint">{TOOL_HINTS[sketchInfo.tool]}</span>
+          )}
+
+          {/* Constraints, always visible rather than hidden behind a right-click: they
+              are half of what a sketcher is for, and a menu you have to discover is a
+              menu most people never find. Each is disabled with the selection it wants
+              as its tooltip. */}
+          <span className="sketchbar-constraints">
+            {CONSTRAINT_BUTTONS.map(({ id, icon, title }) => {
+              const command = registry?.get(id);
+              const state = command?.enabled(hostState());
+              const blocked = state !== true;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={blocked}
+                  title={blocked ? `${title} — ${String(state)}` : title}
+                  aria-label={title}
+                  data-command={id}
+                  onClick={() => run(id)}
+                >
+                  {icon}
+                </button>
+              );
+            })}
+          </span>
+
           {sketchInfo.selected > 0 && (
             <>
               <span className="sel">{sketchInfo.selected} selected</span>
@@ -864,6 +923,36 @@ export function App() {
 
   function rebuildNow() { void runRebuild(); }
 }
+
+/**
+ * The constraint buttons, in the order they sit in the sketch bar.
+ *
+ * Ordered by how often they are reached for rather than alphabetically, and kept next to
+ * the bar rather than derived from the registry so the icons stay stable as commands are
+ * added.
+ */
+/** What each tool is waiting for. Shown in the sketch bar while that tool is active. */
+const TOOL_HINTS: Record<string, string> = {
+  line: 'Click each point; click the first again to close',
+  rectangle: 'Click two opposite corners',
+  circle: 'Click the centre, then the rim',
+  dimension: 'Click two points for a length, or a circle for its radius',
+  select: 'Click geometry to select; shift-click to add',
+};
+
+const CONSTRAINT_BUTTONS = [
+  { id: 'constrain.horizontal', icon: '\u2015', title: 'Horizontal' },
+  { id: 'constrain.vertical', icon: '\u2502', title: 'Vertical' },
+  { id: 'constrain.coincident', icon: '\u2316', title: 'Coincident' },
+  { id: 'constrain.parallel', icon: '\u2225', title: 'Parallel' },
+  { id: 'constrain.perpendicular', icon: '\u22a5', title: 'Perpendicular' },
+  { id: 'constrain.equal', icon: '=', title: 'Equal' },
+  { id: 'constrain.tangent', icon: '\u25df', title: 'Tangent' },
+  { id: 'constrain.concentric', icon: '\u25ce', title: 'Concentric' },
+  { id: 'constrain.pointOnLine', icon: '\u22c5', title: 'Point on line' },
+  { id: 'constrain.symmetric', icon: '\u21d4', title: 'Symmetric' },
+  { id: 'constrain.fix', icon: '\u2693', title: 'Fix in place' },
+] as const;
 
 /** Roll a rebuild up into the numbers the status bar shows. */
 function summarise(result: RebuildReport) {

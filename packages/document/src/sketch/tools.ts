@@ -5,6 +5,14 @@ import {
 } from './inference.js';
 
 /**
+ * Snap radius in SCREEN pixels.
+ *
+ * What the user aims with is a mouse, so the target has to be a fixed size on screen —
+ * roughly a large cursor tip. Converted to sketch units per zoom by `setScale`.
+ */
+const SNAP_PIXELS = 12;
+
+/**
  * The drawing tools, as a state machine over a Sketch.
  *
  * Pure and headless: "what happens when you click at (12, 4) with the line tool active"
@@ -54,7 +62,7 @@ export class SketchTools {
 
   constructor(
     private readonly sketch: Sketch,
-    private readonly options: InferenceOptions = DEFAULT_INFERENCE,
+    private options: InferenceOptions = DEFAULT_INFERENCE,
   ) {}
 
   get kind(): ToolKind { return this.#kind; }
@@ -117,6 +125,22 @@ export class SketchTools {
       snapPoint,
       inference: snapPoint ? 'Coincident' : axis.axis === 'horizontal' ? 'Horizontal'
         : axis.axis === 'vertical' ? 'Vertical' : null,
+    };
+  }
+
+  /**
+   * Retune the snap radius for the current zoom.
+   *
+   * Snap distances are in SKETCH units, but what the user is aiming with is a mouse, in
+   * pixels. A fixed 3mm radius is a comfortable target at one zoom, an impossible
+   * sub-pixel one when zoomed out — which is why clicking an existing vertex to continue
+   * a chain appeared to do nothing and left the profile open.
+   */
+  setScale(sketchUnitsPerPixel: number): void {
+    if (!Number.isFinite(sketchUnitsPerPixel) || sketchUnitsPerPixel <= 0) return;
+    this.options = {
+      ...this.options,
+      snapDistance: SNAP_PIXELS * sketchUnitsPerPixel,
     };
   }
 

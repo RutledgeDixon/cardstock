@@ -42,6 +42,8 @@ export class SolidMaterial extends ShaderMaterial {
         uFaceState: { value: tex },
         uFaceCount: { value: width },
         uHoverFace: { value: -1 },
+        // Whole-body hover: 'body' is a container kind with no face index of its own.
+        uHoverAll: { value: 0 },
         uBase: { value: new Vector3(...(opts.base ?? [0.60, 0.64, 0.71])) },
         uHover: { value: new Vector3(...(opts.hover ?? [0.38, 0.68, 1.0])) },
         uSelected: { value: new Vector3(...(opts.selected ?? [1.0, 0.62, 0.22])) },
@@ -68,6 +70,7 @@ export class SolidMaterial extends ShaderMaterial {
         uniform sampler2D uFaceState;
         uniform float uFaceCount;
         uniform float uHoverFace;
+        uniform float uHoverAll;
         uniform vec3 uBase, uHover, uSelected, uKeyDir, uFillDir;
         varying float vFaceId;
         varying vec3 vNormal;
@@ -81,7 +84,7 @@ export class SolidMaterial extends ShaderMaterial {
           vec3 tint = uBase;
           float texel = (vFaceId + 0.5) / max(uFaceCount, 1.0);
           bool isSelected = texture2D(uFaceState, vec2(texel, 0.5)).r * 255.0 > 0.5;
-          bool isHovered = abs(vFaceId - uHoverFace) < 0.5;
+          bool isHovered = uHoverAll > 0.5 || abs(vFaceId - uHoverFace) < 0.5;
 
           // Selection wins over hover, because a selected face pointed at was reading as
           // merely hovered — it only turned orange once the pointer left, which made
@@ -102,6 +105,11 @@ export class SolidMaterial extends ShaderMaterial {
 
   setHoveredFace(faceId: number): void {
     this.uniforms.uHoverFace!.value = faceId;
+  }
+
+  /** Light every face, for when the pointer is over the body as a whole. */
+  setHoveredWholeBody(hovered: boolean): void {
+    this.uniforms.uHoverAll!.value = hovered ? 1 : 0;
   }
 
   setSelectedFaces(indices: readonly number[]): void {

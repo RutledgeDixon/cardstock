@@ -67,6 +67,11 @@ export {
 } from './sketch/tools.js';
 export { placementForFace, placementForFaceIndex } from './sketch/face-plane.js';
 export {
+  APPLICABLE_CONSTRAINTS, applyConstraint, constraintFromSelection,
+  constraintLabel, constraintNeeds,
+  type ApplicableConstraint, type ConstrainResult,
+} from './sketch/constrain.js';
+export {
   PHASE7_FEATURES, circularPatternFeature, holeFeature, linearPatternFeature,
   mirrorFeature, revolveFeature, shellFeature,
 } from './features/solid-features.js';

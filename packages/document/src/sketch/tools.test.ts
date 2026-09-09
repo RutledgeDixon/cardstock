@@ -196,3 +196,56 @@ describe('the select tool', () => {
     expect(sketch.geometry).toHaveLength(0);
   });
 });
+
+describe('snapping is measured in pixels, not millimetres', () => {
+  /**
+   * The snap radius used to be a fixed 3 sketch units regardless of zoom. Zoomed out far
+   * enough that is a two-pixel target, so clicking an existing vertex to continue a chain
+   * appeared to do nothing and the profile stayed open — which is exactly what a user
+   * reported after deleting an edge and trying to redraw it.
+   */
+  const vertexAt = (sketch: Sketch, x: number, y: number) => sketch.addPoint(x, y);
+
+  it('reuses an existing vertex when the click is a few pixels away', () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    const corner = vertexAt(sketch, 40, 25);
+    const tools = new SketchTools(sketch);
+
+    // Zoomed out hard: one pixel is 1.5mm, so the old 3mm radius was two pixels.
+    tools.setScale(1.5);
+    tools.setTool('line');
+    const before = sketch.geometry.filter((e) => e.type === 'point').length;
+    tools.click({ x: 40 + 1.5 * 5, y: 25 }); // five pixels off
+    const after = sketch.geometry.filter((e) => e.type === 'point').length;
+
+    expect(after, 'a new point means the click missed the vertex').toBe(before);
+    expect(sketch.entity(corner)).toBeDefined();
+  });
+
+  it('does not snap to a vertex that is far away on screen', () => {
+    // The radius has to stay a radius: zoomed IN, a click 100 pixels away is a new point.
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    vertexAt(sketch, 40, 25);
+    const tools = new SketchTools(sketch);
+    tools.setScale(0.05); // zoomed in: one pixel is a twentieth of a millimetre
+    tools.setTool('line');
+
+    const before = sketch.geometry.filter((e) => e.type === 'point').length;
+    tools.click({ x: 40 + 0.05 * 100, y: 25 });
+    expect(sketch.geometry.filter((e) => e.type === 'point').length).toBe(before + 1);
+  });
+
+  it('ignores a nonsense scale rather than disabling snapping', () => {
+    // A zero or NaN viewport height early in boot must not silently turn snapping off.
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    vertexAt(sketch, 10, 10);
+    const tools = new SketchTools(sketch);
+    tools.setScale(0.1);
+    tools.setScale(0);
+    tools.setScale(Number.NaN);
+    tools.setTool('line');
+    const before = sketch.geometry.filter((e) => e.type === 'point').length;
+    tools.click({ x: 10 + 0.1 * 3, y: 10 });
+    expect(sketch.geometry.filter((e) => e.type === 'point').length).toBe(before);
+  });
+});

@@ -397,8 +397,54 @@ window.__smoke = async function smoke() {
     });
     check('dimensionAppears', session.dimensions().some((d) => d.id === id));
   }
+  // --- constraints are reachable, and say what they want -------------------------
+  // There was no constraint UI at all: the sketcher supported them and nothing offered
+  // them, so half of what a sketcher is for was unreachable.
+  {
+    const buttons = [...document.querySelectorAll('.sketchbar-constraints button')];
+    check('constraintButtonsShown', buttons.length >= 8);
+    check('everyConstraintSaysWhatItWants',
+      buttons.every((b) => (b.title ?? '').length > 0));
+
+    if (session) {
+      const line = session.sketch.geometry.find((e) => e.type === 'line');
+      if (line) {
+        session.toggleSelection(line.id, false);
+        // Selection has to be VISIBLE: it used to register and look like nothing.
+        check('sketchSelectionIsDrawn', session.selected.has(line.id));
+        const horizontal = registry.get('constrain.horizontal');
+        check('constraintEnablesOnSelection',
+          horizontal?.enabled(window.__host.state()) === true);
+
+        const before = session.sketch.constraints.length;
+        window.__host.applySketchConstraint('horizontal');
+        await sleep(700);
+        check('constraintApplies', session.sketch.constraints.length > before);
+      }
+    }
+  }
+
+  // --- the active tool says what it is waiting for -------------------------------
+  check('toolHintShown', !!document.querySelector('.sketchbar-hint')?.textContent);
+
   await window.__host.finishSketch();
   check('sketchCloses', !document.querySelector('.sketchbar'));
+
+  // --- a selected BODY lights up --------------------------------------------------
+  // Body is a container kind with no face index, so it highlighted nothing at all and
+  // there was no way to tell a click had registered.
+  {
+    const bodyId = [...viewer.bodies.keys()][0];
+    const view = viewer.bodies.get(bodyId);
+    viewer.selection.setFilter('body');
+    viewer.selection.click({ bodyId, kind: 'body', index: 0 });
+    check('selectedBodyLightsEveryFace',
+      !!view && [...view.solidMaterial.faceState].every((x) => x === 1));
+    viewer.selection.clear();
+    viewer.selection.setFilter('face');
+    check('clearingABodyUnlightsIt',
+      !!view && [...view.solidMaterial.faceState].every((x) => x === 0));
+  }
 
   // --- palette ------------------------------------------------------------------
   check('paletteFindsEveryCommand',

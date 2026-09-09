@@ -42,6 +42,8 @@ export interface HostDeps {
   beginSketchOnFace: () => Promise<boolean>;
   editSketch: () => Promise<boolean>;
   deleteSketchSelection: () => boolean;
+  applySketchConstraint: (type: string) => string | null;
+  sketchConstraintBlocker: (type: string) => string | null;
   finishSketch: () => Promise<void>;
   setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension') => void;
   sketching: () => boolean;
@@ -407,6 +409,8 @@ export function createHost(deps: HostDeps): CommandHost {
     },
 
     exportStl: () => deps.exportStl(),
+    applySketchConstraint: (type) => deps.applySketchConstraint(type),
+    sketchConstraintBlocker: (type) => deps.sketchConstraintBlocker(type),
     openPalette: () => deps.openPalette(),
     openAbout: () => deps.openAbout(),
     openPanel: (id) => deps.openPanel(id),

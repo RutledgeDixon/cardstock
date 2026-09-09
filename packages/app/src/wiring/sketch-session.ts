@@ -26,6 +26,9 @@ export class SketchSession {
   ) {
     this.tools = new SketchTools(sketch);
     this.view = new SketchView(placement);
+    // Fat lines are screen-space quads, so their width means nothing until the material
+    // knows the canvas size.
+    this.view.setResolution(viewer.viewport.width, viewer.viewport.height);
     this.viewer.scene.add(this.view.group);
     this.refresh();
   }
@@ -251,14 +254,19 @@ export class SketchSession {
   }
 
   toggleSelection(id: string | null, additive: boolean): void {
-    if (id === null) { if (!additive) this.selected.clear(); return; }
-    if (additive) {
+    if (id === null) {
+      if (!additive) this.selected.clear();
+    } else if (additive) {
       if (this.selected.has(id)) this.selected.delete(id);
       else this.selected.add(id);
     } else {
       this.selected.clear();
       this.selected.add(id);
     }
+    // Push it to the view here rather than leaving each caller to remember: a selection
+    // that changes without redrawing is a selection the user cannot see, which is what
+    // sketch selection did — it registered, and looked like nothing had happened.
+    this.view.setSelection(this.selected);
   }
 
   /** @returns true when anything was removed. */
@@ -273,13 +281,32 @@ export class SketchSession {
 
   /** Redraw from the current sketch state. */
   refresh(): void {
+    // Resolution is re-applied here rather than only at construction: the window can be
+    // resized mid-sketch, and a stale resolution makes every line the wrong width.
+    this.view.setResolution(this.viewer.viewport.width, this.viewer.viewport.height);
     this.view.update(this.sketch.geometry);
+    this.view.setSelection(this.selected);
     this.view.setFullyConstrained(this.sketch.status === 'fully-constrained');
   }
 
   /** Where the cursor is, in sketch coordinates. */
   cursor(): { x: number; y: number } | null {
+    this.#retune();
     return this.viewer.pointerOnPlane(this.placement);
+  }
+
+  /**
+   * Tell the tools how big a pixel is, in sketch units.
+   *
+   * Done on every cursor read rather than once, because the user zooms while drawing and
+   * a stale scale silently changes how forgiving snapping is.
+   */
+  #retune(): void {
+    const height = Math.max(1, this.viewer.viewport.height);
+    // An orthographic camera's zoom is its half-height in world units; two of those span
+    // the viewport.
+    const unitsPerPixel = (this.viewer.controller.target.zoom * 2) / height;
+    this.tools.setScale(unitsPerPixel);
   }
 
   /** Update the rubber-band feedback. Returns what is about to be inferred, if anything. */

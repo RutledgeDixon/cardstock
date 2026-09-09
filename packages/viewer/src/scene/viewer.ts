@@ -279,7 +279,18 @@ export class Viewer {
       body.edgeMaterial.setHovered(isHovered('edge') ? hover!.index : -1);
       body.vertexMaterial.setHovered(isHovered('vertex') ? hover!.index : -1);
 
-      body.solidMaterial.setSelectedFaces(this.selection.indicesByBody('face').get(body.bodyId) ?? []);
+      // A selected BODY lights all of its faces. Body is a container kind — its "index"
+      // is always 0 — so without this, picking a whole body highlighted nothing at all
+      // and there was no way to tell whether the click had registered.
+      const bodySelected = this.selection.selected.some(
+        (r) => r.kind === 'body' && r.bodyId === body.bodyId,
+      );
+      const bodyHovered = isHovered('body');
+      body.solidMaterial.setSelectedFaces(bodySelected
+        ? [...Array(body.data.faceCount).keys()]
+        : this.selection.indicesByBody('face').get(body.bodyId) ?? []);
+      // Hovering a body lights every face too, so the hover reads the same way.
+      body.solidMaterial.setHoveredWholeBody(bodyHovered);
       body.edgeMaterial.setSelected(this.selection.indicesByBody('edge').get(body.bodyId) ?? []);
       body.vertexMaterial.setSelected(this.selection.indicesByBody('vertex').get(body.bodyId) ?? []);
     }
