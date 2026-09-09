@@ -1,6 +1,6 @@
 import type { FeatureId, TessellatedBody } from '@cardstock/types';
 import { DISPLAY_QUALITY } from '@cardstock/types';
-import type { Document, RecomputeResult } from '@cardstock/document';
+import { captureTopoRef, type Document, type RecomputeResult, type TopoRef } from '@cardstock/document';
 import type { KernelPort } from '@cardstock/types';
 import type { Viewer } from '@cardstock/viewer';
 
@@ -30,6 +30,27 @@ export function terminalFeature(doc: Document): FeatureId | null {
   }
   const leaves = doc.features.filter((f) => !consumed.has(f.id as string));
   return (leaves.at(-1) ?? doc.features.at(-1))?.id ?? null;
+}
+
+/**
+ * Mint durable references for edges the user picked in the viewport.
+ *
+ * The viewer hands back tessellation indices, which are only valid until the next
+ * rebuild. This turns them into TopoRefs, which are not. See docs/toponaming.md.
+ */
+export async function captureEdgeRefs(
+  doc: Document,
+  kernel: KernelPort,
+  feature: FeatureId,
+  indices: readonly number[],
+  handleFor: (feature: FeatureId) => string | null,
+): Promise<TopoRef[]> {
+  const handle = handleFor(feature);
+  if (!handle) return [];
+  const description = await kernel.describeShape(handle as never);
+  return indices
+    .map((index) => captureTopoRef(feature, 'edge', index, description))
+    .filter((ref): ref is TopoRef => ref !== null);
 }
 
 export async function rebuild(

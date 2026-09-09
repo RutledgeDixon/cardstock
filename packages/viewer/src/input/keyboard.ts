@@ -21,8 +21,15 @@ export const VIEW_KEYS: Record<string, NamedView> = {
 };
 
 const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+/**
+ * Keys this adapter owns.
+ *
+ * Deliberately only NAVIGATION: orbit, pan, zoom and named views. Everything else — fit,
+ * pivot, selection filter, clearing — is a Command, so there is exactly one place a key
+ * is bound and the two systems cannot fight over one. Phase 5.
+ */
 const HANDLED = new Set([...ORBIT_KEYS, 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
-  'Period', 'KeyF', 'Tab', 'Escape', ...Object.keys(VIEW_KEYS)]);
+  ...Object.keys(VIEW_KEYS)]);
 
 export interface KeyboardOptions {
   /** Where to listen. Defaults to the viewer canvas' owner document. */
@@ -87,27 +94,6 @@ export class KeyboardCameraInput {
       this.#applyHeld();
       e.preventDefault();
       return;
-    }
-
-    switch (e.code) {
-      case 'Period':
-        viewer.pivotToPointer();
-        e.preventDefault();
-        return;
-      case 'KeyF':
-        viewer.fitAll();
-        e.preventDefault();
-        return;
-      case 'Tab':
-        viewer.selection.cycleFilter(e.shiftKey ? -1 : 1);
-        e.preventDefault();
-        return;
-      case 'Escape':
-        viewer.selection.clear();
-        e.preventDefault();
-        return;
-      default:
-        break;
     }
 
     if (HANDLED.has(e.code)) {

@@ -29,6 +29,14 @@ export interface CommandState {
   readonly hoverKind: EntityKind | null;
   readonly hasModel: boolean;
   readonly featureCount: number;
+  /**
+   * Independent bodies — features whose output nothing else consumes.
+   *
+   * Distinct from featureCount, and the number booleans actually care about: a box with
+   * a fillet on it is two features but one body, so offering "Cut" there would be a
+   * button that fails the moment it is pressed.
+   */
+  readonly bodyCount: number;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly busy: boolean;

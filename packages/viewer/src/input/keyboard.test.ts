@@ -113,24 +113,18 @@ describe('named views and commands', () => {
     expect(controller.target.elevation).toBeGreaterThan(1.5);
   });
 
-  it('cycles the selection filter with Tab, backwards with shift', () => {
-    down('Tab');
-    expect(selection.filter).toBe('edge');
-    down('Tab', { shiftKey: true });
-    expect(selection.filter).toBe('face');
-  });
-
-  it('clears the selection on Escape', () => {
+  it('leaves non-navigation keys alone for the command system', () => {
+    // Fit, pivot, filter and clear are Commands. Binding them here too would give one
+    // key two owners, and whichever ran first would win by accident.
     selection.click({ bodyId: 'b' as never, kind: 'face', index: 1 });
-    down('Escape');
-    expect(selection.selected).toHaveLength(0);
-  });
-
-  it('routes F to fit and . to pivot', () => {
     down('KeyF');
     down('Period');
-    expect(fitCalls).toBe(1);
-    expect(pivotCalls).toBe(1);
+    down('Tab');
+    down('Escape');
+    expect(fitCalls).toBe(0);
+    expect(pivotCalls).toBe(0);
+    expect(selection.filter).toBe('face');
+    expect(selection.selected).toHaveLength(1);
   });
 });
 

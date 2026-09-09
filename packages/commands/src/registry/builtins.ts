@@ -117,7 +117,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['body', 'always'],
       sector: { body: 2 },
       toolbar: { order: 40 },
-      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
       run: async () => { await host.addBoolean('cut'); },
     },
     {
@@ -128,7 +128,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['body', 'always'],
       sector: { body: 4 },
       toolbar: { order: 41 },
-      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
       run: async () => { await host.addBoolean('union'); },
     },
     {
@@ -139,7 +139,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['body'],
       sector: { body: 6 },
       toolbar: { order: 42 },
-      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      enabled: (s) => (s.bodyCount >= 2 ? true : 'Needs two separate bodies'),
       run: async () => { await host.addBoolean('intersect'); },
     },
 
@@ -229,6 +229,25 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       keys: ['ctrl+e'],
       enabled: (s) => (s.hasModel ? true : 'Nothing to export yet'),
       run: () => host.exportStl(),
+    },
+    {
+      id: 'select.cycleFilter',
+      title: 'Selection filter',
+      hint: 'Cycle face / edge / vertex / body',
+      icon: '⧉',
+      contexts: ['always'],
+      keys: ['tab'],
+      enabled: () => true,
+      run: () => host.cycleSelectionFilter(1),
+    },
+    {
+      id: 'select.clear',
+      title: 'Clear selection',
+      icon: '⨯',
+      contexts: ['always'],
+      keys: ['escape'],
+      enabled: (s) => (s.selectionCount > 0 ? true : 'Nothing selected'),
+      run: () => host.clearSelection(),
     },
     {
       id: 'app.palette',

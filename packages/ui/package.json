@@ -14,12 +14,16 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@cardstock/commands": "*",
+    "@cardstock/document": "*",
+    "@cardstock/types": "*",
+    "@cardstock/viewer": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "zustand": "^5.0.15",
-    "@cardstock/types": "*",
-    "@cardstock/document": "*",
-    "@cardstock/commands": "*",
-    "@cardstock/viewer": "*"
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7"
   }
 }
