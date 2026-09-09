@@ -1,4 +1,4 @@
-import type { FeatureId, TessellatedBody } from '@cardstock/types';
+import type { BodyId, FeatureId, TessellatedBody } from '@cardstock/types';
 import { DISPLAY_QUALITY } from '@cardstock/types';
 import { captureTopoRef, type Document, type RecomputeResult, type TopoRef } from '@cardstock/document';
 import type { KernelPort } from '@cardstock/types';
@@ -14,22 +14,32 @@ export interface RebuildReport {
   readonly result: RecomputeResult;
   readonly rebuildMs: number;
   readonly tessellateMs: number;
-  readonly body: TessellatedBody | null;
+  /** One per independent body currently on screen. */
+  readonly bodies: readonly TessellatedBody[];
   readonly errors: readonly string[];
 }
 
 /**
- * The feature whose output is the visible part: the last one nothing else consumes.
- * With an explicit graph there can be several leaves; the last in tree order is the one
- * the user most recently built toward.
+ * Features whose output nothing else consumes — every independent body in the model.
+ *
+ * With an explicit dependency graph there can be several at once, and that is the normal
+ * way to work: you make a box and a cylinder, THEN cut one with the other. Showing only
+ * the last of them makes the others vanish the moment a second is added.
  */
-export function terminalFeature(doc: Document): FeatureId | null {
+export function leafFeatures(doc: Document): FeatureId[] {
   const consumed = new Set<string>();
   for (const feature of doc.features) {
     for (const input of Object.values(feature.inputs)) consumed.add(input as string);
   }
   const leaves = doc.features.filter((f) => !consumed.has(f.id as string));
-  return (leaves.at(-1) ?? doc.features.at(-1))?.id ?? null;
+  return leaves.length > 0
+    ? leaves.map((f) => f.id)
+    : doc.features.slice(-1).map((f) => f.id);
+}
+
+/** The body a new operation should default to acting on: the most recent leaf. */
+export function terminalFeature(doc: Document): FeatureId | null {
+  return leafFeatures(doc).at(-1) ?? null;
 }
 
 /**
@@ -72,19 +82,31 @@ export async function rebuild(
   }
 
   if (result.cancelled) {
-    return { result, rebuildMs, tessellateMs: 0, body: null, errors };
+    return { result, rebuildMs, tessellateMs: 0, bodies: [], errors };
   }
 
-  const terminal = terminalFeature(doc);
-  const handle = terminal ? result.states.get(terminal)?.handle : null;
-  if (!handle) {
-    return { result, rebuildMs, tessellateMs: 0, body: null, errors };
-  }
-
+  // Tessellate EVERY leaf, each under its own feature id. Reusing one body id would make
+  // each new shape replace the last, which is what made a second primitive appear to do
+  // nothing at all.
   const startedTessellate = performance.now();
-  const body = await kernel.tessellate(handle, 'part' as never, DISPLAY_QUALITY);
+  const bodies: TessellatedBody[] = [];
+  const live = new Set<string>();
+
+  for (const id of leafFeatures(doc)) {
+    const handle = result.states.get(id)?.handle;
+    if (!handle) continue;
+    const body = await kernel.tessellate(handle, id as unknown as BodyId, DISPLAY_QUALITY);
+    bodies.push(body);
+    live.add(id as string);
+    viewer.setBody(body);
+  }
   const tessellateMs = performance.now() - startedTessellate;
 
-  viewer.setBody(body);
-  return { result, rebuildMs, tessellateMs, body, errors };
+  // Drop bodies whose feature is gone or no longer a leaf — otherwise a cut leaves its
+  // two inputs on screen, overlapping the result.
+  for (const bodyId of [...viewer.bodies.keys()]) {
+    if (!live.has(bodyId)) viewer.removeBody(bodyId);
+  }
+
+  return { result, rebuildMs, tessellateMs, bodies, errors };
 }

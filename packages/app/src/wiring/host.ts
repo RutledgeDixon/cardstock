@@ -42,6 +42,13 @@ export function createHost(deps: HostDeps): CommandHost {
     return existing === 0 ? label : `${label} ${existing + 1}`;
   };
 
+  /** Just clear of everything on screen, so a new shape lands beside the model. */
+  const nextFreeX = (): number => {
+    let maxX = -Infinity;
+    for (const body of viewer.bodies.values()) maxX = Math.max(maxX, body.data.bounds.max.x);
+    return Number.isFinite(maxX) ? Math.ceil((maxX + 15) / 5) * 5 : 0;
+  };
+
   /** Bodies nothing else consumes — the things a boolean can combine. */
   const leafFeatures = (): FeatureId[] => {
     const consumed = new Set<string>();
@@ -71,14 +78,23 @@ export function createHost(deps: HostDeps): CommandHost {
     async addPrimitive(type) {
       const id = doc.newFeatureId(type);
       // Sensible starting dimensions: big enough to see, round enough to edit.
-      const values = type === 'box'
+      const size = type === 'box'
         ? { dx: '40', dy: '30', dz: '20' }
         : type === 'cylinder'
           ? { radius: '10', height: '30' }
           : { radius: '15' };
+
+      // Place it BESIDE what already exists rather than on top of it. Two shapes at the
+      // origin overlap into one ambiguous blob, and the usual next step is to combine
+      // them, which needs them positioned relative to each other anyway.
+      const x = nextFreeX();
+      const values = { ...size, x: String(x), y: '0', z: '0' };
+
       doc.addFeature({ id, type, name: nameFor(type), values, inputs: {} });
       deps.setFocused(id);
       await deps.rebuild();
+      // Frame it: a new shape you cannot see reads as nothing having happened.
+      viewer.fitAll();
       deps.openPanel(id);
       return id;
     },

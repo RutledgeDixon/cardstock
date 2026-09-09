@@ -11,7 +11,9 @@ import {
   CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar, Toolbar,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
-import { captureEdgeRefs, rebuild, terminalFeature } from './wiring/model-bridge.js';
+import {
+  captureEdgeRefs, rebuild, terminalFeature, type RebuildReport,
+} from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { downloadStl } from './wiring/download.js';
 
@@ -78,14 +80,7 @@ export function App() {
         if (state.handle) handles.set(id, state.handle);
       }
       core.current!.busy = false;
-      setReport({
-        rebuildMs: result.rebuildMs,
-        meshMs: result.body ? result.tessellateMs : null,
-        triangles: result.body ? result.body.indices.length / 3 : null,
-        faces: result.body?.faceCount ?? null,
-        cached: result.result.reused.length,
-        error: result.errors[0] ?? null,
-      });
+      setReport(summarise(result));
       repaint();
     };
 
@@ -354,15 +349,22 @@ export function App() {
       c.handles.clear();
       for (const [id, s] of result.result.states) if (s.handle) c.handles.set(id, s.handle);
       c.busy = false;
-      setReport({
-        rebuildMs: result.rebuildMs,
-        meshMs: result.body ? result.tessellateMs : null,
-        triangles: result.body ? result.body.indices.length / 3 : null,
-        faces: result.body?.faceCount ?? null,
-        cached: result.result.reused.length,
-        error: result.errors[0] ?? null,
-      });
+      setReport(summarise(result));
       repaint();
     })();
   }
+}
+
+/** Roll a rebuild up into the numbers the status bar shows. */
+function summarise(result: RebuildReport) {
+  const faces = result.bodies.reduce((n, b) => n + b.faceCount, 0);
+  const triangles = result.bodies.reduce((n, b) => n + b.indices.length / 3, 0);
+  return {
+    rebuildMs: result.rebuildMs,
+    meshMs: result.bodies.length > 0 ? result.tessellateMs : null,
+    triangles: result.bodies.length > 0 ? triangles : null,
+    faces: result.bodies.length > 0 ? faces : null,
+    cached: result.result.reused.length,
+    error: result.errors[0] ?? null,
+  };
 }
