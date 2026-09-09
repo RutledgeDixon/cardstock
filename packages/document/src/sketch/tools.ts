@@ -13,7 +13,12 @@ import {
  * preview this returns.
  */
 
-export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle';
+/**
+ * `select` and `dimension` create no geometry — they act on entities the caller has
+ * picked, which needs screen-space hit testing this class deliberately knows nothing
+ * about. They are listed here so the tool set is one enumeration rather than two.
+ */
+export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension';
 
 /** What to draw as feedback before the click lands. */
 export interface ToolPreview {
@@ -92,6 +97,9 @@ export class SketchTools {
       : { position: at, axis: null as 'horizontal' | 'vertical' | null };
     const position = snapPoint ? this.#positionOf(snapPoint)! : axis.position;
 
+    if (this.#kind === 'select' || this.#kind === 'dimension') {
+      return { kind: this.#kind, segments: [], snapPoint, inference: null };
+    }
     if (this.#kind === 'circle' && anchor) {
       return {
         kind: this.#kind,
@@ -115,7 +123,9 @@ export class SketchTools {
   /** Commit a click. */
   click(at: Vec2): ToolResult {
     switch (this.#kind) {
-      case 'select': return { created: [], completed: false };
+      case 'select':
+      case 'dimension':
+        return { created: [], completed: false };
       case 'line': return this.#clickLine(at);
       case 'rectangle': return this.#clickRectangle(at);
       case 'circle': return this.#clickCircle(at);

@@ -116,6 +116,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: () => host.setSketchTool('select'),
     },
     {
+      id: 'sketch.dimension',
+      title: 'Dimension',
+      hint: 'Pin a length or radius; click two points, or a circle',
+      icon: '↔',
+      contexts: ['sketch'],
+      sector: { sketch: 1 },
+      keys: ['d'],
+      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
+      run: () => host.setSketchTool('dimension'),
+    },
+    {
       id: 'sketch.finish',
       title: 'Finish sketch',
       hint: 'Close the sketch and return to the model',

@@ -241,3 +241,22 @@ kbd {
   border: 1px solid #5a3a32; color: var(--danger); font-size: 11px;
 }
 .sketchbar-delete:hover { background: #4a332f; }
+
+/* ---------------------------------------------------------------- dimensions */
+/* A layer over the canvas that ignores the pointer, so only the labels catch it. */
+.dimension-layer { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.dimension {
+  position: absolute; top: 0; left: 0; pointer-events: auto;
+  will-change: transform;
+}
+.dimension button {
+  padding: 2px 7px; border-radius: 4px; font-size: 11px;
+  background: #1c1f26e8; border: 1px solid #3d4c66; color: var(--accent);
+  white-space: nowrap;
+}
+.dimension button:hover { border-color: var(--accent); background: #232a36; }
+.dimension.is-invalid button { color: var(--danger); border-color: #5a3a32; }
+.dimension input {
+  width: 84px; padding: 2px 6px; border-radius: 4px; font: inherit; font-size: 11px;
+  background: #12151a; color: var(--ink); border: 1px solid var(--accent); outline: none;
+}

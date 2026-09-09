@@ -45,7 +45,7 @@ export interface CommandState {
   /** A sketch is open for editing; most modelling commands stand aside while it is. */
   readonly sketching: boolean;
   /** Active drawing tool, when sketching. */
-  readonly sketchTool: 'select' | 'line' | 'rectangle' | 'circle' | null;
+  readonly sketchTool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | null;
 }
 
 /** `true` to enable, or a sentence saying WHY not — shown in the tooltip. */

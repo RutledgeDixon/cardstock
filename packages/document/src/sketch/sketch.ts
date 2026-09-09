@@ -3,6 +3,7 @@ import type {
   SolveResult, SolverPort, Vec2,
 } from '@cardstock/types';
 import type { TopoRef } from '../toporef/types.js';
+import { evaluate, parse, referencedNames } from '../params/expression.js';
 
 /**
  * A 2D sketch: geometry, constraints, and the plane it lives on.
@@ -30,6 +31,8 @@ export class Sketch {
   #constraints = new Map<string, SketchConstraint>();
   #nextId = 0;
   #lastSolve: SolveResult | null = null;
+  /** Dimensions whose expression could not be evaluated, by constraint id. */
+  readonly #expressionErrors = new Map<string, string>();
 
   constructor(public plane: SketchPlane) {}
 
@@ -37,6 +40,7 @@ export class Sketch {
   get geometry(): SketchGeometry[] { return [...this.#geometry.values()]; }
   get constraints(): SketchConstraint[] { return [...this.#constraints.values()]; }
   get lastSolve(): SolveResult | null { return this.#lastSolve; }
+  get expressionErrors(): ReadonlyMap<string, string> { return this.#expressionErrors; }
   entity(id: SketchEntityId): SketchGeometry | undefined { return this.#geometry.get(id); }
   constraint(id: string): SketchConstraint | undefined { return this.#constraints.get(id); }
 
@@ -152,12 +156,23 @@ export class Sketch {
 
   removeConstraint(id: string): boolean { return this.#constraints.delete(id); }
 
-  /** Parameter names any dimension references, so the document can supply their values. */
+  /**
+   * Parameter names any dimension references.
+   *
+   * Parsed rather than taken literally, because a dimension may be a whole expression —
+   * `wall * 3`, `boltM3 + clearance` — and the graph needs every name in it to know when
+   * the sketch is out of date.
+   */
   referencedParameters(): string[] {
     const names = new Set<string>();
     for (const constraint of this.#constraints.values()) {
       const value = (constraint as { value?: unknown }).value;
-      if (typeof value === 'string') names.add(value);
+      if (typeof value !== 'string') continue;
+      try {
+        for (const name of referencedNames(parse(value))) names.add(name);
+      } catch {
+        // A malformed expression surfaces when it is evaluated, not here.
+      }
     }
     return [...names];
   }
@@ -168,9 +183,36 @@ export class Sketch {
     parameters: Readonly<Record<string, number>> = {},
     drag?: { point: SketchEntityId; x: number; y: number },
   ): Promise<SolveResult> {
+    // Dimension expressions are evaluated here rather than handed to the solver.
+    // PlaneGCS resolves a bare parameter NAME but not an expression, and a dimension
+    // that can only be a literal or a single name wastes the parameter system.
+    const scope = (name: string) => parameters[name];
+    // Cleared BEFORE evaluating, not after: clearing afterwards wiped the very errors
+    // the pass had just recorded, so a broken dimension reported nothing at all.
+    this.#expressionErrors.clear();
+    const resolved = this.constraints.map((constraint) => {
+      const value = (constraint as { value?: unknown }).value;
+      if (typeof value !== 'string') return constraint;
+      try {
+        return { ...constraint, value: evaluate(parse(value), scope) } as SketchConstraint;
+      } catch (error) {
+        this.#expressionErrors.set(constraint.id,
+          error instanceof Error ? error.message : String(error));
+        return constraint;
+      }
+    });
+
+    // A dimension whose expression is broken is dropped from the solve rather than
+    // passed through as a string the solver would read as a parameter name. The sketch
+    // then solves as if that dimension were absent, and the error is reported against it.
+    const usable = resolved.filter((c) => {
+      const value = (c as { value?: unknown }).value;
+      return typeof value !== 'string';
+    });
+
     const result = await solver.solve({
       geometry: this.geometry,
-      constraints: this.constraints,
+      constraints: usable,
       parameters,
       ...(drag ? { drag } : {}),
     });

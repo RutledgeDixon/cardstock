@@ -40,6 +40,15 @@ export class Viewer {
   /** Last pick, kept so "pivot to cursor" and "look at this face" can use it. */
   lastPick: PickResult | null = null;
 
+  /**
+   * Called at the end of every rendered frame.
+   *
+   * For overlays that have to follow the camera — dimension labels projected from 3D —
+   * so they ride the existing loop instead of starting a second one that would drift out
+   * of step with it.
+   */
+  readonly onFrame = new Set<() => void>();
+
   constructor(readonly canvas: HTMLCanvasElement, opts: ViewerOptions = {}) {
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
@@ -216,6 +225,7 @@ export class Viewer {
     this.selection.setHover(hit?.ref ?? null);
 
     this.renderer.render(this.scene, this.camera);
+    for (const callback of this.onFrame) callback();
   }
 
   start(): void {

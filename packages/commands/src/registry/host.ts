@@ -48,7 +48,7 @@ export interface CommandHost {
   deleteSketchSelection(): boolean;
   /** Leave sketch mode, rebuilding whatever the sketch feeds. */
   finishSketch(): Promise<void>;
-  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle'): void;
+  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension'): void;
   /** Extrude the sketch that was just finished. */
   extrudeSketch(): Promise<FeatureId | null>;
 

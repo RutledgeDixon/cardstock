@@ -15,6 +15,7 @@
  * Returns { passed, failed, results }. Anything false is a regression.
  */
 window.__smoke = async function smoke() {
+  const host_beginSketch = () => window.__host.beginSketch('xy');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const results = {};
   const check = (name, value) => { results[name] = value; return value; };
@@ -132,6 +133,29 @@ window.__smoke = async function smoke() {
     // Nothing should be stacked exactly on top of anything else.
     return new Set(boxes.map((b) => `${b.min.x.toFixed(1)},${b.max.x.toFixed(1)}`)).size === boxes.length;
   })());
+
+  // --- sketching ----------------------------------------------------------------
+  await host_beginSketch();
+  check('sketchOpens', !!document.querySelector('.sketchbar'));
+  check('sketchToolsPresent',
+    [...document.querySelectorAll('.sketchbar-tools button')].length >= 5);
+  const session = window.__session?.();
+  if (session) {
+    session.tools.setTool('rectangle');
+    session.tools.click({ x: 0, y: 0 });
+    session.tools.click({ x: 40, y: 25 });
+    session.refresh();
+    check('rectangleDrawn', session.sketch.geometry.filter((e) => e.type === 'line').length === 4);
+    check('rectangleIsConstrained', session.sketch.constraints.length === 4);
+    // A dimension must survive being expressed as a formula over a parameter.
+    const points = session.sketch.geometry.filter((e) => e.type === 'point' && !e.fixed);
+    const id = session.sketch.addConstraint({
+      type: 'distance', a: points[0].id, b: points[1].id, value: 10,
+    });
+    check('dimensionAppears', session.dimensions().some((d) => d.id === id));
+  }
+  await window.__host.finishSketch();
+  check('sketchCloses', !document.querySelector('.sketchbar'));
 
   // --- palette ------------------------------------------------------------------
   check('paletteFindsEveryCommand',

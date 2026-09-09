@@ -91,6 +91,10 @@ export function App() {
     inference: string | null; selected: number;
   } | null>(null);
   const sessionRef = useRef<SketchSession | null>(null);
+  const [dimensions, setDimensions] = useState<
+    { id: string; text: string; expression: string; error?: string }[]>([]);
+  const [editingDimension, setEditingDimension] = useState<string | null>(null);
+  const dimensionLayer = useRef<HTMLDivElement>(null);
   const [report, setReport] = useState<{
     rebuildMs: number | null; meshMs: number | null;
     triangles: number | null; faces: number | null; cached: number; error: string | null;
@@ -100,6 +104,7 @@ export function App() {
     viewer: Viewer; doc: Document; kernel: ReturnType<typeof createWorkerKernel>;
     registry: CommandRegistry; busy: boolean;
     handles: Map<string, string>;
+    solver: SolverPort;
   } | null>(null);
 
   // ---------------------------------------------------------------- boot
@@ -126,7 +131,7 @@ export function App() {
     const doc = new Document(kernel, undefined, solver);
     const registry = new CommandRegistry();
     const handles = new Map<string, string>();
-    core.current = { viewer, doc, kernel, registry, busy: false, handles };
+    core.current = { viewer, doc, kernel, registry, busy: false, handles, solver };
 
     const notify = (text: string, kind: 'info' | 'error' = 'info') => {
       setNotice({ text, kind });
@@ -148,6 +153,11 @@ export function App() {
 
     const syncSketch = (inference: string | null = null) => {
       const session = sessionRef.current;
+      setDimensions(session
+        ? session.dimensions().map(({ id, text, expression, error }) => ({
+            id, text, expression, ...(error ? { error } : {}),
+          }))
+        : []);
       setSketchInfo(session ? {
         open: true,
         tool: session.tools.kind,
@@ -271,6 +281,27 @@ export function App() {
     registry.registerAll(createBuiltinCommands(host));
 
     viewer.selection.subscribe(repaint);
+
+    // Labels follow the camera by writing transforms directly. Re-rendering React on
+    // every frame to move a few divs would be pure waste.
+    viewer.onFrame.add(() => {
+      const layer = dimensionLayer.current;
+      const session = sessionRef.current;
+      if (!layer || !session) return;
+      const rect = viewer.canvas.getBoundingClientRect();
+      for (const dimension of session.dimensions()) {
+        const node = layer.querySelector<HTMLElement>(`[data-dimension="${dimension.id}"]`);
+        if (!node) continue;
+        const ndc = dimension.world.clone().project(viewer.camera);
+        node.style.transform =
+          `translate(-50%, -50%) translate(${((ndc.x + 1) / 2) * rect.width}px, ` +
+          `${((1 - ndc.y) / 2) * rect.height}px)`;
+        // Behind the camera, or off screen: hide rather than draw a label in the wrong place.
+        node.style.visibility = ndc.z > 1 || Math.abs(ndc.x) > 1.2 || Math.abs(ndc.y) > 1.2
+          ? 'hidden' : 'visible';
+      }
+    });
+
     const teardown = activate(viewer, canvas);
 
     void (async () => {
@@ -408,6 +439,11 @@ export function App() {
         onPointerMove={(e) => {
           core.current?.viewer.setPointer(e.clientX, e.clientY);
           const session = sessionRef.current;
+          if (session?.isDragging) {
+            const solver = core.current?.solver;
+            if (solver) void session.updateDrag(solver, parameterValues());
+            return;
+          }
           if (session) {
             const inference = session.updatePreview();
             // Only re-render React when the hint actually changes; this fires on every
@@ -418,14 +454,32 @@ export function App() {
           }
         }}
         onPointerLeave={() => core.current?.viewer.clearPointer()}
+        onPointerUp={(e) => {
+          const session = sessionRef.current;
+          if (session?.endDrag()) {
+            canvasRef.current?.releasePointerCapture(e.pointerId);
+            syncSketchFromApp();
+            rebuildNow();
+          }
+        }}
         onPointerDown={(e) => {
           canvasRef.current?.focus();
           if (e.button !== 0) return;
           const session = sessionRef.current;
           if (session) {
             core.current?.viewer.setPointer(e.clientX, e.clientY);
+            if (session.tools.kind === 'dimension') {
+              const { placed } = session.placeDimension();
+              syncSketchFromApp();
+              if (placed) { setEditingDimension(placed); rebuildNow(); }
+              return;
+            }
             if (session.tools.kind === 'select') {
-              // The select tool picks sketch geometry rather than drawing.
+              // Pressing on a point starts a drag; pressing elsewhere selects.
+              if (session.beginDrag()) {
+                canvasRef.current?.setPointerCapture(e.pointerId);
+                return;
+              }
               session.toggleSelection(session.pick(), e.shiftKey);
               setSketchInfo((current) => (current
                 ? { ...current, selected: session.selected.size }
@@ -532,11 +586,57 @@ export function App() {
         />
       )}
 
+      {/* Dimension labels, positioned each frame from their 3D anchor. */}
+      {sketchInfo?.open && (
+        <div className="dimension-layer" ref={dimensionLayer}>
+          {dimensions.map((dimension) => (
+            <div
+              key={dimension.id}
+              data-dimension={dimension.id}
+              className={`dimension${dimension.error ? ' is-invalid' : ''}`}
+              title={dimension.error ?? dimension.expression}
+            >
+              {editingDimension === dimension.id ? (
+                <input
+                  autoFocus
+                  defaultValue={dimension.expression}
+                  spellCheck={false}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Escape') { setEditingDimension(null); return; }
+                    if (e.key !== 'Enter') return;
+                    const error = sessionRef.current?.setDimension(
+                      dimension.id, e.currentTarget.value);
+                    if (error) { setNotice({ text: error, kind: 'error' }); return; }
+                    setEditingDimension(null);
+                    syncSketchFromApp();
+                    rebuildNow();
+                  }}
+                  onBlur={(e) => {
+                    sessionRef.current?.setDimension(dimension.id, e.currentTarget.value);
+                    setEditingDimension(null);
+                    syncSketchFromApp();
+                    rebuildNow();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onPointerDown={(e) => { e.stopPropagation(); setEditingDimension(dimension.id); }}
+                >
+                  {dimension.text}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {sketchInfo?.open && (
         <div className="sketchbar">
           <span className="sketchbar-title">Sketch</span>
           <span className="sketchbar-tools">
-            {(['line', 'rectangle', 'circle', 'select'] as const).map((tool) => (
+            {(['line', 'rectangle', 'circle', 'dimension', 'select'] as const).map((tool) => (
               <button
                 key={tool}
                 type="button"
@@ -579,6 +679,32 @@ export function App() {
     </div>
   );
 
+  /** Current parameter values, for solving sketch dimensions that name one. */
+  function parameterValues(): Record<string, number> {
+    const values: Record<string, number> = {};
+    for (const [name, value] of core.current?.doc.parameters.evaluateAll() ?? []) {
+      if (value.ok) values[name] = value.value;
+    }
+    return values;
+  }
+
+  /** Mirror the live sketch into React state. */
+  function syncSketchFromApp(): void {
+    const session = sessionRef.current;
+    setDimensions(session
+      ? session.dimensions().map(({ id, text, expression, error }) => ({
+          id, text, expression, ...(error ? { error } : {}),
+        }))
+      : []);
+    setSketchInfo((current) => (current && session ? {
+      ...current,
+      tool: session.tools.kind,
+      dof: session.sketch.dof,
+      status: session.sketch.status,
+      selected: session.selected.size,
+    } : current));
+  }
+
   function rebuildNow() {
     const c = core.current;
     if (!c) return;
@@ -591,6 +717,10 @@ export function App() {
       for (const [id, s] of result.result.states) if (s.handle) c.handles.set(id, s.handle);
       c.busy = false;
       setReport(summarise(result));
+      // The rebuild re-solves the open sketch, so its DOF and dimensions are only
+      // current once it has finished — reading them before would show the state from
+      // before the edit that triggered this.
+      syncSketchFromApp();
       repaint();
     })();
   }

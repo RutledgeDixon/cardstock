@@ -38,6 +38,14 @@ export const sketchFeature: FeatureDefinition = {
     if (!placement) throw new Error('the sketch plane could not be resolved');
 
     const solved = await sketch.solve(solver, parameters);
+
+    // A dimension whose expression cannot be evaluated is a user-visible mistake, and
+    // saying which expression is wrong beats letting the sketch quietly solve without it.
+    const broken = [...sketch.expressionErrors.entries()];
+    if (broken.length > 0) {
+      throw new Error(`dimension ${broken[0]![0]}: ${broken[0]![1]}`);
+    }
+
     if (solved.status === 'failed' || solved.status === 'invalid') {
       throw new Error(
         solved.conflicting.length > 0

@@ -38,9 +38,9 @@ export interface HostDeps {
   editSketch: () => Promise<boolean>;
   deleteSketchSelection: () => boolean;
   finishSketch: () => Promise<void>;
-  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle') => void;
+  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension') => void;
   sketching: () => boolean;
-  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | null;
+  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | null;
 }
 
 export function createHost(deps: HostDeps): CommandHost {
