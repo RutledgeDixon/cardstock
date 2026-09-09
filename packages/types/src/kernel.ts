@@ -132,6 +132,12 @@ export interface KernelPort {
   boundingBox(shape: ShapeHandle): Promise<Bounds>;
   topologyCounts(shape: ShapeHandle): Promise<TopologyCounts>;
 
+  /** Tessellate and encode as STL. Binary by default; ASCII is for debugging. */
+  exportStl(
+    shape: ShapeHandle,
+    options?: { quality?: TessellationQuality; binary?: boolean },
+  ): Promise<Uint8Array>;
+
   /** Drop a handle. The kernel refcounts; the document releases what it evicts. */
   release(shape: ShapeHandle): Promise<void>;
 }

@@ -35,7 +35,7 @@ async function emit(name: string, description: string, build: (doc: Document) =>
 
   writeFileSync(join(CORPUS_DIR, `${name}.card`), JSON.stringify(doc.toJSON(), null, 2) + '\n');
   writeFileSync(join(CORPUS_DIR, `${name}.expected.json`), JSON.stringify(expected, null, 2) + '\n');
-  // eslint-disable-next-line no-console
+   
   console.log(`  ${name}: vol ${expected.volume}  f${expected.faces} e${expected.edges} v${expected.vertices}`);
 }
 
@@ -95,5 +95,5 @@ await emit('fillet-over-hole', 'A fillet referencing a box edge, resolved throug
   } satisfies Feature);
 });
 
-// eslint-disable-next-line no-console
+ 
 console.log('corpus written to fixtures/');

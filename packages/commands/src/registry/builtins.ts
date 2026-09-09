@@ -1,0 +1,244 @@
+import type { Command, CommandState } from './command.js';
+import type { CommandHost } from './host.js';
+
+/**
+ * The command set.
+ *
+ * Sectors are assigned once, here, and never move. Feature *variants* live in the
+ * feature's parameter panel — a boolean's union/cut/intersect is a field, not three
+ * toolbar buttons and not a submenu.
+ */
+
+const needsSelection = (kind: 'face' | 'edge' | 'body', what: string) =>
+  (state: CommandState) =>
+    state.selectionKind === kind && state.selectionCount > 0
+      ? true
+      : `Select ${what} first`;
+
+const needsModel = (state: CommandState) =>
+  state.hasModel ? true : 'Nothing in the model yet';
+
+export function createBuiltinCommands(host: CommandHost): Command[] {
+  return [
+    // ---------------------------------------------------------------- sketching
+    {
+      id: 'sketch.new',
+      title: 'Sketch',
+      hint: 'Start a sketch on the selected face, or choose a plane',
+      icon: '✎',
+      contexts: ['face', 'empty'],
+      sector: { face: 0 },
+      toolbar: { order: 10 },
+      keys: ['s'],
+      // Honest placeholder: the button exists so the toolbar is the real toolbar, and it
+      // says exactly why it cannot run yet rather than pretending.
+      enabled: () => 'Sketching arrives in Phase 6',
+      run: () => host.notify('Sketching arrives in Phase 6', 'info'),
+    },
+
+    // ---------------------------------------------------------------- primitives
+    {
+      id: 'primitive.box',
+      title: 'Box',
+      hint: 'Add a box',
+      icon: '▣',
+      contexts: ['empty', 'always'],
+      sector: { empty: 0 },
+      toolbar: { order: 20 },
+      enabled: () => true,
+      run: async () => { await host.addPrimitive('box'); },
+    },
+    {
+      id: 'primitive.cylinder',
+      title: 'Cylinder',
+      hint: 'Add a cylinder',
+      icon: '⬭',
+      contexts: ['empty', 'always'],
+      sector: { empty: 2 },
+      toolbar: { order: 21 },
+      enabled: () => true,
+      run: async () => { await host.addPrimitive('cylinder'); },
+    },
+    {
+      id: 'primitive.sphere',
+      title: 'Sphere',
+      hint: 'Add a sphere',
+      icon: '●',
+      contexts: ['empty', 'always'],
+      sector: { empty: 4 },
+      toolbar: { order: 22 },
+      enabled: () => true,
+      run: async () => { await host.addPrimitive('sphere'); },
+    },
+
+    // ---------------------------------------------------------------- modify
+    {
+      id: 'modify.fillet',
+      title: 'Fillet',
+      hint: 'Round the selected edges',
+      icon: '◜',
+      contexts: ['edge'],
+      sector: { edge: 0 },
+      toolbar: { order: 30 },
+      keys: ['f'],
+      enabled: needsSelection('edge', 'one or more edges'),
+      run: async () => { await host.addEdgeOperation('fillet'); },
+    },
+    {
+      id: 'modify.chamfer',
+      title: 'Chamfer',
+      hint: 'Bevel the selected edges',
+      icon: '◹',
+      contexts: ['edge'],
+      sector: { edge: 2 },
+      toolbar: { order: 31 },
+      keys: ['c'],
+      enabled: needsSelection('edge', 'one or more edges'),
+      run: async () => { await host.addEdgeOperation('chamfer'); },
+    },
+    {
+      id: 'modify.move',
+      title: 'Move',
+      hint: 'Offset a body',
+      icon: '✥',
+      contexts: ['body', 'face'],
+      sector: { body: 0, face: 4 },
+      toolbar: { order: 32 },
+      enabled: needsModel,
+      run: async () => { await host.addMove(); },
+    },
+
+    // ---------------------------------------------------------------- combine
+    {
+      id: 'boolean.cut',
+      title: 'Cut',
+      hint: 'Subtract the last body from the one before it',
+      icon: '⊖',
+      contexts: ['body', 'always'],
+      sector: { body: 2 },
+      toolbar: { order: 40 },
+      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      run: async () => { await host.addBoolean('cut'); },
+    },
+    {
+      id: 'boolean.union',
+      title: 'Union',
+      hint: 'Fuse the last two bodies',
+      icon: '⊕',
+      contexts: ['body', 'always'],
+      sector: { body: 4 },
+      toolbar: { order: 41 },
+      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      run: async () => { await host.addBoolean('union'); },
+    },
+    {
+      id: 'boolean.intersect',
+      title: 'Intersect',
+      hint: 'Keep only where the last two bodies overlap',
+      icon: '⊗',
+      contexts: ['body'],
+      sector: { body: 6 },
+      toolbar: { order: 42 },
+      enabled: (s) => (s.featureCount >= 2 ? true : 'Needs at least two bodies'),
+      run: async () => { await host.addBoolean('intersect'); },
+    },
+
+    // ---------------------------------------------------------------- tree
+    {
+      id: 'feature.delete',
+      title: 'Delete',
+      hint: 'Remove the focused feature',
+      icon: '␡',
+      contexts: ['tree-item', 'body'],
+      sector: { 'tree-item': 0 },
+      keys: ['delete'],
+      enabled: (s) => (s.focusedFeature ? true : 'Select a feature in the tree'),
+      run: async () => { await host.deleteFocused(); },
+    },
+    {
+      id: 'feature.suppress',
+      title: 'Suppress',
+      hint: 'Skip this feature without deleting it',
+      icon: '⊘',
+      contexts: ['tree-item'],
+      sector: { 'tree-item': 2 },
+      enabled: (s) => (s.focusedFeature ? true : 'Select a feature in the tree'),
+      run: async () => { await host.suppressFocused(true); },
+    },
+
+    // ---------------------------------------------------------------- view
+    {
+      id: 'view.fit',
+      title: 'Fit',
+      hint: 'Frame the whole model',
+      icon: '⤢',
+      contexts: ['empty', 'always'],
+      sector: { empty: 6 },
+      keys: ['shift+f'],
+      enabled: needsModel,
+      run: () => host.fitAll(),
+    },
+    {
+      id: 'view.lookAt',
+      title: 'Look at face',
+      hint: 'Square the camera to the selected face',
+      icon: '⊙',
+      contexts: ['face'],
+      sector: { face: 2 },
+      enabled: needsSelection('face', 'a face'),
+      run: () => { host.lookAtSelection(); },
+    },
+    {
+      id: 'view.pivot',
+      title: 'Pivot here',
+      hint: 'Orbit around this point',
+      icon: '✜',
+      contexts: ['face', 'edge', 'vertex'],
+      sector: { face: 6, edge: 4, vertex: 0 },
+      keys: ['.'],
+      enabled: (s) => (s.hoverKind || s.selectionCount ? true : 'Point at the model first'),
+      run: () => { host.pivotToSelection(); },
+    },
+
+    // ---------------------------------------------------------------- document
+    {
+      id: 'edit.undo',
+      title: 'Undo',
+      icon: '↶',
+      contexts: ['always'],
+      keys: ['ctrl+z'],
+      enabled: (s) => (s.canUndo ? true : 'Nothing to undo'),
+      run: () => host.undo(),
+    },
+    {
+      id: 'edit.redo',
+      title: 'Redo',
+      icon: '↷',
+      contexts: ['always'],
+      keys: ['ctrl+shift+z', 'ctrl+y'],
+      enabled: (s) => (s.canRedo ? true : 'Nothing to redo'),
+      run: () => host.redo(),
+    },
+    {
+      id: 'file.export',
+      title: 'Export STL',
+      hint: 'Save the model as an STL for slicing',
+      icon: '⭳',
+      contexts: ['always'],
+      toolbar: { order: 90 },
+      keys: ['ctrl+e'],
+      enabled: (s) => (s.hasModel ? true : 'Nothing to export yet'),
+      run: () => host.exportStl(),
+    },
+    {
+      id: 'app.palette',
+      title: 'Command palette',
+      hint: 'Search every command',
+      icon: '⌘',
+      contexts: ['always'],
+      keys: ['ctrl+k'],
+      enabled: () => true,
+      run: () => host.openPalette(),
+    },
+  ];
+}

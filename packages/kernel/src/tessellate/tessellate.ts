@@ -14,6 +14,10 @@ export function tessellate(
   bodyId: BodyId,
   quality: TessellationQuality,
 ): TessellatedBody {
+  // Discard any cached triangulation first: BRepMesh_IncrementalMesh reuses an existing
+  // one rather than honouring a new quality, so without this a shape meshed once at one
+  // quality silently ignores every later request.
+  oc.BRepTools.Clean(shape, true);
   new oc.BRepMesh_IncrementalMesh(
     shape, quality.linearDeflection, false, quality.angularDeflection, false,
   );

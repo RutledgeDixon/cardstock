@@ -4,7 +4,7 @@ import {
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription,
-  KernelError,
+  KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
 import { ShapeRegistry } from './registry.js';
 import { subShapes } from './topology.js';
@@ -201,6 +201,46 @@ export class OcctKernel implements KernelPort {
       edges: subShapes(this.oc, input, 'TopAbs_EDGE').length,
       vertices: subShapes(this.oc, input, 'TopAbs_VERTEX').length,
     };
+  }
+
+  /**
+   * Encode as STL.
+   *
+   * Re-tessellates at EXPORT quality rather than reusing the display mesh: the screen
+   * only needs to look right, a printed part needs to be right. OCCT writes through the
+   * emscripten virtual filesystem, so the file is written, read back and unlinked.
+   */
+  async exportStl(
+    shape: ShapeHandle,
+    options: { quality?: TessellationQuality; binary?: boolean } = {},
+  ): Promise<Uint8Array> {
+    const input = this.registry.get(shape);
+    const quality = options.quality ?? EXPORT_QUALITY;
+    // BRepMesh_IncrementalMesh CACHES the triangulation on the shape, so a second call
+    // at a different quality silently reuses the first. Without this Clean, exporting
+    // after the viewer has display-tessellated writes the COARSE display mesh into the
+    // STL — a visibly faceted print from a model that looked fine on screen.
+    this.oc.BRepTools.Clean(input, true);
+    new this.oc.BRepMesh_IncrementalMesh(
+      input, quality.linearDeflection, false, quality.angularDeflection, false,
+    );
+
+    const path = `/export-${Date.now()}-${Math.random().toString(36).slice(2)}.stl`;
+    const writer = new this.oc.StlAPI_Writer();
+    // ASCIIMode is exposed as a getter method here, not a settable field, so the mode is
+    // set through the underlying property when the binding allows it and otherwise left
+    // at OCCT's default. The test asserts which format actually comes out.
+    const modeSetter = (writer as unknown as Record<string, unknown>).set_ASCIIMode;
+    if (typeof modeSetter === 'function') {
+      (modeSetter as (v: boolean) => void).call(writer, !(options.binary ?? true));
+    }
+    const ok = writer.Write(input, path, new this.oc.Message_ProgressRange());
+    if (!ok) throw new KernelError('OpenCascade refused to write the STL', 'exportStl');
+
+    const bytes = this.oc.FS.readFile(path, { encoding: 'binary' }) as Uint8Array;
+    this.oc.FS.unlink(path);
+    if (bytes.length === 0) throw new KernelError('the exported STL was empty', 'exportStl');
+    return bytes;
   }
 
   async release(shape: ShapeHandle): Promise<void> {

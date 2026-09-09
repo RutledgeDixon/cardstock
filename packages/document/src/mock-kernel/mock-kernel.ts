@@ -226,6 +226,16 @@ export class MockKernel implements KernelPort {
     return { faces: s.faces, edges: s.edges, vertices: s.vertices };
   }
 
+  async exportStl(shape: ShapeHandle): Promise<Uint8Array> {
+    await this.#record('exportStl', this.describe(shape));
+    const s = this.#require(shape, 'exportStl');
+    // A plausible binary STL header plus a triangle count, so callers can assert shape
+    // without the mock pretending to do geometry.
+    const bytes = new Uint8Array(84);
+    new DataView(bytes.buffer).setUint32(80, s.faces * 2, true);
+    return bytes;
+  }
+
   async release(shape: ShapeHandle): Promise<void> {
     this.calls.push({ op: 'release', detail: this.describe(shape) });
     this.released.push(shape);

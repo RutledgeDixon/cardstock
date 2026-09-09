@@ -85,6 +85,9 @@ export class WorkerKernel implements KernelPort {
   topologyCounts(shape: ShapeHandle) {
     return this.#call<TopologyCounts>('topologyCounts', shape);
   }
+  exportStl(shape: ShapeHandle, options?: { quality?: TessellationQuality; binary?: boolean }) {
+    return this.#call<Uint8Array>('exportStl', shape, options);
+  }
   release(shape: ShapeHandle) { return this.#call<void>('release', shape); }
 
   terminate(): void {
