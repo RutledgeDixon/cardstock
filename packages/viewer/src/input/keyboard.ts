@@ -21,6 +21,23 @@ export const VIEW_KEYS: Record<string, NamedView> = {
 };
 
 const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+
+/**
+ * WASD, as a second name for the arrow keys.
+ *
+ * Aliased at the door rather than added to every set and branch below, so the two spell
+ * one behaviour: shift-snapping, ctrl-panning and held-key release all work identically
+ * without knowing WASD exists. The commands that used to hold S and D were rebound.
+ */
+const KEY_ALIASES: Record<string, string> = {
+  KeyW: 'ArrowUp',
+  KeyA: 'ArrowLeft',
+  KeyS: 'ArrowDown',
+  KeyD: 'ArrowRight',
+};
+
+/** The code this adapter acts on: WASD reads as its arrow. */
+const codeOf = (e: KeyboardEvent): string => KEY_ALIASES[e.code] ?? e.code;
 /**
  * Keys this adapter owns.
  *
@@ -81,23 +98,24 @@ export class KeyboardCameraInput {
     if (this.#ctrl !== e.ctrlKey) { this.#ctrl = e.ctrlKey; this.#applyHeld(); }
 
     const { viewer } = this;
-    const view = VIEW_KEYS[e.code];
+    const code = codeOf(e);
+    const view = VIEW_KEYS[code];
     if (view) { viewer.controller.setView(view); e.preventDefault(); return; }
 
-    if (e.shiftKey && ORBIT_KEYS.has(e.code)) {
+    if (e.shiftKey && ORBIT_KEYS.has(code)) {
       // Discrete 15-degree step rather than a continuous hold.
       viewer.controller.snapOrbit(
-        e.code === 'ArrowRight' ? 1 : e.code === 'ArrowLeft' ? -1 : 0,
-        e.code === 'ArrowUp' ? 1 : e.code === 'ArrowDown' ? -1 : 0,
+        code === 'ArrowRight' ? 1 : code === 'ArrowLeft' ? -1 : 0,
+        code === 'ArrowUp' ? 1 : code === 'ArrowDown' ? -1 : 0,
       );
-      this.#held.delete(e.code);
+      this.#held.delete(code);
       this.#applyHeld();
       e.preventDefault();
       return;
     }
 
-    if (HANDLED.has(e.code)) {
-      this.#held.add(e.code);
+    if (HANDLED.has(code)) {
+      this.#held.add(code);
       this.#applyHeld();
       e.preventDefault();
     }
@@ -106,7 +124,7 @@ export class KeyboardCameraInput {
   #onKeyUp = (e: KeyboardEvent): void => {
     const modifierChanged = this.#ctrl !== e.ctrlKey;
     this.#ctrl = e.ctrlKey;
-    if (this.#held.delete(e.code) || modifierChanged) this.#applyHeld();
+    if (this.#held.delete(codeOf(e)) || modifierChanged) this.#applyHeld();
   };
 
   #applyHeld(): void {

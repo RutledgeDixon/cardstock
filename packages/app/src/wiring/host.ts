@@ -46,6 +46,7 @@ export interface HostDeps {
   setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension') => void;
   sketching: () => boolean;
   sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | null;
+  sketchSelectionCount: () => number;
 }
 
 export function createHost(deps: HostDeps): CommandHost {
@@ -106,6 +107,7 @@ export function createHost(deps: HostDeps): CommandHost {
       focusedFeature: deps.focused(),
       sketching: deps.sketching(),
       sketchTool: deps.sketchTool(),
+      sketchSelectionCount: deps.sketchSelectionCount(),
     }),
 
     selection: (): readonly EntityRef[] => viewer.selection.selected,
@@ -332,11 +334,28 @@ export function createHost(deps: HostDeps): CommandHost {
       return id;
     },
 
+    /**
+     * Delete whatever is selected, meaning whatever the user is looking at.
+     *
+     * Three cases, one key. Inside a sketch, Delete removes the drawn geometry — a line,
+     * not the sketch. Outside one, picking ANY part of a body means that body: nobody
+     * selects a face in order to delete just the face, and a feature focused in the tree
+     * is the same intent expressed a different way.
+     */
     async deleteFocused() {
-      const id = deps.focused();
-      if (!id) return false;
+      if (deps.sketching()) return deps.deleteSketchSelection();
+
+      // A picked face, edge or vertex names the body it belongs to.
+      const picked = viewer.selection.selected[0]?.bodyId as unknown as FeatureId | undefined;
+      const id = (picked && doc.feature(picked) ? picked : null) ?? deps.focused();
+      if (!id) { deps.notify('Nothing selected to delete', 'error'); return false; }
+
       const removed = doc.removeFeature(id);
-      if (removed) { deps.setFocused(null); await deps.rebuild(); }
+      if (removed) {
+        viewer.selection.clear();
+        deps.setFocused(null);
+        await deps.rebuild();
+      }
       return removed;
     },
 

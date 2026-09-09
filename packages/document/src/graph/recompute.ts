@@ -404,9 +404,23 @@ export class RecomputeEngine {
     };
   }
 
-  /** Drop cached shapes no live feature state references. */
+  /** Hashes the PREVIOUS eviction was asked to keep. See `evict`. */
+  #previouslyLive = new Set<string>();
+
+  /**
+   * Drop cached shapes no live feature state references.
+   *
+   * Keeps one generation of slack. A rebuild's consumer tessellates AFTER the recompute
+   * that produced it has returned, so by the time the next edit's eviction runs, the
+   * previous run may still be reading handles this call would otherwise free — the
+   * kernel then throws "unknown shape handle" on a model that rebuilt perfectly well.
+   * Holding the last generation's handles costs a few shapes and removes the race
+   * instead of narrowing it.
+   */
   async evict(keep: Iterable<string>, limit = 256): Promise<number> {
     const live = new Set(keep);
+    for (const hash of this.#previouslyLive) live.add(hash);
+    this.#previouslyLive = new Set(keep);
     let removed = 0;
     for (const [hash, handle] of [...this.#cache]) {
       if (this.#cache.size - removed <= limit) break;

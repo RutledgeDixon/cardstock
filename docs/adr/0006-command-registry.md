@@ -138,3 +138,23 @@ which for a cut is the difference between the two possible answers.
 Feature defaults are seated on the **target body's** bounding box rather than the whole
 scene, because a hole centred between two bodies 60mm apart lands in the gap, cuts
 nothing, and reports success.
+
+## Amendment — WASD, and Delete meaning one thing (post-review)
+
+**WASD is a second name for the arrow keys**, aliased once at the door of the keyboard
+adapter rather than added to each set and branch. Shift-snapping, ctrl-panning and
+held-key release all read it without knowing it exists, and W and ArrowUp spell one held
+key — releasing either cancels the press, so mixing them cannot leave the camera orbiting
+with nothing held down.
+
+Two commands owned S and D and were rebound: Sketch to **N** (new sketch) and Dimension to
+**M** (measure). A key that orbits the model everywhere except inside one command is worse
+than a rebind.
+
+**Delete is one command, not two.** It used to be `feature.delete` (the focused tree item)
+and `sketch.delete` (sketch geometry), which is two answers to a question the user asks
+once. Now: inside a sketch it removes the selected geometry; outside one, picking ANY part
+of a body — a face, an edge, a vertex — removes that body, because nobody selects a single
+face in order to delete a face. `CommandState` gained `sketchSelectionCount`, since a
+sketch's selection is not the viewport's and Delete has to know which one it is about to
+act on.

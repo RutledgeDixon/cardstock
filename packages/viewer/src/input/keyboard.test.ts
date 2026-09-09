@@ -148,3 +148,52 @@ describe('focus safety', () => {
     expect(controller.target.azimuth).toBeCloseTo(frozen, 9);
   });
 });
+
+describe('WASD', () => {
+  /**
+   * A second name for the arrow keys, aliased at the door.
+   *
+   * Asserted for every branch rather than just orbit, because the aliasing is only worth
+   * anything if shift-snapping, ctrl-panning and release read WASD too — which is the
+   * whole reason it is done once at the top rather than added to each set below.
+   */
+  it('orbits exactly as the arrow keys do', () => {
+    down('KeyD');
+    expect(controller.orbitInput.azimuth).toBe(1);
+    up('KeyD');
+    expect(controller.orbitInput.azimuth).toBe(0);
+
+    down('KeyA');
+    expect(controller.orbitInput.azimuth).toBe(-1);
+    up('KeyA');
+
+    down('KeyW');
+    expect(controller.orbitInput.elevation).toBe(1);
+    up('KeyW');
+
+    down('KeyS');
+    expect(controller.orbitInput.elevation).toBe(-1);
+    up('KeyS');
+    expect(controller.orbitInput.elevation).toBe(0);
+  });
+
+  it('pans with ctrl and snaps with shift, like the arrows', () => {
+    down('KeyD', { ctrlKey: true });
+    expect(controller.panInput.x).toBe(1);
+    expect(controller.orbitInput.azimuth).toBe(0);
+    up('KeyD', { ctrlKey: true });
+
+    down('KeyA', { shiftKey: true });
+    expect(controller.target.azimuth).toBeCloseTo(-Math.PI / 12, 9);
+    // A snap is discrete: it must not leave the key held and orbiting.
+    expect(controller.orbitInput.azimuth).toBe(0);
+  });
+
+  it('mixes with the arrows without sticking', () => {
+    // W and ArrowUp spell ONE held key, so releasing either has to cancel the press —
+    // otherwise the camera orbits forever with nothing held down.
+    down('KeyW');
+    up('ArrowUp');
+    expect(controller.orbitInput.elevation).toBe(0);
+  });
+});

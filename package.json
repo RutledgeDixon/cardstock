@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "description": "CARDstock \u2014 Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "engines": {
     "node": ">=22"
   },

@@ -104,3 +104,73 @@ describe('feature compute is scoped', () => {
     expect(result.states.get(id('move'))!.status).toBe('ok');
   });
 });
+
+describe('overlapping rebuilds', () => {
+  /**
+   * Rapid edits must not corrupt each other.
+   *
+   * Cancellation is checked between features, so a run already past its last check
+   * finishes regardless — two recomputes really do overlap. That is fine on its own, but
+   * the kernel frees intermediates through a scope STACK, which assumes scopes nest.
+   * Interleaved scopes attributed allocations to the wrong run and freed shapes the
+   * newest run still needed; the symptom was "unknown shape handle" on a model that had
+   * rebuilt perfectly well.
+   */
+  it('leaves every handle in the final result usable', async () => {
+    const kernel = new MockKernel();
+    const doc = new Document(kernel);
+    doc.setParameter({ name: 'gap', expression: '15', unit: 'mm' });
+    doc.addFeature({
+      id: id('unit'), type: 'box', name: 'Unit',
+      values: { dx: '10', dy: '10', dz: '10' }, inputs: {},
+    });
+    doc.addFeature({
+      id: id('pat'), type: 'linearPattern', name: 'Pattern',
+      values: { count: '6', spacing: 'gap', dx: '1' }, inputs: { base: id('unit') },
+    });
+    await doc.recompute();
+
+    // Four edits with no await between them, the way typing in a field behaves.
+    const runs = ['20', '25', '30', '35'].map((gap) => {
+      doc.setParameter({ name: 'gap', expression: gap, unit: 'mm' });
+      return doc.recompute();
+    });
+    const results = await Promise.all(runs);
+
+    const last = results[results.length - 1]!;
+    for (const state of last.states.values()) {
+      if (!state.handle) continue;
+      // The consumer tessellates AFTER recompute returns, so every published handle has
+      // to still be there.
+      expect(kernel.hasShape(state.handle), `${state.id} handle was freed`).toBe(true);
+    }
+  });
+
+  it('runs them one at a time rather than interleaved', async () => {
+    const kernel = new MockKernel();
+    const doc = new Document(kernel);
+    doc.setParameter({ name: 'd', expression: '10', unit: 'mm' });
+    doc.addFeature({
+      id: id('unit'), type: 'box', name: 'Unit',
+      values: { dx: 'd', dy: '10', dz: '10' }, inputs: {},
+    });
+    await doc.recompute();
+
+    kernel.calls.length = 0;
+    await Promise.all(['11', '12', '13'].map((d) => {
+      doc.setParameter({ name: 'd', expression: d, unit: 'mm' });
+      return doc.recompute();
+    }));
+
+    // Scopes must nest: every endScope closes the beginScope immediately before it, so
+    // depth never exceeds one.
+    let depth = 0;
+    let deepest = 0;
+    for (const call of kernel.calls) {
+      if (call.op === 'beginScope') deepest = Math.max(deepest, ++depth);
+      if (call.op === 'endScope') depth--;
+    }
+    expect(deepest).toBe(1);
+    expect(depth).toBe(0);
+  });
+});

@@ -80,9 +80,16 @@ export class SolidMaterial extends ShaderMaterial {
 
           vec3 tint = uBase;
           float texel = (vFaceId + 0.5) / max(uFaceCount, 1.0);
-          float state = texture2D(uFaceState, vec2(texel, 0.5)).r * 255.0;
-          if (state > 0.5) tint = mix(tint, uSelected, 0.75);
-          if (abs(vFaceId - uHoverFace) < 0.5) tint = mix(tint, uHover, 0.6);
+          bool isSelected = texture2D(uFaceState, vec2(texel, 0.5)).r * 255.0 > 0.5;
+          bool isHovered = abs(vFaceId - uHoverFace) < 0.5;
+
+          // Selection wins over hover, because a selected face pointed at was reading as
+          // merely hovered — it only turned orange once the pointer left, which made
+          // clicking look like it had done nothing. Pointing at something already
+          // selected DARKENS it instead, so the two states are both visible at once.
+          if (isSelected && isHovered) tint = mix(tint, uSelected * 0.62, 0.85);
+          else if (isSelected)        tint = mix(tint, uSelected, 0.75);
+          else if (isHovered)         tint = mix(tint, uHover, 0.6);
 
           gl_FragColor = vec4(tint * (ambient + key * 0.8 + fill), 1.0);
         }

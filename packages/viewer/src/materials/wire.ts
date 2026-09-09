@@ -53,8 +53,14 @@ export class WireMaterial extends ShaderMaterial {
         void main() {
           vec3 c = uBase;
           float texel = (vEntityId + 0.5) / max(uCount, 1.0);
-          if (texture2D(uState, vec2(texel, 0.5)).r * 255.0 > 0.5) c = uSelected;
-          if (abs(vEntityId - uHoverId) < 0.5) c = uHover;
+          bool isSelected = texture2D(uState, vec2(texel, 0.5)).r * 255.0 > 0.5;
+          bool isHovered = abs(vEntityId - uHoverId) < 0.5;
+
+          // Same rule as faces: selection outranks hover, and hovering something already
+          // selected darkens it rather than replacing the colour.
+          if (isSelected && isHovered) c = uSelected * 0.62;
+          else if (isSelected)         c = uSelected;
+          else if (isHovered)          c = uHover;
           gl_FragColor = vec4(c, 1.0);
         }
       `,

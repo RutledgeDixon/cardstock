@@ -17,6 +17,13 @@ export interface RebuildReport {
   /** One per independent body currently on screen. */
   readonly bodies: readonly TessellatedBody[];
   readonly errors: readonly string[];
+  /**
+   * This run was superseded and stopped early; its bodies mean nothing.
+   *
+   * The caller must not treat it as the current picture of the model — in particular it
+   * must not swap in handles or clear bodies from it.
+   */
+  readonly abandoned: boolean;
 }
 
 /**
@@ -102,6 +109,8 @@ export async function rebuild(
    * sketch in a form you can actually edit.
    */
   hide?: FeatureId | null,
+  /** True once a newer rebuild has started, so this one should stop. */
+  superseded?: () => boolean,
 ): Promise<RebuildReport> {
   const startedRebuild = performance.now();
   const result = await doc.recompute();
@@ -117,7 +126,7 @@ export async function rebuild(
   }
 
   if (result.cancelled) {
-    return { result, rebuildMs, tessellateMs: 0, bodies: [], errors };
+    return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true };
   }
 
   // Tessellate EVERY leaf, each under its own feature id. Reusing one body id would make
@@ -131,6 +140,16 @@ export async function rebuild(
     if (hide && id === hide) continue;
     const handle = result.states.get(id)?.handle;
     if (!handle) continue;
+
+    // Bail if a newer rebuild has started. Tessellation happens OUTSIDE the document's
+    // recompute, so a superseded run could still reach for a handle the newer run's
+    // cache eviction had already freed — the kernel then threw "unknown shape handle",
+    // and the app sat on "rebuilding…" for good. Checked per body, because tessellating
+    // a large part takes long enough for a newer edit to land mid-loop.
+    if (superseded?.()) {
+      return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true };
+    }
+
     const body = await kernel.tessellate(handle, id as unknown as BodyId, DISPLAY_QUALITY);
     bodies.push(body);
     live.add(id as string);
@@ -144,5 +163,5 @@ export async function rebuild(
     if (!live.has(bodyId)) viewer.removeBody(bodyId);
   }
 
-  return { result, rebuildMs, tessellateMs, bodies, errors };
+  return { result, rebuildMs, tessellateMs, bodies, errors, abandoned: false };
 }

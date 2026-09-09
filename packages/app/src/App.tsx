@@ -140,6 +140,8 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [, forceRender] = useState(0);
   const repaint = useCallback(() => forceRender((n) => n + 1), []);
+  /** Bumped per rebuild, so a superseded run can tell and stand down. */
+  const rebuildGeneration = useRef(0);
 
   const [focused, setFocused] = useState<FeatureId | null>(null);
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
@@ -198,18 +200,9 @@ export function App() {
       setTimeout(() => setNotice(null), 3200);
     };
 
-    const doRebuild = async () => {
-      core.current!.busy = true;
-      repaint();
-      const result = await rebuild(doc, kernel, viewer, sessionRef.current?.featureId ?? null);
-      handles.clear();
-      for (const [id, state] of result.result.states) {
-        if (state.handle) handles.set(id, state.handle);
-      }
-      core.current!.busy = false;
-      setReport(summarise(result));
-      repaint();
-    };
+    // One implementation, so the sketch path and the modelling path cannot drift: both
+    // had the same missing guard, and only one of them would have been noticed.
+    const doRebuild = () => runRebuild();
 
     const syncSketch = (inference: string | null = null) => {
       const session = sessionRef.current;
@@ -352,6 +345,7 @@ export function App() {
       setSketchTool: (tool) => { sessionRef.current?.setTool(tool); syncSketch(); },
       sketching: () => sessionRef.current !== null,
       sketchTool: () => sessionRef.current?.tools.kind ?? null,
+      sketchSelectionCount: () => sessionRef.current?.selected.size ?? 0,
 
       focused: () => focusedRef.current,
       setFocused: (id) => { focusedRef.current = id; setFocused(id); },
@@ -430,6 +424,7 @@ export function App() {
         selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: false,
         featureCount: 0, bodyCount: 0, canUndo: false, canRedo: false,
         busy: true, focusedFeature: null, sketching: false, sketchTool: null,
+        sketchSelectionCount: 0,
       };
     }
     return {
@@ -445,6 +440,7 @@ export function App() {
       focusedFeature: focusedRef.current,
       sketching: sessionRef.current !== null,
       sketchTool: sessionRef.current?.tools.kind ?? null,
+      sketchSelectionCount: sessionRef.current?.selected.size ?? 0,
     };
   }, []);
 
@@ -775,7 +771,7 @@ export function App() {
           {sketchInfo.selected > 0 && (
             <>
               <span className="sel">{sketchInfo.selected} selected</span>
-              <button type="button" className="sketchbar-delete" onClick={() => run('sketch.delete')}>
+              <button type="button" className="sketchbar-delete" onClick={() => run('feature.delete')}>
                 Delete
               </button>
             </>
@@ -817,25 +813,56 @@ export function App() {
     } : current));
   }
 
-  function rebuildNow() {
+  /**
+   * The one rebuild.
+   *
+   * Guarded twice. The generation counter stops a superseded run from publishing: rapid
+   * edits — which is what typing in the parameter panel or dragging a sketch point is —
+   * could otherwise leave an older rebuild tessellating handles the newer run's cache
+   * eviction had already freed, and the kernel would throw "unknown shape handle".
+   *
+   * The finally is the safety net behind that. Without it ANY throw in here left `busy`
+   * true and the status bar stuck on "rebuilding…" with no way back short of a reload.
+   * A bug is bad; a bug that bricks the session is worse.
+   */
+  async function runRebuild(): Promise<void> {
     const c = core.current;
     if (!c) return;
-    void (async () => {
-      c.busy = true; repaint();
+
+    const generation = ++rebuildGeneration.current;
+    const superseded = () => rebuildGeneration.current !== generation;
+
+    c.busy = true;
+    repaint();
+    try {
       const result = await rebuild(
-        c.doc, c.kernel, c.viewer, sessionRef.current?.featureId ?? null,
+        c.doc, c.kernel, c.viewer, sessionRef.current?.featureId ?? null, superseded,
       );
+      if (superseded() || result.abandoned) return;
+
       c.handles.clear();
-      for (const [id, s] of result.result.states) if (s.handle) c.handles.set(id, s.handle);
-      c.busy = false;
+      for (const [id, st] of result.result.states) if (st.handle) c.handles.set(id, st.handle);
       setReport(summarise(result));
       // The rebuild re-solves the open sketch, so its DOF and dimensions are only
       // current once it has finished — reading them before would show the state from
       // before the edit that triggered this.
       syncSketchFromApp();
-      repaint();
-    })();
+    } catch (e) {
+      // A SUPERSEDED run failing is expected, not news: it was abandoned mid-flight and
+      // its handles may already be freed. Reporting it would leave "Rebuild failed" in
+      // the status bar underneath a model that rebuilt perfectly well.
+      if (!superseded()) {
+        const message = e instanceof Error ? e.message : String(e);
+        setReport((r) => ({ ...r, error: `Rebuild failed: ${message}` }));
+      }
+    } finally {
+      // Only the newest run owns the busy flag: an older one clearing it would report
+      // the model settled while the current rebuild is still going.
+      if (!superseded()) { c.busy = false; repaint(); }
+    }
   }
+
+  function rebuildNow() { void runRebuild(); }
 }
 
 /** Roll a rebuild up into the numbers the status bar shows. */

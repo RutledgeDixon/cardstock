@@ -84,6 +84,19 @@ window.__smoke = async function smoke() {
   release('ArrowRight');
   check('releasingStopsTheOrbit', viewer.controller.orbitInput.azimuth === 0);
 
+  // WASD is a second name for the arrows. Checked because the two commands that used to
+  // own S and D were rebound, and a regression there is silent: the camera would work
+  // while the sketch tools quietly stopped.
+  key('KeyD');
+  check('wasdReachesTheController', viewer.controller.orbitInput.azimuth === 1);
+  release('KeyD');
+  check('wasdReleasesCleanly', viewer.controller.orbitInput.azimuth === 0);
+  key('KeyW');
+  check('wasdOrbitsVertically', viewer.controller.orbitInput.elevation === 1);
+  release('KeyW');
+  check('sketchKeysRebound',
+    !!registry.commandForChord('n') && !!registry.commandForChord('m'));
+
   key('Digit1');
   check('numberKeysSnapToViews',
     Math.abs(viewer.controller.target.azimuth + Math.PI / 2) < 1e-6);
@@ -112,6 +125,68 @@ window.__smoke = async function smoke() {
     !tools.includes('primitive.box') && !tools.includes('boolean.cut')
     && !tools.includes('modify.shell'));
 
+  // --- selection reads as selected while still pointed at ------------------------
+  // It used to only turn orange once the pointer LEFT, which made clicking look like it
+  // had done nothing at all.
+  {
+    const body = [...viewer.bodies.values()][0];
+    const material = body?.faceMaterial ?? body?.solid?.material;
+    if (material) {
+      const gl = viewer.renderer.getContext();
+      const draw = () => {
+        for (let i = 0; i < 6; i++) viewer.step(1 / 60);
+        const px = new Uint8Array(4);
+        gl.readPixels(
+          Math.round(gl.drawingBufferWidth * 0.5), Math.round(gl.drawingBufferHeight * 0.5),
+          1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px,
+        );
+        return [px[0], px[1], px[2]];
+      };
+      // Try each face in turn: only the one actually under the centre pixel changes
+      // colour, and which face that is depends on the camera.
+      let warm = false, stillWarm = false, darker = false;
+      for (let face = 0; face < Math.min(8, material.faceState?.length ?? 0); face++) {
+        material.setSelectedFaces([face]);
+        material.setHoveredFace(-1);
+        const selectedOnly = draw();
+        material.setHoveredFace(face);
+        const alsoHovered = draw();
+        if (selectedOnly[0] === alsoHovered[0] && selectedOnly[2] === alsoHovered[2]) {
+          continue; // this face is not the one on screen at that pixel
+        }
+        // Orange, not the blue hover: red leads blue in both states.
+        warm = selectedOnly[0] > selectedOnly[2];
+        stillWarm = alsoHovered[0] > alsoHovered[2];
+        // And visibly darker, so the two are told apart at a glance.
+        darker = alsoHovered[0] < selectedOnly[0] - 20;
+        break;
+      }
+      material.setSelectedFaces([]);
+      material.setHoveredFace(-1);
+
+      check('selectedFaceIsWarm', warm);
+      check('selectedAndHoveredStaysWarm', stillWarm);
+      check('selectedAndHoveredIsDarker', darker);
+    }
+    viewer.selection.clear();
+  }
+
+  // --- delete acts on the selection ----------------------------------------------
+  {
+    const before = doc.features.length;
+    const bodyId = [...viewer.bodies.keys()][0];
+    viewer.selection.clear();
+    // A FACE is picked, but the whole body is what goes.
+    viewer.selection.click({ bodyId, kind: 'face', index: 0 });
+    await window.__host.deleteFocused();
+    await sleep(1200);
+    check('deleteRemovesTheWholeBody',
+      doc.features.length === before - 1 && !doc.feature(bodyId));
+    await window.__host.undo();
+    await sleep(1200);
+    check('deleteIsUndoable', doc.features.length === before);
+  }
+
   // --- the about dialog ----------------------------------------------------------
   {
     const about = document.querySelector('[data-command="app.about"]');
@@ -128,6 +203,8 @@ window.__smoke = async function smoke() {
     check('aboutNamesTheBuild', /\d+\.\d+\.\d+/.test(dialog?.innerText ?? ''));
     check('aboutExpandsTheName',
       (dialog?.innerText ?? '').includes('Computer Assisted Rapid Design'));
+    check('aboutSaysRightsReserved',
+      (dialog?.innerText ?? '').includes('All rights reserved'));
 
     // Clicking inside must not close it; the scrim must.
     document.querySelector('.about-mark')?.dispatchEvent(

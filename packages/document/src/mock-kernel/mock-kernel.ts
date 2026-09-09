@@ -69,6 +69,9 @@ export class MockKernel implements KernelPort {
   describe(handle: ShapeHandle): string { return this.#shapes.get(handle)?.description ?? '<gone>'; }
   get liveShapes(): number { return this.#shapes.size; }
 
+  /** Is this handle still usable? What a consumer asks before tessellating. */
+  hasShape(handle: ShapeHandle): boolean { return this.#shapes.has(handle); }
+
   // ---------------------------------------------------------------- internals
   async #record(op: string, detail: string): Promise<void> {
     this.calls.push({ op, detail });

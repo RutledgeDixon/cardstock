@@ -52,8 +52,8 @@ export function AboutDialog({
         </p>
 
         <p className="about-line">
-          Parametric solid modelling in the browser, with one job: sit down, design a
-          part, print it.
+          Parametric solid modelling, simplified. No bells or whistles or $$. Intended
+          mainly for 3D printing.
         </p>
 
         <dl className="about-facts">
@@ -69,7 +69,7 @@ export function AboutDialog({
           <dd>{author}</dd>
 
           <dt>Licence</dt>
-          <dd>MIT</dd>
+          <dd>All rights reserved</dd>
 
           <dt>Kernel</dt>
           <dd>OpenCascade <span className="about-dim">{info.occt}</span></dd>

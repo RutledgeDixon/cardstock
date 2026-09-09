@@ -381,8 +381,32 @@ export class Document {
    */
   async recompute(): Promise<RecomputeResult> {
     this.#running?.cancel();
+
+    // SERIALISED, not merely cancelled. Cancellation is checked between features, so a
+    // run already past its last check finishes anyway and two runs overlap. That is
+    // harmless at this level but not below it: the kernel frees a feature's intermediates
+    // through a scope STACK, which assumes scopes nest. Interleaved scopes attribute
+    // allocations to the wrong run and free shapes the newest run still needs — the
+    // symptom was "unknown shape handle" on a model that had rebuilt perfectly well.
+    //
+    // The token is minted HERE, synchronously, not inside the queued body. Created after
+    // the await it would not exist yet when the next edit tried to cancel it, so a queued
+    // run could never be superseded and every keystroke would rebuild in full.
     const token = new CancellationToken();
     this.#running = token;
+
+    const previous = this.#inFlight;
+    const run = this.#runRecompute(token, previous);
+    this.#inFlight = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  #inFlight: Promise<void> | null = null;
+
+  async #runRecompute(
+    token: CancellationToken, previous: Promise<void> | null,
+  ): Promise<RecomputeResult> {
+    await previous;
 
     const changed = this.#everRecomputed ? [...this.#dirty] : undefined;
     this.#dirty.clear();

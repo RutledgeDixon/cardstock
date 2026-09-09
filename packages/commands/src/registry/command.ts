@@ -46,6 +46,13 @@ export interface CommandState {
   readonly sketching: boolean;
   /** Active drawing tool, when sketching. */
   readonly sketchTool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | null;
+  /**
+   * Sketch entities selected, when sketching.
+   *
+   * Separate from `selectionCount`, which counts picked 3D topology. A sketch has its own
+   * selection, and Delete needs to know which one it is about to act on.
+   */
+  readonly sketchSelectionCount: number;
 }
 
 /** `true` to enable, or a sentence saying WHY not — shown in the tooltip. */

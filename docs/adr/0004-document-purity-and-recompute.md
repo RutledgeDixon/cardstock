@@ -96,3 +96,36 @@ pretending. Errors name the feature and the offending value
 bundlers and Vitest but means plain `node` cannot import the built `dist` by package
 name. Irrelevant today; Phase 10's headless `.card` → STL CLI will need either a
 `dist`-pointing export condition or to run through `tsx`.
+
+## Amendment — recomputes are serialised (post-review)
+
+A user reported the app stuck on "rebuilding…" forever after changing a revolve's axis.
+The mechanism turned out to be three faults stacked, and the geometry was innocent — the
+same model rebuilds cleanly in Node.
+
+**Recomputes overlapped.** Cancellation is checked *between* features, so a run already
+past its last check finishes regardless and two runs are genuinely concurrent. That was
+harmless until the kernel gained allocation scopes (ADR-0007), which are a **stack** and
+assume scopes nest. Interleaved, they attribute allocations to the wrong run and free the
+newest run's published shape: `beginScope, beginScope, revolve→s15, revolve→s16,
+endScope([s15]), endScope([s16])` — and s16, recorded in the scope the first endScope
+popped, was gone before anything could tessellate it.
+
+Recomputes are now serialised behind an in-flight promise. Cancellation stays: the token
+is minted **synchronously** in `recompute()`, not inside the queued body, because a token
+created after the await does not exist yet when the next edit tries to cancel it — every
+keystroke would then rebuild in full.
+
+**Eviction could free a handle its consumer still held.** Tessellation happens after
+recompute returns, so the next edit's eviction could collect a shape the previous rebuild
+was still reading. `evict` now keeps one generation of slack, which removes the race
+rather than narrowing it.
+
+**And nothing caught the throw.** `doRebuild` had no `try/finally`, so any rejection left
+`busy` true and the status bar stuck with no way back short of a reload. There were also
+*two* rebuild paths with the same omission — the sketching one and the modelling one —
+and only one would ever have been noticed. They are now one function, guarded by a
+generation counter (a superseded run publishes nothing, and reports nothing, since its
+failure is expected) and a `finally` that only the newest run may clear.
+
+A bug is bad; a bug that bricks the session until a reload is worse.

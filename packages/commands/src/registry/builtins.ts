@@ -29,7 +29,9 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['face', 'empty'],
       sector: { face: 0 },
       toolbar: { order: 10 },
-      keys: ['s'],
+      // N for "new sketch". S and D went to the camera when WASD was added; a key that
+      // orbits the model everywhere except inside one command is worse than a rebind.
+      keys: ['n'],
       children: ['sketch.onFace', 'sketch.onXY', 'sketch.onXZ', 'sketch.onYZ'],
       enabled: (s) => (s.sketching ? 'Already sketching' : true),
       run: () => {},
@@ -122,7 +124,8 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '↔',
       contexts: ['sketch'],
       sector: { sketch: 1 },
-      keys: ['d'],
+      // M for measure: D orbits the camera now.
+      keys: ['m'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('dimension'),
     },
@@ -147,16 +150,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
         return s.focusedFeature ? true : 'Select a sketch in the tree';
       },
       run: async () => { await host.editSketch(); },
-    },
-    {
-      id: 'sketch.delete',
-      title: 'Delete',
-      hint: 'Remove the selected sketch geometry',
-      icon: '␡',
-      contexts: ['sketch'],
-      sector: { sketch: 5 },
-      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
-      run: () => { host.deleteSketchSelection(); },
     },
     {
       id: 'build.solid',
@@ -424,12 +417,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
     {
       id: 'feature.delete',
       title: 'Delete',
-      hint: 'Remove the focused feature',
+      hint: 'Remove the selected body, or the selected sketch geometry',
       icon: '␡',
-      contexts: ['tree-item', 'body'],
-      sector: { 'tree-item': 0 },
-      keys: ['delete'],
-      enabled: (s) => (s.focusedFeature ? true : 'Select a feature in the tree'),
+      // Every context, because Delete means the same thing everywhere: get rid of what
+      // is selected. Picking a face to delete the body is what people expect; nobody
+      // selects one face in order to delete a face.
+      contexts: ['tree-item', 'body', 'face', 'edge', 'vertex', 'sketch'],
+      keys: ['delete', 'backspace'],
+      sector: { 'tree-item': 0, sketch: 5 },
+      enabled: (s) => (s.sketching
+        ? (s.sketchSelectionCount > 0 ? true : 'Select sketch geometry first')
+        : (s.selectionCount > 0 || s.focusedFeature ? true : 'Select a body or a feature')),
       run: async () => { await host.deleteFocused(); },
     },
     {
