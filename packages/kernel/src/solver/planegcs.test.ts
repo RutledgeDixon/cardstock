@@ -1,0 +1,202 @@
+import { beforeAll, describe, expect, it } from 'vitest';
+import type { SketchConstraint, SketchGeometry, SolveRequest } from '@cardstock/types';
+import { PlaneGcsSolver } from './planegcs.js';
+
+/**
+ * The solver adapter against the real PlaneGCS.
+ *
+ * Assertions are on solved coordinates, not on "it returned success", because a solver
+ * that reports success while leaving the geometry wrong is the failure that matters.
+ */
+let solver: PlaneGcsSolver;
+beforeAll(async () => { solver = await PlaneGcsSolver.create(); }, 60_000);
+
+/** A rectangle from deliberately sloppy points, as if drawn by hand. */
+function rectangle(width: number | string, height: number | string): SolveRequest {
+  const geometry: SketchGeometry[] = [
+    { id: 'p1', type: 'point', x: 0.3, y: -0.2 },
+    { id: 'p2', type: 'point', x: 41, y: 1.7 },
+    { id: 'p3', type: 'point', x: 38, y: 22 },
+    { id: 'p4', type: 'point', x: -1.2, y: 19 },
+    { id: 'bottom', type: 'line', p1: 'p1', p2: 'p2' },
+    { id: 'right', type: 'line', p1: 'p2', p2: 'p3' },
+    { id: 'top', type: 'line', p1: 'p3', p2: 'p4' },
+    { id: 'left', type: 'line', p1: 'p4', p2: 'p1' },
+  ];
+  const constraints: SketchConstraint[] = [
+    { id: 'ox', type: 'lockX', point: 'p1', value: 0 },
+    { id: 'oy', type: 'lockY', point: 'p1', value: 0 },
+    { id: 'h1', type: 'horizontal', line: 'bottom' },
+    { id: 'h2', type: 'horizontal', line: 'top' },
+    { id: 'v1', type: 'vertical', line: 'right' },
+    { id: 'v2', type: 'vertical', line: 'left' },
+    { id: 'w', type: 'distance', a: 'p1', b: 'p2', value: width },
+    { id: 'h', type: 'distance', a: 'p2', b: 'p3', value: height },
+  ];
+  return { geometry, constraints, parameters: {} };
+}
+
+describe('solving', () => {
+  it('turns sloppy input into an exact rectangle', async () => {
+    const result = await solver.solve(rectangle(40, 20));
+    expect(result.status).toBe('solved');
+    expect(result.dof).toBe(0);
+    expect(result.points.p1).toEqual({ x: 0, y: 0 });
+    expect(result.points.p2!.x).toBeCloseTo(40, 9);
+    expect(result.points.p2!.y).toBeCloseTo(0, 9);
+    expect(result.points.p3!.x).toBeCloseTo(40, 9);
+    expect(result.points.p3!.y).toBeCloseTo(20, 9);
+  });
+
+  it('drives dimensions from named parameters', async () => {
+    // The mechanism that makes a sketch follow the rest of the model.
+    const request = { ...rectangle('W', 'H'), parameters: { W: 55, H: 12.5 } };
+    const result = await solver.solve(request);
+    expect(result.status).toBe('solved');
+    expect(result.points.p2!.x).toBeCloseTo(55, 9);
+    expect(result.points.p3!.y).toBeCloseTo(12.5, 9);
+  });
+
+  it('reflects a changed parameter on the next solve', async () => {
+    const first = await solver.solve({ ...rectangle('W', 'H'), parameters: { W: 30, H: 30 } });
+    const second = await solver.solve({ ...rectangle('W', 'H'), parameters: { W: 80, H: 30 } });
+    expect(first.points.p2!.x).toBeCloseTo(30, 9);
+    expect(second.points.p2!.x).toBeCloseTo(80, 9);
+  });
+
+  it('solves circles and radius constraints', async () => {
+    const result = await solver.solve({
+      geometry: [
+        { id: 'c', type: 'point', x: 3, y: 4 },
+        { id: 'circle', type: 'circle', centre: 'c', radius: 1 },
+      ],
+      constraints: [
+        { id: 'cx', type: 'lockX', point: 'c', value: 10 },
+        { id: 'cy', type: 'lockY', point: 'c', value: 5 },
+        { id: 'r', type: 'radius', entity: 'circle', value: 7.5 },
+      ],
+      parameters: {},
+    });
+    expect(result.status).toBe('solved');
+    expect(result.points.c).toEqual({ x: 10, y: 5 });
+    expect(result.radii.circle).toBeCloseTo(7.5, 9);
+    expect(result.dof).toBe(0);
+  });
+});
+
+describe('degrees of freedom', () => {
+  const line = (constraints: SketchConstraint[]) => solver.solve({
+    geometry: [
+      { id: 'a', type: 'point', x: 0, y: 0 },
+      { id: 'b', type: 'point', x: 30, y: 5 },
+      { id: 'l', type: 'line', p1: 'a', p2: 'b' },
+    ],
+    constraints: [
+      { id: 'ax', type: 'lockX', point: 'a', value: 0 },
+      { id: 'ay', type: 'lockY', point: 'a', value: 0 },
+      ...constraints,
+    ],
+    parameters: {},
+  });
+
+  it('counts down as constraints are added', async () => {
+    // The number the sketcher shows, because "how much of this is pinned down" is the
+    // question you are always asking.
+    expect((await line([])).dof).toBe(2);
+    expect((await line([{ id: 'h', type: 'horizontal', line: 'l' }])).dof).toBe(1);
+    expect((await line([
+      { id: 'h', type: 'horizontal', line: 'l' },
+      { id: 'd', type: 'distance', a: 'a', b: 'b', value: 30 },
+    ])).dof).toBe(0);
+  });
+});
+
+describe('diagnostics name OUR constraints', () => {
+  it('identifies contradictory constraints by the ids we gave them', async () => {
+    // Actionable means naming the thing the user placed, not an internal index.
+    const result = await solver.solve({
+      geometry: [
+        { id: 'a', type: 'point', x: 0, y: 0 },
+        { id: 'b', type: 'point', x: 30, y: 0 },
+        { id: 'l', type: 'line', p1: 'a', p2: 'b' },
+      ],
+      constraints: [
+        { id: 'ax', type: 'lockX', point: 'a', value: 0 },
+        { id: 'ay', type: 'lockY', point: 'a', value: 0 },
+        { id: 'horiz', type: 'horizontal', line: 'l' },
+        { id: 'len30', type: 'distance', a: 'a', b: 'b', value: 30 },
+        { id: 'len45', type: 'distance', a: 'a', b: 'b', value: 45 },
+      ],
+      parameters: {},
+    });
+    expect(result.status).toBe('failed');
+    expect(result.conflicting).toContain('len30');
+    expect(result.conflicting).toContain('len45');
+  });
+
+  it('never reports an internal helper as something to delete', async () => {
+    const result = await solver.solve({
+      ...rectangle(40, 20),
+      drag: { point: 'p3', x: 100, y: 100 },
+    });
+    for (const id of [...result.conflicting, ...result.redundant]) {
+      expect(id.startsWith('__')).toBe(false);
+    }
+  });
+});
+
+describe('dragging', () => {
+  it('does not break a fully constrained sketch', async () => {
+    // Dragging a finished sketch must be a no-op, not a conflict. Adding a constraint
+    // for the drag would over-constrain it and report a contradiction the user never
+    // created.
+    const result = await solver.solve({
+      ...rectangle(40, 20),
+      drag: { point: 'p3', x: 400, y: 400 },
+    });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.conflicting).toEqual([]);
+    expect(result.points.p2!.x - result.points.p1!.x).toBeCloseTo(40, 6);
+    expect(Math.abs(result.points.p3!.y - result.points.p2!.y)).toBeCloseTo(20, 6);
+  });
+
+  it('moves a point that is actually free', async () => {
+    const base = {
+      geometry: [
+        { id: 'a', type: 'point' as const, x: 0, y: 0 },
+        { id: 'b', type: 'point' as const, x: 10, y: 0 },
+        { id: 'l', type: 'line' as const, p1: 'a', p2: 'b' },
+      ],
+      constraints: [
+        { id: 'ax', type: 'lockX' as const, point: 'a', value: 0 },
+        { id: 'ay', type: 'lockY' as const, point: 'a', value: 0 },
+        { id: 'h', type: 'horizontal' as const, line: 'l' },
+      ],
+      parameters: {},
+    };
+    // The far end is free along X, so a drag must take it there — while the horizontal
+    // constraint keeps y at zero.
+    const result = await solver.solve({ ...base, drag: { point: 'b', x: 75, y: 60 } });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.points.b!.x).toBeCloseTo(75, 6);
+    expect(result.points.b!.y).toBeCloseTo(0, 6);
+  });
+});
+
+describe('robustness', () => {
+  it('returns the input geometry when a request is malformed, rather than throwing', async () => {
+    const result = await solver.solve({
+      geometry: [{ id: 'a', type: 'point', x: 1, y: 2 }],
+      constraints: [{ id: 'bad', type: 'coincident', a: 'a', b: 'ghost' }],
+      parameters: {},
+    });
+    expect(result.status).toBe('invalid');
+    expect(result.points.a).toEqual({ x: 1, y: 2 });
+    expect(result.message).toBeTruthy();
+  });
+
+  it('handles an empty sketch', async () => {
+    const result = await solver.solve({ geometry: [], constraints: [], parameters: {} });
+    expect(result.points).toEqual({});
+  });
+});
