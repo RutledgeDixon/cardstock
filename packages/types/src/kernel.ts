@@ -32,13 +32,24 @@ export type BooleanOp = 'union' | 'cut' | 'intersect';
  * through; Phase 4's topological naming is what consumes it. Capturing it from the
  * start means the port does not have to change when naming lands.
  */
-export interface ShapeHistory {
+export interface InputHistory {
   /** input face index -> result face indices it became. Absent = unchanged. */
   readonly modifiedFaces: ReadonlyMap<number, readonly number[]>;
   /** input edge index -> result face indices it generated (e.g. a fillet surface). */
   readonly generatedFaces: ReadonlyMap<number, readonly number[]>;
   /** input face indices that no longer exist in the result. */
   readonly deletedFaces: readonly number[];
+}
+
+export interface ShapeHistory {
+  /**
+   * One entry per input shape, in the order the operation received them.
+   *
+   * Per-input rather than one flat map, because sub-shape indices are only meaningful
+   * relative to their own shape: face 0 of a box and face 0 of the cylinder cutting it
+   * are unrelated, and merging them silently loses half the history.
+   */
+  readonly inputs: readonly InputHistory[];
 }
 
 export interface GeometryResult {

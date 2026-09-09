@@ -1,0 +1,223 @@
+import type { OpenCascadeInstance, TopoDS_Shape } from 'replicad-opencascadejs';
+import {
+  type BooleanOp, type Bounds, type BoxSpec, type CylinderSpec, type GeometryResult,
+  type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
+  type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
+  KernelError,
+} from '@cardstock/types';
+import { ShapeRegistry } from './registry.js';
+import { subShapes } from './topology.js';
+import { captureHistory } from './history.js';
+import { tessellate } from '../tessellate/tessellate.js';
+
+/**
+ * KernelPort over OpenCascade.
+ *
+ * Runs unchanged in Node and inside a Web Worker, which is deliberate: it means the real
+ * geometry can be golden-tested headlessly, without a browser, a worker, or a bundler.
+ */
+export class OcctKernel implements KernelPort {
+  readonly registry = new ShapeRegistry();
+
+  constructor(private readonly oc: OpenCascadeInstance) {}
+
+  // ---------------------------------------------------------------- helpers
+  #point(v?: { x: number; y: number; z: number }) {
+    return new this.oc.gp_Pnt(v?.x ?? 0, v?.y ?? 0, v?.z ?? 0);
+  }
+
+  #wrap(shape: TopoDS_Shape): ShapeHandle {
+    return this.registry.add(shape);
+  }
+
+  /** Run a builder to completion and surface OCCT's own failure as a KernelError. */
+  #build(builder: { Build(range: unknown): void; Shape(): TopoDS_Shape }, op: string): TopoDS_Shape {
+    try {
+      builder.Build(new this.oc.Message_ProgressRange());
+      return builder.Shape();
+    } catch (e) {
+      throw new KernelError(describeOcctError(this.oc, e, op), op);
+    }
+  }
+
+  // ---------------------------------------------------------------- primitives
+  async makeBox(spec: BoxSpec): Promise<GeometryResult> {
+    if (spec.dx <= 0 || spec.dy <= 0 || spec.dz <= 0) {
+      throw new KernelError('box dimensions must be positive', 'makeBox');
+    }
+    const corner = this.#point(spec.origin);
+    const maker = new this.oc.BRepPrimAPI_MakeBox(corner, spec.dx, spec.dy, spec.dz);
+    return { handle: this.#wrap(maker.Shape()) };
+  }
+
+  async makeCylinder(spec: CylinderSpec): Promise<GeometryResult> {
+    if (spec.radius <= 0 || spec.height <= 0) {
+      throw new KernelError('cylinder radius and height must be positive', 'makeCylinder');
+    }
+    const axis = new this.oc.gp_Ax2(
+      this.#point(spec.origin),
+      new this.oc.gp_Dir(spec.axis?.x ?? 0, spec.axis?.y ?? 0, spec.axis?.z ?? 1),
+    );
+    const maker = new this.oc.BRepPrimAPI_MakeCylinder(axis, spec.radius, spec.height);
+    return { handle: this.#wrap(maker.Shape()) };
+  }
+
+  async makeSphere(spec: SphereSpec): Promise<GeometryResult> {
+    if (spec.radius <= 0) throw new KernelError('sphere radius must be positive', 'makeSphere');
+    const maker = new this.oc.BRepPrimAPI_MakeSphere(this.#point(spec.origin), spec.radius);
+    return { handle: this.#wrap(maker.Shape()) };
+  }
+
+  // ---------------------------------------------------------------- operations
+  async boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult> {
+    const a = this.registry.get(base);
+    const b = this.registry.get(tool);
+    const builder =
+      op === 'union' ? new this.oc.BRepAlgoAPI_Fuse(a, b)
+      : op === 'cut' ? new this.oc.BRepAlgoAPI_Cut(a, b)
+      : new this.oc.BRepAlgoAPI_Common(a, b);
+    const shape = this.#build(builder, op);
+    const history = captureHistory(this.oc, builder, [a, b], shape);
+    return { handle: this.#wrap(shape), history };
+  }
+
+  async fillet(
+    shape: ShapeHandle, edges: readonly number[], radius: number,
+  ): Promise<GeometryResult> {
+    if (radius <= 0) throw new KernelError('fillet radius must be positive', 'fillet');
+    if (edges.length === 0) throw new KernelError('fillet needs at least one edge', 'fillet');
+    const input = this.registry.get(shape);
+    const allEdges = subShapes(this.oc, input, 'TopAbs_EDGE');
+
+    const builder = new this.oc.BRepFilletAPI_MakeFillet(
+      input, this.oc.ChFi3d_FilletShape.ChFi3d_Rational,
+    );
+    for (const index of edges) {
+      const edge = allEdges[index];
+      if (!edge) {
+        throw new KernelError(
+          `edge ${index} does not exist (shape has ${allEdges.length})`, 'fillet',
+        );
+      }
+      builder.Add(radius, this.oc.TopoDS.Edge(edge));
+    }
+    const result = this.#build(builder, 'fillet');
+    const history = captureHistory(this.oc, builder, [input], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  async chamfer(
+    shape: ShapeHandle, edges: readonly number[], distance: number,
+  ): Promise<GeometryResult> {
+    if (distance <= 0) throw new KernelError('chamfer distance must be positive', 'chamfer');
+    if (edges.length === 0) throw new KernelError('chamfer needs at least one edge', 'chamfer');
+    const input = this.registry.get(shape);
+    const allEdges = subShapes(this.oc, input, 'TopAbs_EDGE');
+
+    const builder = new this.oc.BRepFilletAPI_MakeChamfer(input);
+    for (const index of edges) {
+      const edge = allEdges[index];
+      if (!edge) {
+        throw new KernelError(
+          `edge ${index} does not exist (shape has ${allEdges.length})`, 'chamfer',
+        );
+      }
+      builder.Add(distance, this.oc.TopoDS.Edge(edge));
+    }
+    const result = this.#build(builder, 'chamfer');
+    const history = captureHistory(this.oc, builder, [input], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  async transform(shape: ShapeHandle, matrix: Matrix4): Promise<GeometryResult> {
+    const input = this.registry.get(shape);
+    const trsf = new this.oc.gp_Trsf();
+    // Matrix4 is column-major; SetValues takes row-major 3x4.
+    trsf.SetValues(
+      matrix[0]!, matrix[4]!, matrix[8]!, matrix[12]!,
+      matrix[1]!, matrix[5]!, matrix[9]!, matrix[13]!,
+      matrix[2]!, matrix[6]!, matrix[10]!, matrix[14]!,
+    );
+    const builder = new this.oc.BRepBuilderAPI_Transform(input, trsf, true);
+    const result = builder.Shape();
+    return { handle: this.#wrap(result) };
+  }
+
+  // ---------------------------------------------------------------- queries
+  async tessellate(
+    shape: ShapeHandle, bodyId: BodyId, quality: TessellationQuality,
+  ): Promise<TessellatedBody> {
+    return tessellate(this.oc, this.registry.get(shape), bodyId, quality);
+  }
+
+  async massProperties(shape: ShapeHandle): Promise<MassProperties> {
+    const input = this.registry.get(shape);
+    const volumeProps = new this.oc.GProp_GProps();
+    this.oc.BRepGProp.VolumeProperties(input, volumeProps, false, false, false);
+    const surfaceProps = new this.oc.GProp_GProps();
+    this.oc.BRepGProp.SurfaceProperties(input, surfaceProps, false, false);
+    const centre = volumeProps.CentreOfMass();
+    const result: MassProperties = {
+      volume: volumeProps.Mass(),
+      surfaceArea: surfaceProps.Mass(),
+      centreOfMass: { x: centre.X(), y: centre.Y(), z: centre.Z() },
+    };
+    volumeProps.delete();
+    surfaceProps.delete();
+    return result;
+  }
+
+  async boundingBox(shape: ShapeHandle): Promise<Bounds> {
+    const input = this.registry.get(shape);
+    const box = new this.oc.Bnd_Box();
+    this.oc.BRepBndLib.Add(input, box, true);
+    // Bnd_Box carries a tolerance gap by default, which would report a 40mm box as
+    // very slightly larger than 40mm. Zero it so bounds mean what they say.
+    box.SetGap(0);
+    if (box.IsVoid()) {
+      box.delete();
+      return { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } };
+    }
+    const low = box.CornerMin();
+    const high = box.CornerMax();
+    const bounds: Bounds = {
+      min: { x: low.X(), y: low.Y(), z: low.Z() },
+      max: { x: high.X(), y: high.Y(), z: high.Z() },
+    };
+    box.delete();
+    return bounds;
+  }
+
+  async topologyCounts(shape: ShapeHandle): Promise<TopologyCounts> {
+    const input = this.registry.get(shape);
+    return {
+      faces: subShapes(this.oc, input, 'TopAbs_FACE').length,
+      edges: subShapes(this.oc, input, 'TopAbs_EDGE').length,
+      vertices: subShapes(this.oc, input, 'TopAbs_VERTEX').length,
+    };
+  }
+
+  async release(shape: ShapeHandle): Promise<void> {
+    this.registry.release(shape);
+  }
+
+  /** Free every shape. Call when tearing down a document. */
+  dispose(): void { this.registry.clear(); }
+}
+
+/**
+ * OCCT throws emscripten exception pointers, not Errors. Without this translation every
+ * geometry failure surfaces as an opaque number.
+ */
+function describeOcctError(oc: OpenCascadeInstance, error: unknown, op: string): string {
+  if (typeof error === 'number') {
+    try {
+      // The binding is typed for an Exception object, but emscripten hands us the
+      // raw pointer; the call works either way.
+      const message = (oc.getExceptionMessage as unknown as (p: number) => string)(error);
+      if (message) return `${op}: ${message}`;
+    } catch { /* fall through */ }
+    return `${op} failed inside OpenCascade (exception ${error})`;
+  }
+  return error instanceof Error ? error.message : `${op} failed: ${String(error)}`;
+}
