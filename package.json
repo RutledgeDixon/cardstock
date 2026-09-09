@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "CARDstock — Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
+  "description": "CARDstock \u2014 Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
   "license": "MIT",
   "engines": {
     "node": ">=22"
@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "boundaries": "node tools/check-boundaries.mjs"
+    "boundaries": "node tools/check-boundaries.mjs",
+    "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

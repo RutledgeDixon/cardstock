@@ -103,8 +103,15 @@ const modFaces = drainList(fil.Modified(faces[0]));
 console.log(`  Generated(edge0)  ${genFaces.length} face(s)   <- the fillet surface`);
 console.log(`  Modified(face0)   ${modFaces.length} replacement(s)`);
 console.log(`  IsDeleted(face0)  ${fil.IsDeleted(faces[0])}`);
-const bGen = drainList(cut.Modified(faces[0]));
-console.log(`  boolean Modified(face0) -> ${bGen.length}  (booleans carry history too)`);
+// Ask across ALL input faces: an untouched face correctly reports nothing, so querying
+// only face 0 would prove nothing either way.
+let touched = 0, deleted = 0;
+for (const f of faces) {
+  if (drainList(cut.Modified(f)).length > 0) touched++;
+  if (cut.IsDeleted(f)) deleted++;
+}
+console.log(`  boolean: ${touched}/${faces.length} input faces report Modified, ${deleted} deleted`);
+console.log(`           (untouched faces correctly report nothing - booleans carry history too)`);
 console.log(`  verdict: provenance-based topological naming is VIABLE.`);
 
 // ---------------------------------------------------------------- 4. coverage
