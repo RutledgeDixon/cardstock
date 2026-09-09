@@ -1,4 +1,7 @@
-export { Document, type DocumentSnapshot, type EditOptions } from './document.js';
+export {
+  Document,
+  type DocumentSnapshot, type EditOptions, type ReorderResult, type RewireEdit,
+} from './document.js';
 
 export {
   ParameterTable, validateParameterName,

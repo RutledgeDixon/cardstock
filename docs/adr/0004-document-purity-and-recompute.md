@@ -55,9 +55,24 @@ pretending. Errors name the feature and the offending value
 
 ## Decisions worth recording
 
-- **Feature order is presentational.** Inputs are explicit ids, so reordering the tree
-  changes what you see, not what depends on what. History-position-based CAD silently
-  rebinds a feature when you move it; this cannot.
+- **Reorder rewires the primary chain.** Inputs are explicit ids, so the list order is
+  not itself the dependency — but a drag still performs the edit the user means: the
+  moved feature takes its new predecessor's place in the chain, and the feature that
+  consumed it bypasses it. Same visible behaviour as SolidWorks, with one crucial
+  difference: the rebinding is an explicit, recorded, undoable edit rather than an
+  emergent side effect of an array index, so Phase 4 can see the references change and
+  a move that cannot work is refused with a reason instead of silently producing a
+  wrong part.
+
+  It splices the **primary chain**, not the raw list. In `Box, Drill, Hole, Round` the
+  cylinder sits between the box and the cut in the list, but it is a boolean *tool*, not
+  a step in the chain; splicing against list neighbours would hand the fillet a cylinder
+  to operate on. Splicing against the chain skips side inputs, and — being a chain —
+  cannot produce a cycle. Secondary inputs keep their bindings, because "which solid does
+  this cut with" is not something a drag in a list can express. Walking the chain stops
+  at a fork for the same reason. A move that would leave a feature displayed above
+  something it depends on is refused: the graph would still build it correctly, but a
+  tree that reads in an order the model does not follow is just confusing.
 - **Trigonometry is in degrees.** Every CAD package works that way; radians would be a
   foot-gun with no upside.
 - **Expressions are parsed, never `eval`'d.** A document is a file people share, so an
