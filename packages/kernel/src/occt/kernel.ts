@@ -3,7 +3,7 @@ import {
   type BooleanOp, type Bounds, type BoxSpec, type CylinderSpec, type GeometryResult,
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
-  type ShapeDescription,
+  type ShapeDescription, type ProfileSpec, type Vec3,
   KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
 import { ShapeRegistry } from './registry.js';
@@ -11,6 +11,7 @@ import { subShapes } from './topology.js';
 import { captureHistory } from './history.js';
 import { tessellate } from '../tessellate/tessellate.js';
 import { describeShape } from './describe.js';
+import { makeFace } from './profile.js';
 
 /**
  * KernelPort over OpenCascade.
@@ -68,6 +69,42 @@ export class OcctKernel implements KernelPort {
     if (spec.radius <= 0) throw new KernelError('sphere radius must be positive', 'makeSphere');
     const maker = new this.oc.BRepPrimAPI_MakeSphere(this.#point(spec.origin), spec.radius);
     return { handle: this.#wrap(maker.Shape()) };
+  }
+
+  // ---------------------------------------------------------------- profiles
+  async makeFace(profile: ProfileSpec): Promise<GeometryResult> {
+    return { handle: this.#wrap(makeFace(this.oc, profile)) };
+  }
+
+  /**
+   * Sweep a face along its own normal.
+   *
+   * The direction comes from the face rather than being passed in, so an extrude cannot
+   * end up skewed relative to the sketch it came from.
+   */
+  async extrude(shape: ShapeHandle, distance: number, symmetric = false): Promise<GeometryResult> {
+    if (distance === 0) throw new KernelError('extrude distance must not be zero', 'extrude');
+    let input = this.registry.get(shape);
+
+    const normal = faceNormal(this.oc, input);
+    if (!normal) throw new KernelError('extrude needs a planar face', 'extrude');
+
+    if (symmetric) {
+      // Start half a depth back, so the solid straddles the sketch plane.
+      const back = new this.oc.gp_Trsf();
+      back.SetTranslation(new this.oc.gp_Vec(
+        -normal.x * distance / 2, -normal.y * distance / 2, -normal.z * distance / 2,
+      ));
+      input = new this.oc.BRepBuilderAPI_Transform(input, back, true).Shape();
+    }
+
+    const vector = new this.oc.gp_Vec(
+      normal.x * distance, normal.y * distance, normal.z * distance,
+    );
+    const builder = new this.oc.BRepPrimAPI_MakePrism(input, vector, false, true);
+    const result = builder.Shape();
+    const history = captureHistory(this.oc, builder, [input], result);
+    return { handle: this.#wrap(result), history };
   }
 
   // ---------------------------------------------------------------- operations
@@ -249,6 +286,26 @@ export class OcctKernel implements KernelPort {
 
   /** Free every shape. Call when tearing down a document. */
   dispose(): void { this.registry.clear(); }
+}
+
+/** Outward normal of the first planar face of a shape, or null if it has none. */
+function faceNormal(oc: OpenCascadeInstance, shape: TopoDS_Shape): Vec3 | null {
+  const faces = subShapes(oc, shape, 'TopAbs_FACE');
+  const first = faces[0];
+  if (!first) return null;
+  try {
+    const face = oc.TopoDS.Face(first);
+    const gprop = new oc.BRepGProp_Face(face);
+    const range = gprop.Bounds(0, 0, 0, 0);
+    const point = new oc.gp_Pnt(0, 0, 0);
+    const normal = new oc.gp_Vec(0, 0, 0);
+    gprop.Normal((range.U1 + range.U2) / 2, (range.V1 + range.V2) / 2, point, normal);
+    const magnitude = normal.Magnitude();
+    if (magnitude < 1e-9) return null;
+    return { x: normal.X() / magnitude, y: normal.Y() / magnitude, z: normal.Z() / magnitude };
+  } catch {
+    return null;
+  }
 }
 
 /**

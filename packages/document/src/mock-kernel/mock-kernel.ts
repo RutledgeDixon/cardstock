@@ -1,7 +1,7 @@
 import type {
   BooleanOp, Bounds, BoxSpec, CylinderSpec, GeometryResult, KernelPort, MassProperties,
   Matrix4, ShapeHandle, SphereSpec, TessellatedBody, TessellationQuality, TopologyCounts,
-  BodyId, EntityFingerprint, ShapeDescription,
+  BodyId, EntityFingerprint, ShapeDescription, ProfileSpec,
 } from '@cardstock/types';
 import { KernelError } from '@cardstock/types';
 
@@ -116,6 +116,37 @@ export class MockKernel implements KernelPort {
       volume: (4 / 3) * Math.PI * spec.radius ** 3,
       faces: 1, edges: 2, vertices: 2,
       description: `sphere(r${spec.radius})`,
+    });
+  }
+
+  async makeFace(profile: ProfileSpec): Promise<GeometryResult> {
+    await this.#record('makeFace', `${profile.loops.length} loop(s)`);
+    if (profile.loops.length === 0) {
+      throw new KernelError('a face needs at least one closed loop', 'makeFace');
+    }
+    // Outer minus holes, which is what the real kernel produces.
+    const area = profile.loops.reduce(
+      (total, loop, index) => total + (index === 0 ? 1 : -1) * Math.abs(loop.signedArea), 0);
+    return this.#create({
+      volume: 0, faces: 1,
+      edges: profile.loops.reduce((n, l) => n + l.segments.length, 0),
+      vertices: profile.loops.reduce((n, l) => n + l.segments.length, 0),
+      description: `face(${area.toFixed(2)})`,
+    });
+  }
+
+  async extrude(shape: ShapeHandle, distance: number, symmetric = false): Promise<GeometryResult> {
+    await this.#record('extrude', `${distance}${symmetric ? ' symmetric' : ''}`);
+    const s = this.#require(shape, 'extrude');
+    if (distance === 0) throw new KernelError('extrude distance must not be zero', 'extrude');
+    // The mock records face area in `description`; recover it to give a plausible volume.
+    const area = Number(/face\(([-\d.]+)\)/.exec(s.description)?.[1] ?? 1);
+    return this.#create({
+      volume: area * Math.abs(distance),
+      faces: s.faces + s.edges + 1,
+      edges: s.edges * 3,
+      vertices: s.vertices * 2,
+      description: `extrude(${s.description},${distance})`,
     });
   }
 

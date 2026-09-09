@@ -108,6 +108,43 @@ export const DIMENSIONAL_CONSTRAINTS: readonly SketchConstraintType[] = [
 export const isDimensional = (type: SketchConstraintType): boolean =>
   DIMENSIONAL_CONSTRAINTS.includes(type);
 
+// ---------------------------------------------------------------- profiles
+
+/** Where a sketch plane sits in 3D. `xAxis` fixes the in-plane rotation. */
+export interface PlanePlacement {
+  readonly origin: { readonly x: number; readonly y: number; readonly z: number };
+  readonly normal: { readonly x: number; readonly y: number; readonly z: number };
+  readonly xAxis: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/** One piece of a closed boundary, in sketch-plane coordinates. */
+export type ProfileSegment =
+  | { readonly kind: 'line'; readonly from: Vec2; readonly to: Vec2 }
+  | {
+      readonly kind: 'arc'; readonly centre: Vec2; readonly radius: number;
+      readonly from: Vec2; readonly to: Vec2;
+      readonly startAngle: number; readonly endAngle: number;
+    }
+  | { readonly kind: 'circle'; readonly centre: Vec2; readonly radius: number };
+
+export interface ProfileLoopSpec {
+  readonly segments: readonly ProfileSegment[];
+  /** Shoelace area; its sign gives the winding direction. */
+  readonly signedArea: number;
+}
+
+/**
+ * A closed profile ready to become a face.
+ *
+ * The first loop is the outer boundary; the rest are holes. The kernel does not work
+ * that out for itself, because deciding which loop encloses which is a modelling
+ * question, not a geometry one.
+ */
+export interface ProfileSpec {
+  readonly placement: PlanePlacement;
+  readonly loops: readonly ProfileLoopSpec[];
+}
+
 // ---------------------------------------------------------------- solving
 
 export interface SolveRequest {

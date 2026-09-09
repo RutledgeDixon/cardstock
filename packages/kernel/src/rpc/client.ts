@@ -3,6 +3,7 @@ import {
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription,
+  type ProfileSpec,
   KernelError,
 } from '@cardstock/types';
 import { isKernelReady, type KernelMethod, type KernelResponse } from './protocol.js';
@@ -58,6 +59,11 @@ export class WorkerKernel implements KernelPort {
   makeBox(spec: BoxSpec) { return this.#call<GeometryResult>('makeBox', spec); }
   makeCylinder(spec: CylinderSpec) { return this.#call<GeometryResult>('makeCylinder', spec); }
   makeSphere(spec: SphereSpec) { return this.#call<GeometryResult>('makeSphere', spec); }
+
+  makeFace(profile: ProfileSpec) { return this.#call<GeometryResult>('makeFace', profile); }
+  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean) {
+    return this.#call<GeometryResult>('extrude', shape, distance, symmetric);
+  }
 
   boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle) {
     return this.#call<GeometryResult>('boolean', op, base, tool);

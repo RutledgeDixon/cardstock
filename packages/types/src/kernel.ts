@@ -1,6 +1,7 @@
 import type { Bounds, Vec3 } from './geometry.js';
 import type { TessellatedBody, TessellationQuality } from './tessellation.js';
 import type { BodyId } from './ids.js';
+import type { ProfileSpec } from './sketch.js';
 
 /**
  * The geometry contract.
@@ -114,6 +115,11 @@ export interface KernelPort {
   makeBox(spec: BoxSpec): Promise<GeometryResult>;
   makeCylinder(spec: CylinderSpec): Promise<GeometryResult>;
   makeSphere(spec: SphereSpec): Promise<GeometryResult>;
+
+  /** Build a planar face from a closed profile: first loop outer, the rest holes. */
+  makeFace(profile: ProfileSpec): Promise<GeometryResult>;
+  /** Sweep a face along its normal. Negative distance extrudes the other way. */
+  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean): Promise<GeometryResult>;
 
   boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult>;
   fillet(shape: ShapeHandle, edges: readonly number[], radius: number): Promise<GeometryResult>;
