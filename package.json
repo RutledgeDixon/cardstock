@@ -20,12 +20,16 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "boundaries": "node tools/check-boundaries.mjs",
-    "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs"
+    "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs",
+    "fixture": "node tools/make-fixture.mjs",
+    "check": "npm run typecheck && npm run lint && npm run boundaries && npm test"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "prettier": "^3.4.2",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.70.0",

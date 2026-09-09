@@ -14,5 +14,10 @@
     {
       "path": "../document"
     }
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "dist"
   ]
 }

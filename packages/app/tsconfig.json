@@ -32,5 +32,10 @@
     {
       "path": "../ui"
     }
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "dist"
   ]
 }

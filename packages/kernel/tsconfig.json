@@ -17,5 +17,10 @@
     {
       "path": "../types"
     }
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "dist"
   ]
 }

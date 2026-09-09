@@ -9,7 +9,7 @@
  *   3. Does it report DOF, so we can show under/over-constrained state?
  *   4. Does it identify CONFLICTING constraints by name, so errors are actionable?
  */
-import { make_gcs_wrapper, SolveStatus } from '@salusoft89/planegcs';
+import { make_gcs_wrapper } from '@salusoft89/planegcs';
 
 const STATUS = ['Success', 'Converged', 'Failed', 'SuccessfulSolutionInvalid'];
 const t0 = Date.now();

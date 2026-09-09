@@ -15,7 +15,6 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const ms = () => Date.now();
-const ok = (b) => (b ? 'yes' : 'NO');
 
 const tBoot = ms();
 const oc = await OC();

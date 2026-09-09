@@ -20,5 +20,8 @@
     "@cardstock/viewer": "*",
     "@cardstock/commands": "*",
     "@cardstock/ui": "*"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2"
   }
 }

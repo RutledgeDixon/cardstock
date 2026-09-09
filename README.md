@@ -54,7 +54,12 @@ npm run boundaries   # architectural layering check
 
 ## Status
 
-Phase 0 — foundations and de-risking spikes. See `docs/adr/` for decisions and
-`tools/spikes/` for the measurements behind them.
+**Phase 1** — the viewer. Keyboard-first turntable navigation, and face/edge/vertex
+picking against a static tessellation fixture. `npm run dev`, then point at the model
+and press Tab to cycle what you can select.
+
+Phase 0 (foundations and de-risking spikes) is complete — see `docs/adr/` for the
+decisions and `tools/spikes/` for the measurements behind them. Phase 2 builds the
+document model and recompute engine; Phase 3 replaces the fixture with the live kernel.
 
 Part files are `.card`.

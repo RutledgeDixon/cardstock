@@ -26,5 +26,10 @@
     {
       "path": "../viewer"
     }
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "dist"
   ]
 }
