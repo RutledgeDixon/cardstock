@@ -57,7 +57,22 @@ export function App() {
   // ---------------------------------------------------------------- boot
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || core.current) return;
+    if (!canvas) return;
+
+    // Already built: just make sure the loop is running and re-observe.
+    //
+    // StrictMode double-invokes effects in development. The previous shape of this —
+    // build once, and dispose in cleanup — meant the second invocation bailed on the
+    // singleton guard while the first invocation's cleanup had already stopped the
+    // render loop, leaving a fully-populated scene that never drew a frame. Creation is
+    // idempotent; STARTING is what has to happen on every run.
+    if (core.current) {
+      core.current.viewer.resize();
+      core.current.viewer.start();
+      const reobserve = new ResizeObserver(() => core.current?.viewer.resize());
+      reobserve.observe(canvas);
+      return () => { reobserve.disconnect(); core.current?.viewer.stop(); };
+    }
 
     const viewer = new Viewer(canvas);
     const kernel = createWorkerKernel();
@@ -136,7 +151,9 @@ export function App() {
       __step: (steps = 60, dt = 1 / 60) => { for (let i = 0; i < steps; i++) viewer.step(dt); },
     });
 
-    return () => { observer.disconnect(); keyboard.detach(); viewer.dispose(); };
+    // Stop the loop and unbind input, but do NOT dispose: the viewer, worker and
+    // document are session-scoped singletons, and the next effect run restarts them.
+    return () => { observer.disconnect(); keyboard.detach(); viewer.stop(); };
   }, [repaint]);
 
   const focusedRef = useRef<FeatureId | null>(null);

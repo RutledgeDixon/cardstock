@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  --panel-w: 76px;
+  --panel-w: 84px;
   --bg: #14161a;
   --panel: #1c1f26;
   --panel-edge: #2c313b;
@@ -51,15 +51,15 @@ button:disabled { cursor: default; }
 /* Icon above, name beneath: readable without hovering, and stays scannable as the
    panel grows. */
 .tool {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: 100%; padding: 7px 2px 5px; border-radius: 6px; color: var(--ink);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 100%; padding: 9px 2px 6px; border-radius: 6px; color: var(--ink);
 }
 .tool:hover:not(:disabled) { background: #2a303b; }
 .tool:disabled { color: #565d6a; }
 .tool.is-open { background: #2f3a4a; box-shadow: inset 2px 0 0 var(--accent); }
-.tool-icon { font-size: 17px; line-height: 1.1; }
+.tool-icon { font-size: 26px; line-height: 1.05; }
 .tool-name {
-  font-size: 9.5px; line-height: 1.15; text-align: center;
+  font-size: 10px; line-height: 1.15; text-align: center;
   /* Wrap to two lines rather than truncating: "New shape" and "Modify edge" are the
      labels that make the panel readable, and "New sha…" is not a label. */
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
@@ -69,17 +69,20 @@ button:disabled { cursor: default; }
 
 .flyout {
   position: fixed; z-index: 8;
-  display: flex; flex-direction: column; min-width: 138px; padding: 4px;
+  display: flex; flex-direction: column; min-width: 148px; padding: 4px;
+  /* Overlap the panel edge by a pixel so there is no gap for the pointer to fall
+     through on its way across. */
+  margin-right: -1px;
   background: #212731f7; border: 1px solid var(--panel-edge); border-radius: 7px;
   backdrop-filter: blur(10px);
 }
 .flyout button {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 9px; border-radius: 5px; text-align: left; white-space: nowrap;
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 5px; text-align: left; white-space: nowrap;
 }
 .flyout button:hover:not(:disabled) { background: #2f3a4a; }
 .flyout button:disabled { color: #565d6a; }
-.flyout-icon { width: 15px; text-align: center; }
+.flyout-icon { width: 18px; text-align: center; font-size: 15px; }
 
 /* ---------------------------------------------------------------- left rail */
 .left-rail {

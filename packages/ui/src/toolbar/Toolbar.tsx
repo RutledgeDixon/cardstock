@@ -43,20 +43,33 @@ export function Toolbar({
     };
   }, [openGroup]);
 
+  /**
+   * Open a group, or keep it open.
+   *
+   * The position is measured ONCE, from the button that opened it. Re-measuring when the
+   * pointer enters the flyout would move it — the flyout is not the button, so it has a
+   * different rect — and a menu that jumps out from under the cursor then closes because
+   * the cursor is no longer on it.
+   */
   const hold = (id: string | null, anchor?: HTMLElement | null) => {
     window.clearTimeout(closeTimer.current);
     if (id === null) { setOpenGroup(null); return; }
-    const rect = (anchor ?? panelRef.current)?.getBoundingClientRect();
-    setOpenGroup({
-      id,
-      top: rect?.top ?? 0,
-      right: window.innerWidth - (rect?.left ?? 0) + 6,
+    setOpenGroup((current) => {
+      if (current?.id === id) return current; // already placed; leave it exactly where it is
+      const rect = anchor?.getBoundingClientRect();
+      return {
+        id,
+        top: rect?.top ?? 0,
+        // Butt it right against the panel: a gap the pointer must cross is a gap it can
+        // leave through.
+        right: window.innerWidth - (rect?.left ?? 0),
+      };
     });
   };
-  // A short grace period so the pointer can cross the gap into the flyout.
+  // A grace period, so a diagonal move toward the flyout does not close it en route.
   const release = () => {
     window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setOpenGroup(null), 220);
+    closeTimer.current = window.setTimeout(() => setOpenGroup(null), 450);
   };
 
   return (

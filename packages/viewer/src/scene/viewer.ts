@@ -195,8 +195,15 @@ export class Viewer {
       if (!this.#running) return;
       const dt = (now - this.#lastTime) / 1000;
       this.#lastTime = now;
-      this.step(dt);
+      // Schedule the next frame BEFORE stepping. If step throws — a bad pick, a
+      // half-built body — scheduling afterwards would kill the loop permanently and the
+      // app would freeze on its last drawn frame with no error anyone would connect to it.
       this.#frameHandle = requestAnimationFrame(loop);
+      try {
+        this.step(dt);
+      } catch (error) {
+        console.error('[viewer] frame failed', error);
+      }
     };
     this.#frameHandle = requestAnimationFrame(loop);
   }
