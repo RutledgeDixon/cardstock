@@ -5,8 +5,12 @@
   "type": "module",
   "description": "CARDstock — Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
   "license": "MIT",
-  "engines": { "node": ">=22" },
-  "workspaces": ["packages/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @cardstock/app",
     "build": "tsc -b && npm run build -w @cardstock/app",

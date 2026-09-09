@@ -36,8 +36,10 @@ const BANNED = {
   document: [
     ['three', 'the part model must not know about rendering'],
     ['opencascade.js', 'the part model talks to KernelPort, never to OCCT directly'],
+    ['replicad-opencascadejs', 'the part model talks to KernelPort, never to OCCT directly'],
     ['react', 'the part model must not know about the UI'],
     ['zustand', 'the part model owns its own state, not a UI store'],
+    ['@salusoft89/planegcs', 'the sketcher talks to SolverPort, never to PlaneGCS directly'],
   ],
   commands: [
     ['three', 'commands describe intent; they do not render'],
@@ -48,6 +50,11 @@ const BANNED = {
     ['opencascade.js', 'the viewer consumes tessellated meshes, not B-rep'],
   ],
   kernel: [['three', 'the kernel emits plain typed arrays, not scene objects']],
+  ui: [
+    ['opencascade.js', 'the UI goes through the document, never straight to geometry'],
+    ['replicad-opencascadejs', 'the UI goes through the document, never straight to geometry'],
+    ['@salusoft89/planegcs', 'the UI goes through the document, never straight to the solver'],
+  ],
 };
 
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;

@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@cardstock/types": "*",
-    "opencascade.js": "^1.1.1",
+    "@salusoft89/planegcs": "^1.2.0",
     "replicad-opencascadejs": "^1.1.0"
   }
 }
