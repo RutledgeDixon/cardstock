@@ -96,7 +96,9 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Round the selected edges',
       icon: '◜',
       contexts: ['edge'],
-      keys: ['f'],
+      // Fit owns plain F: it is the far more frequent action, and it is what the status
+      // bar has advertised since Phase 1.
+      keys: ['shift+f'],
       enabled: needsSelection('edge', 'one or more edges'),
       run: async () => { await host.addEdgeOperation('fillet'); },
     },
@@ -188,7 +190,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '⤢',
       contexts: ['empty', 'always'],
       sector: { empty: 6 },
-      keys: ['shift+f'],
+      keys: ['f'],
       enabled: needsModel,
       run: () => host.fitAll(),
     },

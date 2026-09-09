@@ -33,6 +33,29 @@ const FIELD_LABELS: Record<string, string> = {
   x: 'x', y: 'y', z: 'z',
 };
 
+/**
+ * Start the things that cleanup tears down: the render loop, camera keys, resize.
+ *
+ * One function, used by both the first effect run and every StrictMode re-run, so a
+ * binding cannot be present on one path and missing on the other.
+ */
+function activate(viewer: Viewer, canvas: HTMLCanvasElement): () => void {
+  viewer.resize();
+  viewer.start();
+
+  const keyboard = new KeyboardCameraInput(viewer);
+  keyboard.attach();
+
+  const observer = new ResizeObserver(() => viewer.resize());
+  observer.observe(canvas);
+
+  return () => {
+    observer.disconnect();
+    keyboard.detach();
+    viewer.stop();
+  };
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
@@ -59,20 +82,15 @@ export function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Already built: just make sure the loop is running and re-observe.
+    // CONSTRUCTION happens once; ACTIVATION happens on every effect run.
     //
-    // StrictMode double-invokes effects in development. The previous shape of this —
-    // build once, and dispose in cleanup — meant the second invocation bailed on the
-    // singleton guard while the first invocation's cleanup had already stopped the
-    // render loop, leaving a fully-populated scene that never drew a frame. Creation is
-    // idempotent; STARTING is what has to happen on every run.
-    if (core.current) {
-      core.current.viewer.resize();
-      core.current.viewer.start();
-      const reobserve = new ResizeObserver(() => core.current?.viewer.resize());
-      reobserve.observe(canvas);
-      return () => { reobserve.disconnect(); core.current?.viewer.stop(); };
-    }
+    // StrictMode double-invokes effects, so the two must be separated: the viewer,
+    // worker and document are session-scoped singletons, while the render loop, the
+    // keyboard binding and the resize observer are torn down by cleanup and have to be
+    // re-established. An earlier version had a second, abbreviated activation path for
+    // the already-built case, and it silently omitted the keyboard — which is exactly
+    // why there is only one activation path now.
+    if (core.current) return activate(core.current.viewer, canvas);
 
     const viewer = new Viewer(canvas);
     const kernel = createWorkerKernel();
@@ -122,13 +140,8 @@ export function App() {
     });
     registry.registerAll(createBuiltinCommands(host));
 
-    const keyboard = new KeyboardCameraInput(viewer);
-    keyboard.attach();
     viewer.selection.subscribe(repaint);
-    viewer.start();
-
-    const observer = new ResizeObserver(() => viewer.resize());
-    observer.observe(canvas);
+    const teardown = activate(viewer, canvas);
 
     void (async () => {
       await kernel.whenReady();
@@ -151,9 +164,7 @@ export function App() {
       __step: (steps = 60, dt = 1 / 60) => { for (let i = 0; i < steps; i++) viewer.step(dt); },
     });
 
-    // Stop the loop and unbind input, but do NOT dispose: the viewer, worker and
-    // document are session-scoped singletons, and the next effect run restarts them.
-    return () => { observer.disconnect(); keyboard.detach(); viewer.stop(); };
+    return teardown;
   }, [repaint]);
 
   const focusedRef = useRef<FeatureId | null>(null);
