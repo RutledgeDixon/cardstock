@@ -1,6 +1,7 @@
 import { asFeatureId, type EntityRef, type FeatureId } from '@cardstock/types';
 import type { Document, TopoRef } from '@cardstock/document';
 import type { Viewer } from '@cardstock/viewer';
+import { leafFeatures as bodyLeaves } from './model-bridge.js';
 import type { CommandHost, CommandState } from '@cardstock/commands';
 
 /**
@@ -33,6 +34,9 @@ export interface HostDeps {
 
   // --- sketching
   beginSketch: (plane: 'xy' | 'xz' | 'yz') => Promise<void>;
+  beginSketchOnFace: () => Promise<boolean>;
+  editSketch: () => Promise<boolean>;
+  deleteSketchSelection: () => boolean;
   finishSketch: () => Promise<void>;
   setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle') => void;
   sketching: () => boolean;
@@ -57,13 +61,7 @@ export function createHost(deps: HostDeps): CommandHost {
   };
 
   /** Bodies nothing else consumes — the things a boolean can combine. */
-  const leafFeatures = (): FeatureId[] => {
-    const consumed = new Set<string>();
-    for (const feature of doc.features) {
-      for (const input of Object.values(feature.inputs)) consumed.add(input as string);
-    }
-    return doc.features.filter((f) => !consumed.has(f.id as string)).map((f) => f.id);
-  };
+  const leafFeatures = (): FeatureId[] => bodyLeaves(doc);
 
   return {
     state: (): CommandState => ({
@@ -195,6 +193,9 @@ export function createHost(deps: HostDeps): CommandHost {
     cycleSelectionFilter: (direction) => viewer.selection.cycleFilter(direction),
 
     beginSketch: (plane) => deps.beginSketch(plane),
+    beginSketchOnFace: () => deps.beginSketchOnFace(),
+    editSketch: () => deps.editSketch(),
+    deleteSketchSelection: () => deps.deleteSketchSelection(),
     finishSketch: () => deps.finishSketch(),
     setSketchTool: (tool) => deps.setSketchTool(tool),
 

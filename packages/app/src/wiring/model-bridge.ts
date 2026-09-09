@@ -29,7 +29,14 @@ export interface RebuildReport {
 export function leafFeatures(doc: Document): FeatureId[] {
   const consumed = new Set<string>();
   for (const feature of doc.features) {
-    for (const input of Object.values(feature.inputs)) consumed.add(input as string);
+    const definition = doc.registry.get(feature.type);
+    // OPTIONAL inputs are references, not consumption. A sketch names the body it sits
+    // on so its plane can be resolved, but it does not absorb it — treating that as
+    // consumption makes the body vanish the moment you sketch on it.
+    const optional = new Set(definition?.optionalShapeInputs ?? []);
+    for (const [role, input] of Object.entries(feature.inputs)) {
+      if (!optional.has(role)) consumed.add(input as string);
+    }
   }
   const leaves = doc.features.filter((f) => !consumed.has(f.id as string));
   return leaves.length > 0
@@ -48,6 +55,19 @@ export function terminalFeature(doc: Document): FeatureId | null {
  * The viewer hands back tessellation indices, which are only valid until the next
  * rebuild. This turns them into TopoRefs, which are not. See docs/toponaming.md.
  */
+/** Mint a durable reference for one picked face, e.g. a sketch plane. */
+export async function captureFaceRef(
+  kernel: KernelPort,
+  feature: FeatureId,
+  index: number,
+  handleFor: (feature: FeatureId) => string | null,
+): Promise<TopoRef | null> {
+  const handle = handleFor(feature);
+  if (!handle) return null;
+  const description = await kernel.describeShape(handle as never);
+  return captureTopoRef(feature, 'face', index, description);
+}
+
 export async function captureEdgeRefs(
   doc: Document,
   kernel: KernelPort,
@@ -67,6 +87,14 @@ export async function rebuild(
   doc: Document,
   kernel: KernelPort,
   viewer: Viewer,
+  /**
+   * A feature to leave out of the rendered bodies.
+   *
+   * Used for the sketch currently open for editing: its face is coplanar with whatever
+   * it was drawn on, so rendering both z-fights, and SketchView is already drawing the
+   * sketch in a form you can actually edit.
+   */
+  hide?: FeatureId | null,
 ): Promise<RebuildReport> {
   const startedRebuild = performance.now();
   const result = await doc.recompute();
@@ -93,6 +121,7 @@ export async function rebuild(
   const live = new Set<string>();
 
   for (const id of leafFeatures(doc)) {
+    if (hide && id === hide) continue;
     const handle = result.states.get(id)?.handle;
     if (!handle) continue;
     const body = await kernel.tessellate(handle, id as unknown as BodyId, DISPLAY_QUALITY);

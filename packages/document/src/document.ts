@@ -471,8 +471,17 @@ export class Document {
     return doc;
   }
 
-  /** Create a sketch and the feature that turns it into a face. */
-  addSketch(plane: SketchPlane, opts: EditOptions = {}): { sketch: Sketch; id: FeatureId } {
+  /**
+   * Create a sketch and the feature that turns it into a face.
+   *
+   * `base` is the body a face-based sketch sits on; it becomes a real feature input, so
+   * the sketch rebuilds when that body does and its plane is re-resolved through the
+   * durable reference rather than frozen where it was drawn.
+   */
+  addSketch(
+    plane: SketchPlane,
+    opts: EditOptions & { base?: FeatureId } = {},
+  ): { sketch: Sketch; id: FeatureId } {
     const sketchId = `sk${++this.#nextSketchId}`;
     const sketch = new Sketch(plane);
     // The origin is fixed so a sketch is never free to float away from its own plane.
@@ -481,7 +490,10 @@ export class Document {
 
     const id = this.newFeatureId('sketch');
     this.addFeature(
-      { id, type: 'sketch', name: `Sketch ${this.#nextSketchId}`, values: {}, inputs: {}, sketchId },
+      {
+        id, type: 'sketch', name: `Sketch ${this.#nextSketchId}`,
+        values: {}, inputs: opts.base ? { base: opts.base } : {}, sketchId,
+      },
       undefined,
       { label: 'Add sketch', ...opts },
     );

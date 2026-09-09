@@ -1,6 +1,8 @@
 import type { FeatureDefinition } from './feature.js';
 import { buildProfile, outerLoop } from '../sketch/profile.js';
 import { resolvePlacement } from '../sketch/placement.js';
+import { placementForFaceIndex } from '../sketch/face-plane.js';
+import { resolveTopoRef } from '../toporef/resolver.js';
 
 /**
  * Sketch-based features.
@@ -14,11 +16,25 @@ export const sketchFeature: FeatureDefinition = {
   type: 'sketch',
   label: 'Sketch',
   shapeInputs: [],
+  // The body a face-based sketch sits on. Optional, because an origin-plane sketch has
+  // no body at all and declaring this as required would block every one of them.
+  optionalShapeInputs: ['base'],
   valueKeys: [],
-  async compute({ kernel, solver, sketch, parameters }) {
+  async compute({ kernel, solver, sketch, parameters, shapes }) {
     if (!sketch) throw new Error('this sketch feature has no sketch');
 
-    const placement = resolvePlacement(sketch.plane);
+    // A face plane is resolved fresh on every rebuild, through the same durable
+    // reference machinery as any other topological selection, so the sketch follows its
+    // face when the body underneath changes rather than staying where it was drawn.
+    let placement = resolvePlacement(sketch.plane);
+    if (!placement && sketch.plane.kind === 'face') {
+      const base = shapes.base;
+      if (!base) throw new Error('the body this sketch sits on is unavailable');
+      const description = await kernel.describeShape(base);
+      const resolved = resolveTopoRef(sketch.plane.ref, description);
+      if (!resolved.ok) throw new Error(`the sketch plane ${resolved.reason}`);
+      placement = placementForFaceIndex(description, resolved.index);
+    }
     if (!placement) throw new Error('the sketch plane could not be resolved');
 
     const solved = await sketch.solve(solver, parameters);

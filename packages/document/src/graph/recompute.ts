@@ -206,7 +206,8 @@ export class RecomputeEngine {
     // --- resolve shape inputs
     const shapes: Record<string, ShapeHandle> = {};
     const inputHashes: Record<string, string | null> = {};
-    for (const role of definition.shapeInputs) {
+    const allRoles = [...definition.shapeInputs, ...(definition.optionalShapeInputs ?? [])];
+    for (const role of allRoles) {
       const upstreamId = feature.inputs[role];
       if (upstreamId === undefined) continue;
       const upstream = states.get(upstreamId as FeatureId);

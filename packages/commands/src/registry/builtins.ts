@@ -30,9 +30,23 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       sector: { face: 0 },
       toolbar: { order: 10 },
       keys: ['s'],
-      children: ['sketch.onXY', 'sketch.onXZ', 'sketch.onYZ'],
+      children: ['sketch.onFace', 'sketch.onXY', 'sketch.onXZ', 'sketch.onYZ'],
       enabled: (s) => (s.sketching ? 'Already sketching' : true),
       run: () => {},
+    },
+    {
+      id: 'sketch.onFace',
+      title: 'On selected face',
+      hint: 'Sketch on the face you have selected',
+      icon: '◧',
+      contexts: ['face'],
+      enabled: (s) => {
+        if (s.sketching) return 'Already sketching';
+        return s.selectionKind === 'face' && s.selectionCount > 0
+          ? true
+          : 'Select a flat face first';
+      },
+      run: async () => { await host.beginSketchOnFace(); },
     },
     {
       id: 'sketch.onXY',
@@ -109,6 +123,29 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['sketch', 'always'],
       enabled: (s) => (s.sketching ? true : 'No sketch is open'),
       run: async () => { await host.finishSketch(); },
+    },
+    {
+      id: 'sketch.edit',
+      title: 'Edit sketch',
+      hint: 'Reopen this sketch for editing',
+      icon: '✐',
+      contexts: ['tree-item'],
+      sector: { 'tree-item': 4 },
+      enabled: (s) => {
+        if (s.sketching) return 'Finish the current sketch first';
+        return s.focusedFeature ? true : 'Select a sketch in the tree';
+      },
+      run: async () => { await host.editSketch(); },
+    },
+    {
+      id: 'sketch.delete',
+      title: 'Delete',
+      hint: 'Remove the selected sketch geometry',
+      icon: '␡',
+      contexts: ['sketch'],
+      sector: { sketch: 5 },
+      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
+      run: () => { host.deleteSketchSelection(); },
     },
     {
       id: 'sketch.extrude',

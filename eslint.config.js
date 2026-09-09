@@ -25,4 +25,10 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
+  {
+    // Runs in the browser console against the live app, not in Node.
+    files: ['tools/browser-smoke.js'],
+    languageOptions: { globals: { ...globals.browser } },
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
 );

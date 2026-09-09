@@ -40,6 +40,12 @@ export interface CommandHost {
   // --- sketching
   /** Open a new sketch on an origin plane and enter sketch mode. */
   beginSketch(plane: 'xy' | 'xz' | 'yz'): Promise<void>;
+  /** Open a sketch on the selected planar face. */
+  beginSketchOnFace(): Promise<boolean>;
+  /** Reopen the focused sketch for editing. */
+  editSketch(): Promise<boolean>;
+  /** Delete whatever is selected inside the open sketch. */
+  deleteSketchSelection(): boolean;
   /** Leave sketch mode, rebuilding whatever the sketch feeds. */
   finishSketch(): Promise<void>;
   setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle'): void;

@@ -58,8 +58,16 @@ export interface FeatureDefinition {
   readonly type: string;
   /** Human label for the UI and error messages. */
   readonly label: string;
-  /** Roles this feature reads shapes from, in order. */
+  /** Roles this feature reads shapes from, in order. All are required. */
   readonly shapeInputs: readonly string[];
+  /**
+   * Roles resolved when present but which do not block when absent.
+   *
+   * A sketch on an origin plane needs no body; a sketch on a face needs the body it
+   * sits on. Declaring that input as required would block every origin-plane sketch,
+   * and declaring it nowhere would leave the face-based one unable to find its plane.
+   */
+  readonly optionalShapeInputs?: readonly string[];
   /**
    * Which shape input the output falls back to when compute fails.
    *

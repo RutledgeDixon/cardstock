@@ -65,3 +65,4 @@ export { extrudeFeature, sketchFeature } from './features/sketch-features.js';
 export {
   SketchTools, type ToolKind, type ToolPreview, type ToolResult,
 } from './sketch/tools.js';
+export { placementForFace, placementForFaceIndex } from './sketch/face-plane.js';

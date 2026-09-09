@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
 import { asFeatureId, type FeatureId } from '@cardstock/types';
-import { Document, evaluateExpression } from '@cardstock/document';
+import {
+  Document, evaluateExpression, placementForFaceIndex, resolvePlacement, resolveTopoRef,
+} from '@cardstock/document';
 import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
 import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
 import {
@@ -13,7 +15,7 @@ import {
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
-  captureEdgeRefs, rebuild, terminalFeature, type RebuildReport,
+  captureEdgeRefs, captureFaceRef, rebuild, terminalFeature, type RebuildReport,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
@@ -85,7 +87,8 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [sketchInfo, setSketchInfo] = useState<{
-    open: boolean; tool: string; dof: number | null; status: string; inference: string | null;
+    open: boolean; tool: string; dof: number | null; status: string;
+    inference: string | null; selected: number;
   } | null>(null);
   const sessionRef = useRef<SketchSession | null>(null);
   const [report, setReport] = useState<{
@@ -133,7 +136,7 @@ export function App() {
     const doRebuild = async () => {
       core.current!.busy = true;
       repaint();
-      const result = await rebuild(doc, kernel, viewer);
+      const result = await rebuild(doc, kernel, viewer, sessionRef.current?.featureId ?? null);
       handles.clear();
       for (const [id, state] of result.result.states) {
         if (state.handle) handles.set(id, state.handle);
@@ -151,6 +154,7 @@ export function App() {
         dof: session.sketch.dof,
         status: session.sketch.status,
         inference,
+        selected: session.selected.size,
       } : null);
     };
 
@@ -192,6 +196,70 @@ export function App() {
         viewer.fitAll();
         repaint();
       },
+      beginSketchOnFace: async () => {
+        const face = viewer.selection.selected.find((r) => r.kind === 'face');
+        const base = terminalFeature(doc);
+        if (!face || !base) { notify('Select a flat face first', 'error'); return false; }
+
+        const ref = await captureFaceRef(kernel, base, face.index, (id) => handles.get(id) ?? null);
+        const handle = handles.get(base);
+        if (!ref || !handle) { notify('Could not identify that face', 'error'); return false; }
+
+        const description = await kernel.describeShape(handle as never);
+        const placement = placementForFaceIndex(description, face.index);
+        if (!placement) { notify('That face is not flat enough to sketch on', 'error'); return false; }
+
+        sessionRef.current?.close();
+        const session = SketchSession.onFace(doc, viewer, ref, placement, base);
+        sessionRef.current = session;
+        session.alignCamera();
+        viewer.selection.clear();
+        session.setTool('line');
+        await doRebuild();
+        syncSketch();
+        return true;
+      },
+
+      editSketch: async () => {
+        const id = focusedRef.current;
+        const feature = id ? doc.feature(id) : null;
+        if (!id || feature?.type !== 'sketch') {
+          notify('Select a sketch in the tree first', 'error');
+          return false;
+        }
+        const sketch = doc.sketchFor(id);
+        if (!sketch) { notify('That sketch is missing', 'error'); return false; }
+
+        // Re-derive the plane the same way the rebuild does, so editing and building
+        // never disagree about where the sketch is.
+        let placement = resolvePlacement(sketch.plane);
+        if (!placement && sketch.plane.kind === 'face') {
+          const base = feature.inputs.base;
+          const handle = base ? handles.get(base) : null;
+          if (handle) {
+            const description = await kernel.describeShape(handle as never);
+            const resolved = resolveTopoRef(sketch.plane.ref, description);
+            if (resolved.ok) placement = placementForFaceIndex(description, resolved.index);
+          }
+        }
+        if (!placement) { notify('That sketch plane could not be resolved', 'error'); return false; }
+
+        const session = SketchSession.reopen(doc, viewer, id, placement);
+        if (!session) return false;
+        sessionRef.current = session;
+        session.alignCamera();
+        viewer.selection.clear();
+        session.setTool('select');
+        syncSketch();
+        return true;
+      },
+
+      deleteSketchSelection: () => {
+        const removed = sessionRef.current?.deleteSelected() ?? false;
+        if (removed) { syncSketch(); void doRebuild(); }
+        return removed;
+      },
+
       setSketchTool: (tool) => { sessionRef.current?.setTool(tool); syncSketch(); },
       sketching: () => sessionRef.current !== null,
       sketchTool: () => sessionRef.current?.tools.kind ?? null,
@@ -224,6 +292,7 @@ export function App() {
     Object.assign(globalThis, {
       __viewer: viewer, __doc: doc, __kernel: kernel, __registry: registry, __host: host,
       __step: (steps = 60, dt = 1 / 60) => { for (let i = 0; i < steps; i++) viewer.step(dt); },
+      __session: () => sessionRef.current,
     });
 
     return teardown;
@@ -354,12 +423,24 @@ export function App() {
           if (e.button !== 0) return;
           const session = sessionRef.current;
           if (session) {
-            // While sketching, a click draws rather than selects.
             core.current?.viewer.setPointer(e.clientX, e.clientY);
+            if (session.tools.kind === 'select') {
+              // The select tool picks sketch geometry rather than drawing.
+              session.toggleSelection(session.pick(), e.shiftKey);
+              setSketchInfo((current) => (current
+                ? { ...current, selected: session.selected.size }
+                : current));
+              return;
+            }
+            // Otherwise a click draws.
             if (session.click()) {
               setSketchInfo((current) => (current ? {
                 ...current, dof: session.sketch.dof, status: session.sketch.status,
               } : current));
+              // Rebuild as you draw. Without this the sketch feature keeps whatever
+              // state it had before the first click, so a finished profile still reads
+              // "no closed profile" in the tree until something else forces a rebuild.
+              rebuildNow();
             }
             return;
           }
@@ -479,6 +560,15 @@ export function App() {
             <span className="sketchbar-inference">{sketchInfo.inference}</span>
           )}
 
+          {sketchInfo.selected > 0 && (
+            <>
+              <span className="sel">{sketchInfo.selected} selected</span>
+              <button type="button" className="sketchbar-delete" onClick={() => run('sketch.delete')}>
+                Delete
+              </button>
+            </>
+          )}
+
           <button type="button" className="sketchbar-finish" onClick={() => run('sketch.finish')}>
             Finish
           </button>
@@ -494,7 +584,9 @@ export function App() {
     if (!c) return;
     void (async () => {
       c.busy = true; repaint();
-      const result = await rebuild(c.doc, c.kernel, c.viewer);
+      const result = await rebuild(
+        c.doc, c.kernel, c.viewer, sessionRef.current?.featureId ?? null,
+      );
       c.handles.clear();
       for (const [id, s] of result.result.states) if (s.handle) c.handles.set(id, s.handle);
       c.busy = false;

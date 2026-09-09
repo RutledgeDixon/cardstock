@@ -236,3 +236,8 @@ kbd {
   border: 1px solid #3d4c66; color: var(--ink); font-size: 11px;
 }
 .sketchbar-finish:hover { background: #35415a; }
+.sketchbar-delete {
+  padding: 4px 10px; border-radius: 5px; background: #3a2a28;
+  border: 1px solid #5a3a32; color: var(--danger); font-size: 11px;
+}
+.sketchbar-delete:hover { background: #4a332f; }
