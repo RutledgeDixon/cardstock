@@ -1,7 +1,7 @@
 import type {
   BooleanOp, Bounds, BoxSpec, CylinderSpec, GeometryResult, KernelPort, MassProperties,
   Matrix4, ShapeHandle, SphereSpec, TessellatedBody, TessellationQuality, TopologyCounts,
-  BodyId,
+  BodyId, EntityFingerprint, ShapeDescription,
 } from '@cardstock/types';
 import { KernelError } from '@cardstock/types';
 
@@ -184,6 +184,40 @@ export class MockKernel implements KernelPort {
       vertexFaceId: empty, faceCount: s.faces,
       edgePositions: empty, edgeSegmentId: new Uint32Array(0), edgeCount: s.edges,
       vertexPositions: empty, vertexCount: s.vertices,
+      bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
+    };
+  }
+
+  /**
+   * Synthetic fingerprints, spread deterministically through the unit cube.
+   *
+   * Enough to satisfy the interface and drive integration tests. Resolver unit tests
+   * build ShapeDescriptions by hand instead, so they can pose the exact ambiguities that
+   * matter rather than whatever this happens to generate.
+   */
+  async describeShape(shape: ShapeHandle): Promise<ShapeDescription> {
+    await this.#record('describeShape', this.describe(shape));
+    const s = this.#require(shape, 'describeShape');
+    const spread = (i: number, n: number) => (n <= 1 ? 0.5 : i / (n - 1));
+
+    const make = (
+      kind: EntityFingerprint['kind'], index: number, count: number, type: string,
+    ): EntityFingerprint => ({
+      kind,
+      index,
+      geometryType: type,
+      centroid: { x: spread(index, count), y: 0, z: 0 },
+      centroidNormalised: { x: spread(index, count), y: 0, z: 0 },
+      direction: kind === 'vertex' ? null : { x: 1, y: 0, z: 0 },
+      measure: 1,
+      measureRatio: 1 / Math.max(count, 1),
+      neighbourTypes: kind === 'edge' ? ['plane', 'plane'] : [],
+    });
+
+    return {
+      faces: Array.from({ length: s.faces }, (_, i) => make('face', i, s.faces, 'plane')),
+      edges: Array.from({ length: s.edges }, (_, i) => make('edge', i, s.edges, 'line')),
+      vertices: Array.from({ length: s.vertices }, (_, i) => make('vertex', i, s.vertices, 'point')),
       bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
     };
   }

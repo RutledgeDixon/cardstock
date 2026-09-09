@@ -2,6 +2,7 @@ import {
   type BooleanOp, type Bounds, type BoxSpec, type CylinderSpec, type GeometryResult,
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
+  type ShapeDescription,
   KernelError,
 } from '@cardstock/types';
 import { isKernelReady, type KernelMethod, type KernelResponse } from './protocol.js';
@@ -76,6 +77,9 @@ export class WorkerKernel implements KernelPort {
   }
   massProperties(shape: ShapeHandle) {
     return this.#call<MassProperties>('massProperties', shape);
+  }
+  describeShape(shape: ShapeHandle) {
+    return this.#call<ShapeDescription>('describeShape', shape);
   }
   boundingBox(shape: ShapeHandle) { return this.#call<Bounds>('boundingBox', shape); }
   topologyCounts(shape: ShapeHandle) {

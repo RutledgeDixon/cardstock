@@ -71,6 +71,41 @@ export interface TopologyCounts {
   readonly vertices: number;
 }
 
+/**
+ * What one topological entity looks like, for re-identifying it after a rebuild.
+ *
+ * Coordinates are normalised against the shape's bounding box. That is the key choice:
+ * a corner edge of a box sits at bbox-fraction (0, 0, *) whether the box is 40mm or 55mm
+ * wide, so the fingerprint is invariant to exactly the edit that breaks index-based
+ * references. See docs/toponaming.md.
+ */
+export interface EntityFingerprint {
+  readonly kind: 'face' | 'edge' | 'vertex';
+  /** Index within the shape at the time of capture. A cache, never a durable identity. */
+  readonly index: number;
+  /** 'plane' | 'cylinder' | 'line' | 'circle' | ... — a hard filter, never a score. */
+  readonly geometryType: string;
+  /** Position within the bounding box, each axis in 0..1. */
+  readonly centroidNormalised: Vec3;
+  /** Raw model-space centroid, for diagnostics and repair UI. */
+  readonly centroid: Vec3;
+  /** Face normal, or edge axis/tangent. Null for vertices. */
+  readonly direction: Vec3 | null;
+  /** Area or length as a fraction of the shape's total. Robust to scaling. */
+  readonly measureRatio: number;
+  /** Raw area or length. */
+  readonly measure: number;
+  /** Sorted geometry types of adjacent faces; distinguishes lookalikes. */
+  readonly neighbourTypes: readonly string[];
+}
+
+export interface ShapeDescription {
+  readonly faces: readonly EntityFingerprint[];
+  readonly edges: readonly EntityFingerprint[];
+  readonly vertices: readonly EntityFingerprint[];
+  readonly bounds: Bounds;
+}
+
 export interface KernelPort {
   makeBox(spec: BoxSpec): Promise<GeometryResult>;
   makeCylinder(spec: CylinderSpec): Promise<GeometryResult>;
@@ -88,6 +123,8 @@ export interface KernelPort {
   ): Promise<TessellatedBody>;
 
   massProperties(shape: ShapeHandle): Promise<MassProperties>;
+  /** Fingerprints for every sub-shape. Drives topological naming (Phase 4). */
+  describeShape(shape: ShapeHandle): Promise<ShapeDescription>;
   boundingBox(shape: ShapeHandle): Promise<Bounds>;
   topologyCounts(shape: ShapeHandle): Promise<TopologyCounts>;
 

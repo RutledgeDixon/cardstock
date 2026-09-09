@@ -3,12 +3,14 @@ import {
   type BooleanOp, type Bounds, type BoxSpec, type CylinderSpec, type GeometryResult,
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
+  type ShapeDescription,
   KernelError,
 } from '@cardstock/types';
 import { ShapeRegistry } from './registry.js';
 import { subShapes } from './topology.js';
 import { captureHistory } from './history.js';
 import { tessellate } from '../tessellate/tessellate.js';
+import { describeShape } from './describe.js';
 
 /**
  * KernelPort over OpenCascade.
@@ -165,6 +167,10 @@ export class OcctKernel implements KernelPort {
     volumeProps.delete();
     surfaceProps.delete();
     return result;
+  }
+
+  async describeShape(shape: ShapeHandle): Promise<ShapeDescription> {
+    return describeShape(this.oc, this.registry.get(shape));
   }
 
   async boundingBox(shape: ShapeHandle): Promise<Bounds> {
