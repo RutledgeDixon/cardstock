@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CARDstock Spike B — face picking + turntable camera</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #14161a; color: #d7dae0; font: 13px/1.5 ui-monospace, monospace; overflow: hidden; }
+      canvas { display: block; }
+      #hud { position: fixed; top: 12px; left: 12px; background: #1e2128cc; border: 1px solid #2e323b;
+             border-radius: 6px; padding: 10px 12px; pointer-events: none; backdrop-filter: blur(6px); }
+      #hud b { color: #7fb2ff; font-weight: 600; }
+      #keys { position: fixed; bottom: 12px; left: 12px; color: #6b7280; }
+      kbd { background: #262a33; border: 1px solid #363b46; border-bottom-width: 2px;
+            border-radius: 4px; padding: 1px 5px; color: #9aa3b2; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">hover a face…</div>
+    <div id="keys">
+      <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> orbit ·
+      <kbd>shift</kbd>+arrows snap 15° · <kbd>+</kbd><kbd>−</kbd> zoom ·
+      <kbd>1</kbd>–<kbd>7</kbd> views · <kbd>0</kbd> home · <kbd>.</kbd> pivot to face
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

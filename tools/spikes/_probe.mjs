@@ -1,0 +1,18 @@
+import OC from 'replicad-opencascadejs';
+const oc = await OC();
+const box = new oc.BRepPrimAPI_MakeBox(10,10,10).Shape();
+new oc.BRepMesh_IncrementalMesh(box, 0.1, false, 0.5, false);
+const ex = new oc.TopExp_Explorer(box, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+const f = oc.TopoDS.Face(ex.Current());
+const loc = new oc.TopLoc_Location();
+const t = oc.BRep_Tool.Triangulation(f, loc, 0);
+console.log('Poly_Triangulation:', Object.keys(Object.getPrototypeOf(t)).join(', '));
+console.log('NbNodes', t.NbNodes(), 'NbTriangles', t.NbTriangles(), 'HasNormals', t.HasNormals());
+const n1 = t.Node(1); console.log('Node(1) ->', n1.constructor.name, n1.X(), n1.Y(), n1.Z());
+const tri1 = t.Triangle(1);
+console.log('Poly_Triangle:', Object.keys(Object.getPrototypeOf(tri1)).join(', '));
+console.log('Value(1..3):', tri1.Value(1), tri1.Value(2), tri1.Value(3));
+console.log('face orientation:', f.Orientation().value ?? f.Orientation());
+console.log('TopAbs_Orientation:', Object.keys(oc.TopAbs_Orientation));
+console.log('loc.IsIdentity?', typeof loc.IsIdentity === 'function' ? loc.IsIdentity() : 'n/a');
+console.log('TopLoc_Location methods:', Object.keys(Object.getPrototypeOf(loc)).join(', '));
