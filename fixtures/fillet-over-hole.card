@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Untitled",
+    "created": "2026-09-09T03:45:45.571Z",
+    "modified": "2026-09-09T03:45:45.573Z",
+    "units": "mm",
+    "application": "CARDstock"
+  },
+  "parameters": [
+    {
+      "name": "width",
+      "expression": "60",
+      "unit": "mm"
+    }
+  ],
+  "features": [
+    {
+      "id": "box",
+      "type": "box",
+      "name": "Box",
+      "values": {
+        "dx": "width",
+        "dy": "40",
+        "dz": "18"
+      },
+      "inputs": {}
+    },
+    {
+      "id": "drill",
+      "type": "cylinder",
+      "name": "Drill",
+      "values": {
+        "radius": "7",
+        "height": "40",
+        "x": "30",
+        "y": "20",
+        "z": "-10"
+      },
+      "inputs": {}
+    },
+    {
+      "id": "cut",
+      "type": "cut",
+      "name": "Hole",
+      "values": {},
+      "inputs": {
+        "base": "box",
+        "tool": "drill"
+      }
+    },
+    {
+      "id": "round",
+      "type": "fillet",
+      "name": "Round",
+      "values": {
+        "radius": "5"
+      },
+      "inputs": {
+        "base": "cut"
+      },
+      "selections": {
+        "edges": [
+          {
+            "kind": "edge",
+            "origin": {
+              "featureId": "box",
+              "index": 6
+            },
+            "fingerprint": {
+              "kind": "edge",
+              "index": 6,
+              "geometryType": "line",
+              "centroid": {
+                "x": 60,
+                "y": 40,
+                "z": 9
+              },
+              "centroidNormalised": {
+                "x": 1,
+                "y": 1,
+                "z": 0.5
+              },
+              "direction": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+              },
+              "measure": 18,
+              "measureRatio": 0.038135593220338986,
+              "neighbourTypes": [
+                "plane",
+                "plane"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Untitled",
+    "created": "2026-09-09T03:45:45.520Z",
+    "modified": "2026-09-09T03:45:45.520Z",
+    "units": "mm",
+    "application": "CARDstock"
+  },
+  "parameters": [
+    {
+      "name": "width",
+      "expression": "60",
+      "unit": "mm"
+    }
+  ],
+  "features": [
+    {
+      "id": "plate",
+      "type": "box",
+      "name": "Plate",
+      "values": {
+        "dx": "width",
+        "dy": "40",
+        "dz": "12"
+      },
+      "inputs": {}
+    }
+  ]
+}

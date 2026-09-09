@@ -23,7 +23,8 @@
     "boundaries": "node tools/check-boundaries.mjs",
     "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs",
     "fixture": "node tools/make-fixture.mjs",
-    "check": "npm run typecheck && npm run lint && npm run boundaries && npm test"
+    "check": "npm run typecheck && npm run lint && npm run boundaries && npm test",
+    "corpus": "tsx tests/src/build-corpus.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -32,6 +33,7 @@
     "eslint": "^10.10.0",
     "globals": "^17.12.0",
     "prettier": "^3.4.2",
+    "tsx": "^4.23.13",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.70.0",
     "vite": "^8.2.2",

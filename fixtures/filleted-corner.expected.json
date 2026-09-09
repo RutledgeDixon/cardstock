@@ -1,0 +1,12 @@
+{
+  "name": "filleted-corner",
+  "description": "A fillet on a chosen corner, driven by parameters.",
+  "volume": 34845.4867,
+  "faces": 7,
+  "edges": 15,
+  "vertices": 10,
+  "ok": [
+    "box",
+    "round"
+  ]
+}

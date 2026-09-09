@@ -1,0 +1,14 @@
+{
+  "name": "fillet-over-hole",
+  "description": "A fillet referencing a box edge, resolved through a cut.",
+  "volume": 40332.5445,
+  "faces": 8,
+  "edges": 18,
+  "vertices": 12,
+  "ok": [
+    "box",
+    "drill",
+    "cut",
+    "round"
+  ]
+}

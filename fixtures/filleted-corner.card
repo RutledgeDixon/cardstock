@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Untitled",
+    "created": "2026-09-09T03:45:45.529Z",
+    "modified": "2026-09-09T03:45:45.536Z",
+    "units": "mm",
+    "application": "CARDstock"
+  },
+  "parameters": [
+    {
+      "name": "width",
+      "expression": "50",
+      "unit": "mm"
+    },
+    {
+      "name": "radius",
+      "expression": "6",
+      "unit": "mm"
+    }
+  ],
+  "features": [
+    {
+      "id": "box",
+      "type": "box",
+      "name": "Box",
+      "values": {
+        "dx": "width",
+        "dy": "35",
+        "dz": "20"
+      },
+      "inputs": {}
+    },
+    {
+      "id": "round",
+      "type": "fillet",
+      "name": "Round",
+      "values": {
+        "radius": "radius"
+      },
+      "inputs": {
+        "base": "box"
+      },
+      "selections": {
+        "edges": [
+          {
+            "kind": "edge",
+            "origin": {
+              "featureId": "box",
+              "index": 6
+            },
+            "fingerprint": {
+              "kind": "edge",
+              "index": 6,
+              "geometryType": "line",
+              "centroid": {
+                "x": 50,
+                "y": 35,
+                "z": 10
+              },
+              "centroidNormalised": {
+                "x": 1,
+                "y": 1,
+                "z": 0.5
+              },
+              "direction": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+              },
+              "measure": 20,
+              "measureRatio": 0.047619047619047616,
+              "neighbourTypes": [
+                "plane",
+                "plane"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
