@@ -21,7 +21,8 @@ Arrow keys aren't a downgrade; they're the honest input for a 2-DOF camera.
 
 **Right-click is the primary verb.** A radial menu whose contents come from what's under
 the cursor, with stable sector positions per context, so a command is always in the same
-direction. The toolbar is one level deep. There are no submenus anywhere.
+direction. The toolbar is one level deep — a group opens a flyout of leaves, and a leaf
+may never itself be a group, which the registry enforces at registration.
 
 ## Architecture
 

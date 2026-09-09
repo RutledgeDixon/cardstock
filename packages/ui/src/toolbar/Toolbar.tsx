@@ -101,7 +101,8 @@ export function Toolbar({
             <button
               type="button"
               className={`tool${open ? ' is-open' : ''}${isGroup ? ' is-group' : ''}${
-                disabled ? ' is-unavailable' : ''}`}
+                disabled ? ' is-unavailable' : ''}${
+                command.toolbar?.compact ? ' is-compact' : ''}`}
               disabled={disabled && !isGroup}
               title={disabled ? `${command.title} — ${enabled}` : (command.hint ?? command.title)}
               aria-label={command.title}

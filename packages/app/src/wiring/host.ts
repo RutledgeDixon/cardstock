@@ -30,6 +30,7 @@ export interface HostDeps {
   rebuild: () => Promise<void>;
   exportStl: () => Promise<void>;
   openPalette: () => void;
+  openAbout: () => void;
   openPanel: (id: FeatureId) => void;
   notify: (message: string, kind?: 'info' | 'error') => void;
   focused: () => FeatureId | null;
@@ -388,6 +389,7 @@ export function createHost(deps: HostDeps): CommandHost {
 
     exportStl: () => deps.exportStl(),
     openPalette: () => deps.openPalette(),
+    openAbout: () => deps.openAbout(),
     openPanel: (id) => deps.openPanel(id),
     notify: (message, kind) => deps.notify(message, kind),
   };

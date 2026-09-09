@@ -74,7 +74,18 @@ export interface Command {
    * tray there: Export is not part of the modelling flow and shouldn't be the thing that
    * scrolls off when the flow grows.
    */
-  readonly toolbar?: { readonly order: number; readonly pin?: 'end' };
+  readonly toolbar?: {
+    readonly order: number;
+    readonly pin?: 'end';
+    /**
+     * Render small.
+     *
+     * For entries that are not modelling tools — About is a badge, not something you
+     * reach for mid-part — so it does not claim the same weight as Sketch or Export,
+     * and does not push them off a short window.
+     */
+    readonly compact?: boolean;
+  };
   /** Chords like 'f', 'ctrl+k', 'shift+e'. */
   readonly keys?: readonly string[];
   /**

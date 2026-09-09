@@ -65,6 +65,8 @@ export interface CommandHost {
 
   // --- ui affordances the command layer may ask for
   openPalette(): void;
+  /** Show the about dialog: what the name means, and which build this is. */
+  openAbout(): void;
   openPanel(feature: FeatureId): void;
   notify(message: string, kind?: 'info' | 'error'): void;
 }

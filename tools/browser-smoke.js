@@ -112,6 +112,41 @@ window.__smoke = async function smoke() {
     !tools.includes('primitive.box') && !tools.includes('boolean.cut')
     && !tools.includes('modify.shell'));
 
+  // --- the about dialog ----------------------------------------------------------
+  {
+    const about = document.querySelector('[data-command="app.about"]');
+    const exportButton = document.querySelector('[data-command="file.export"]');
+    check('aboutSitsBelowExport', !!about && !!exportButton
+      && about.getBoundingClientRect().top > exportButton.getBoundingClientRect().top);
+
+    about?.click();
+    await sleep(300);
+    const dialog = document.querySelector('.about');
+    check('aboutOpens', !!dialog);
+    // The build identity is the point of the dialog: a version with no commit cannot
+    // answer "is this the build with the fix?".
+    check('aboutNamesTheBuild', /\d+\.\d+\.\d+/.test(dialog?.innerText ?? ''));
+    check('aboutExpandsTheName',
+      (dialog?.innerText ?? '').includes('Computer Assisted Rapid Design'));
+
+    // Clicking inside must not close it; the scrim must.
+    document.querySelector('.about-mark')?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true }));
+    await sleep(150);
+    check('aboutStaysOpenWhenClickedInside', !!document.querySelector('.about'));
+
+    // While it is open, arrow keys belong to the dialog, not the camera.
+    document.querySelector('.about')?.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
+    await sleep(100);
+    check('aboutSwallowsCameraKeys', viewer.controller.orbitInput.azimuth === 0);
+
+    document.querySelector('.about-scrim')?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true }));
+    await sleep(250);
+    check('aboutCloses', !document.querySelector('.about'));
+  }
+
   // --- submenu stays put and survives the pointer crossing into it ---------------
   const slot = document.querySelector('[data-command="create.shape"]')?.closest('.toolslot');
   slot?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));

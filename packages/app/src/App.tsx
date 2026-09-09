@@ -11,7 +11,8 @@ import {
   type CommandContext, type CommandState,
 } from '@cardstock/commands';
 import {
-  CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar, Toolbar,
+  AboutDialog, CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar, Toolbar,
+  type AboutInfo,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
@@ -21,6 +22,15 @@ import {
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
 import { downloadStl } from './wiring/download.js';
+
+/**
+ * Build identity, injected by Vite at build time — see vite.config.ts.
+ *
+ * Declared rather than imported because there is no module to import: it is a `define`
+ * substitution, which is why the shape has to be repeated here.
+ */
+declare const __BUILD__: AboutInfo;
+const BUILD: AboutInfo = __BUILD__;
 
 /** Features whose output nothing else consumes — the things a boolean can combine. */
 function leafBodyCount(doc: Document): number {
@@ -134,6 +144,7 @@ export function App() {
   const [focused, setFocused] = useState<FeatureId | null>(null);
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [sketchInfo, setSketchInfo] = useState<{
     open: boolean; tool: string; dof: number | null; status: string;
@@ -244,6 +255,7 @@ export function App() {
         );
       },
       openPalette: () => setPaletteOpen(true),
+      openAbout: () => setAboutOpen(true),
       openPanel: (id) => setFocused(id),
       notify,
       beginSketch: async (plane) => {
@@ -671,6 +683,10 @@ export function App() {
           onRun={run}
           onClose={() => setRadial(null)}
         />
+      )}
+
+      {aboutOpen && (
+        <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
       )}
 
       {paletteOpen && registry && (

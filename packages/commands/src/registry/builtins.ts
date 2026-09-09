@@ -528,6 +528,16 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: () => host.clearSelection(),
     },
     {
+      id: 'app.about',
+      title: 'CARDstock',
+      hint: 'What the name means, and which build this is',
+      icon: '◈',
+      contexts: ['always'],
+      toolbar: { order: 91, pin: 'end', compact: true },
+      enabled: () => true,
+      run: () => host.openAbout(),
+    },
+    {
       id: 'app.palette',
       title: 'Command palette',
       hint: 'Search every command',

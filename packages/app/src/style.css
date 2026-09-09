@@ -24,7 +24,7 @@ button:disabled { cursor: default; }
 /* The viewer is the app: it fills everything, chrome floats over the edges. */
 #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
-.panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .notice {
+.panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .notice, .about {
   background: #1c1f26e6;
   border: 1px solid var(--panel-edge);
   border-radius: 7px;
@@ -70,6 +70,13 @@ button:disabled { cursor: default; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; word-break: break-word; min-height: 2.3em;
 }
+/* A badge rather than a tool: smaller, and it does not push the real tools off a short
+   window. */
+.tool.is-compact { padding: 5px 2px 4px; gap: 1px; }
+.tool.is-compact .tool-icon { font-size: 15px; }
+.tool.is-compact .tool-name { font-size: 9px; min-height: 0; color: var(--dim); }
+.tool.is-compact:hover .tool-name { color: var(--ink); }
+
 .tool-caret { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--dim); }
 
 /* ---------------------------------------------------------------- left rail */
@@ -272,3 +279,36 @@ kbd {
   width: 84px; padding: 2px 6px; border-radius: 4px; font: inherit; font-size: 11px;
   background: #12151a; color: var(--ink); border: 1px solid var(--accent); outline: none;
 }
+
+/* ---------------------------------------------------------------- about */
+.about-scrim {
+  position: fixed; inset: 0; z-index: 30;
+  background: #0b0d1088; display: flex; align-items: center; justify-content: center;
+}
+.about {
+  width: min(400px, 88vw); padding: 20px 22px 16px;
+  display: flex; flex-direction: column; gap: 11px; outline: none;
+}
+.about-mark { font-size: 25px; letter-spacing: 0.5px; line-height: 1; }
+/* The name IS the explanation, so the two halves are shown as two halves. */
+.about-card { color: var(--accent); font-weight: 700; }
+.about-stock { color: var(--ink); font-weight: 300; }
+.about-expansion { font-size: 12px; color: var(--ink); margin: 0; }
+.about-expansion b { color: var(--accent); font-weight: 700; }
+.about-line { font-size: 11px; line-height: 1.5; color: var(--ink); margin: 0; }
+.about-dim { color: var(--dim); }
+
+.about-facts {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
+  margin: 2px 0 0; font-size: 11px;
+  padding-top: 11px; border-top: 1px solid var(--panel-edge);
+}
+.about-facts dt { color: var(--dim); }
+.about-facts dd { margin: 0; color: var(--ink); }
+
+.about-close {
+  align-self: flex-end; margin-top: 3px;
+  padding: 5px 14px; border-radius: 5px; font-size: 11px;
+  background: #2a303b; color: var(--ink);
+}
+.about-close:hover { background: #333b48; }
