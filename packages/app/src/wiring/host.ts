@@ -67,6 +67,30 @@ export function createHost(deps: HostDeps): CommandHost {
   /** Bodies nothing else consumes — the things a boolean can combine. */
   const leafFeatures = (): FeatureId[] => bodyLeaves(doc);
 
+  /**
+   * The feature a new operation should act on.
+   *
+   * The selection wins. A body id IS the id of the feature that produced it, so picking
+   * a face on the second body and pressing Shell must shell THAT body — not whichever
+   * feature happens to be last in the tree, which is what "the model is tied to the
+   * first thing you drew" actually looks like from the inside.
+   *
+   * With nothing selected the terminal feature is right: it is what is on screen.
+   */
+  const targetFeature = (): { id: FeatureId | null; reason?: string } => {
+    const selected = viewer.selection.selected;
+    if (selected.length === 0) return { id: deps.terminalFeature() };
+
+    const bodies = new Set(selected.map((ref) => ref.bodyId as unknown as FeatureId));
+    if (bodies.size > 1) {
+      return { id: null, reason: 'Select geometry on one body at a time' };
+    }
+    const [only] = bodies;
+    // A selection can outlive the feature it came from — a rebuild that dropped a body
+    // leaves stale refs — so fall back rather than addressing a feature that is gone.
+    return { id: only && doc.feature(only) ? only : deps.terminalFeature() };
+  };
+
   return {
     state: (): CommandState => ({
       selectionKind: viewer.selection.selected[0]?.kind ?? null,
@@ -116,7 +140,11 @@ export function createHost(deps: HostDeps): CommandHost {
         deps.notify('Select one or more edges first', 'error');
         return null;
       }
-      const source = deps.terminalFeature();
+      // The edges were picked on a particular body, and their indices only mean anything
+      // against that body's shape.
+      const target = targetFeature();
+      if (target.reason) { deps.notify(target.reason, 'error'); return null; }
+      const source = target.id;
       if (!source) {
         deps.notify('Nothing to modify', 'error');
         return null;
@@ -148,10 +176,16 @@ export function createHost(deps: HostDeps): CommandHost {
     async addSolidFeature(type) {
       const needsFaces = new Set(['shell', 'draft']);
 
-      // Seat the defaults on the part that is actually on screen: a hole drilled at the
-      // origin of a part that lives somewhere else just misses, and a pattern spaced
-      // 20 mm apart on a 200 mm part looks like nothing happened.
-      const box = viewer.bounds();
+      const target = targetFeature();
+      if (target.reason) { deps.notify(target.reason, 'error'); return null; }
+      const source = target.id;
+      if (!source) { deps.notify('Nothing to work from yet', 'error'); return null; }
+
+      // Seat the defaults on the body being worked on — not on everything on screen. A
+      // hole centred on the midpoint of two bodies 60mm apart lands in the gap between
+      // them, cuts nothing, and reports success.
+      const box = (source && viewer.bodies.get(source as unknown as string)?.data.bounds)
+        ?? viewer.bounds();
       const size = box
         ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z)
         : 20;
@@ -183,9 +217,6 @@ export function createHost(deps: HostDeps): CommandHost {
         sweep: {},
         loft: { ruled: '0' },
       };
-
-      const source = deps.terminalFeature();
-      if (!source) { deps.notify('Nothing to work from yet', 'error'); return null; }
 
       const definition = doc.registry.get(type);
       if (!definition) { deps.notify(`Unknown feature "${type}"`, 'error'); return null; }
@@ -249,24 +280,45 @@ export function createHost(deps: HostDeps): CommandHost {
     },
 
     async addBoolean(op) {
+      // Which two bodies is a question with an answer the user may already have given:
+      // selecting them says it outright, and for a cut it says WHICH WAY ROUND, which
+      // guessing cannot. First picked is the base, second the tool.
+      const picked: FeatureId[] = [];
+      for (const ref of viewer.selection.selected) {
+        const owner = ref.bodyId as unknown as FeatureId;
+        if (!picked.includes(owner) && doc.feature(owner)) picked.push(owner);
+      }
+
       const leaves = leafFeatures();
-      if (leaves.length < 2) {
+      if (picked.length < 2 && leaves.length < 2) {
         deps.notify('Needs two separate bodies to combine', 'error');
         return null;
       }
-      // The two most recent leaves: base first, tool second, matching what the user
-      // just built.
-      const tool = leaves.at(-1)!;
-      const base = leaves.at(-2)!;
+      if (picked.length > 2) {
+        deps.notify('Select two bodies to combine', 'error');
+        return null;
+      }
+
+      // Falling back to the two most recent leaves: base first, tool second, matching
+      // the order the user built them in.
+      const [base, tool] = picked.length === 2
+        ? picked
+        : [leaves.at(-2)!, leaves.at(-1)!];
       const id = doc.newFeatureId(op);
-      doc.addFeature({ id, type: op, name: nameFor(op), values: {}, inputs: { base, tool } });
+      doc.addFeature({
+        id, type: op, name: nameFor(op), values: {},
+        inputs: { base: base!, tool: tool! },
+      });
+      viewer.selection.clear();
       deps.setFocused(id);
       await deps.rebuild();
       return id;
     },
 
     async addMove() {
-      const source = deps.terminalFeature();
+      const target = targetFeature();
+      if (target.reason) { deps.notify(target.reason, 'error'); return null; }
+      const source = target.id;
       if (!source) { deps.notify('Nothing to move', 'error'); return null; }
       const id = doc.newFeatureId('move');
       doc.addFeature({
@@ -312,9 +364,15 @@ export function createHost(deps: HostDeps): CommandHost {
     setSketchTool: (tool) => deps.setSketchTool(tool),
 
     async extrudeSketch() {
-      // The most recent sketch is the one just drawn, which is what "extrude" means
-      // immediately after finishing one.
-      const sketchFeature = [...doc.features].reverse().find((f) => f.type === 'sketch');
+      // A focused sketch is the one the user is looking at, and picking an older sketch
+      // in the tree to extrude it is a reasonable thing to do. Otherwise the most recent
+      // sketch is the one just drawn, which is what "extrude" means right after
+      // finishing one.
+      const focused = deps.focused();
+      const focusedSketch = focused ? doc.feature(focused) : null;
+      const sketchFeature = focusedSketch?.type === 'sketch'
+        ? focusedSketch
+        : [...doc.features].reverse().find((f) => f.type === 'sketch');
       if (!sketchFeature) { deps.notify('Draw a sketch first', 'error'); return null; }
       const id = doc.newFeatureId('extrude');
       doc.addFeature({

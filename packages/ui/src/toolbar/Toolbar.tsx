@@ -92,13 +92,17 @@ export function Toolbar({
           <div
             key={command.id}
             className={`toolslot${divided ? ' is-divided' : ''}${pinned ? ' is-pinned' : ''}`}
-            onPointerEnter={(e) => { if (isGroup && !disabled) hold(command.id, e.currentTarget); }}
+            // A DISABLED group still opens. Its children carry the reasons they are
+            // unavailable, and a button that does nothing and explains nothing is worse
+            // than a greyed one you can look inside.
+            onPointerEnter={(e) => { if (isGroup) hold(command.id, e.currentTarget); }}
             onPointerLeave={release}
           >
             <button
               type="button"
-              className={`tool${open ? ' is-open' : ''}${isGroup ? ' is-group' : ''}`}
-              disabled={disabled}
+              className={`tool${open ? ' is-open' : ''}${isGroup ? ' is-group' : ''}${
+                disabled ? ' is-unavailable' : ''}`}
+              disabled={disabled && !isGroup}
               title={disabled ? `${command.title} — ${enabled}` : (command.hint ?? command.title)}
               aria-label={command.title}
               aria-haspopup={isGroup || undefined}

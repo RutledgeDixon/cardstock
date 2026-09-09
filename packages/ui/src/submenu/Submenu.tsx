@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResolvedCommand } from '@cardstock/commands';
 
@@ -32,11 +33,31 @@ export interface SubmenuProps {
 }
 
 export function Submenu({ items, anchor, title, onRun, onEnter, onLeave }: SubmenuProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [top, setTop] = useState(anchor.top);
+
+  /**
+   * Keep the flyout on screen.
+   *
+   * A group near the foot of the toolbar — Combine sits just above the pinned Export —
+   * opened a menu that ran off the bottom of the window, with the last item unreachable.
+   * Measured after layout rather than estimated from the item count, because the items
+   * wrap.
+   */
+  useLayoutEffect(() => {
+    const height = ref.current?.offsetHeight ?? 0;
+    const margin = 8;
+    const highest = margin;
+    const lowest = Math.max(margin, window.innerHeight - height - margin);
+    setTop(Math.min(Math.max(anchor.top, highest), lowest));
+  }, [anchor.top, items.length]);
+
   return createPortal(
     <div
+      ref={ref}
       className="submenu"
       style={{
-        top: anchor.top,
+        top,
         ...(anchor.left !== undefined ? { left: anchor.left } : {}),
         ...(anchor.right !== undefined ? { right: anchor.right } : {}),
       }}

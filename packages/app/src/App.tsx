@@ -15,7 +15,8 @@ import {
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
-  captureRefs, captureFaceRef, rebuild, terminalFeature, type RebuildReport,
+  captureRefs, captureFaceRef, leafFeatures, rebuild, terminalFeature,
+  type RebuildReport,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
@@ -223,12 +224,24 @@ export function App() {
         captureRefs(kernel, feature, kind, indices, (id) => handles.get(id) ?? null),
       rebuild: doRebuild,
       exportStl: async () => {
-        const terminal = terminalFeature(doc);
-        const handle = terminal ? handles.get(terminal) : null;
-        if (!handle) { notify('Nothing to export', 'error'); return; }
-        const bytes = await kernel.exportStl(handle as never);
+        // Every body on screen, not just the last one. A part built from several
+        // sketches is several leaves, and exporting only the terminal feature writes a
+        // file missing most of the part — with nothing to say so.
+        const bodies = leafFeatures(doc)
+          .map((id) => handles.get(id))
+          .filter((h): h is string => h !== undefined);
+        if (bodies.length === 0) { notify('Nothing to export', 'error'); return; }
+
+        const shape = bodies.length === 1
+          ? bodies[0]!
+          : (await kernel.compound(bodies as never[])).handle;
+        const bytes = await kernel.exportStl(shape as never);
         downloadStl(bytes, `${doc.meta.name || 'part'}.stl`);
-        notify(`Exported ${(bytes.length / 1024).toFixed(0)} kB`);
+        notify(
+          bodies.length === 1
+            ? `Exported ${(bytes.length / 1024).toFixed(0)} kB`
+            : `Exported ${bodies.length} bodies, ${(bytes.length / 1024).toFixed(0)} kB`,
+        );
       },
       openPalette: () => setPaletteOpen(true),
       openPanel: (id) => setFocused(id),
@@ -256,8 +269,14 @@ export function App() {
       },
       beginSketchOnFace: async () => {
         const face = viewer.selection.selected.find((r) => r.kind === 'face');
-        const base = terminalFeature(doc);
-        if (!face || !base) { notify('Select a flat face first', 'error'); return false; }
+        // The body the face was picked ON, not whichever feature happens to be last: a
+        // face index only means anything against the shape it came from, so taking the
+        // wrong one would resolve to a real but unrelated face on another body.
+        const base = face ? (face.bodyId as unknown as FeatureId) : null;
+        if (!face || !base || !doc.feature(base)) {
+          notify('Select a flat face first', 'error');
+          return false;
+        }
 
         const ref = await captureFaceRef(kernel, base, face.index, (id) => handles.get(id) ?? null);
         const handle = handles.get(base);

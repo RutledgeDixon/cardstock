@@ -173,11 +173,28 @@ describe('groups are one level deep', () => {
 
   it('hides children from top-level listings, so each appears in exactly one place', () => {
     registry.registerAll([
+      cmd({ id: 'create.shape', children: ['box'], contexts: ['empty'], toolbar: { order: 1 } }),
+      cmd({ id: 'box', contexts: ['empty'] }),
+    ]);
+    // The group stands in for its child in both places; the child appears in neither.
+    expect(registry.forContext('empty', state).map((r) => r.command.id)).toEqual(['create.shape']);
+    expect(registry.toolbar(state).map((r) => r.command.id)).toEqual(['create.shape']);
+  });
+
+  it('rejects a child that also claims a toolbar slot or a radial sector', () => {
+    // Both are unreachable on a child — it never appears at top level — and a claimed
+    // sector is worse than useless: it RESERVES that direction, so the child's own group
+    // cannot take it.
+    expect(() => registry.registerAll([
       group('create.shape', ['box']),
       cmd({ id: 'box', contexts: ['empty'], toolbar: { order: 1 } }),
-    ]);
-    expect(registry.forContext('empty', state).map((r) => r.command.id)).toEqual(['create.shape']);
-    expect(registry.toolbar(state).map((r) => r.command.id)).toEqual([]);
+    ])).toThrow(/claims a toolbar slot but is a child/);
+
+    const second = new CommandRegistry();
+    expect(() => second.registerAll([
+      group('modify', ['move']),
+      cmd({ id: 'move', contexts: ['body'], sector: { body: 2 } }),
+    ])).toThrow(/claims a radial sector but is a child/);
   });
 
   it('rejects a group nested inside a group', () => {

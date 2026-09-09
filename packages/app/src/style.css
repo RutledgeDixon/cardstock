@@ -58,7 +58,9 @@ button:disabled { cursor: default; }
   width: 100%; padding: 9px 2px 6px; border-radius: 6px; color: var(--ink);
 }
 .tool:hover:not(:disabled) { background: #2a303b; }
-.tool:disabled { color: #565d6a; }
+.tool:disabled, .tool.is-unavailable { color: #565d6a; }
+/* A group with nothing available still opens, so it keeps a hover state. */
+.tool.is-unavailable:hover { background: #23282f; }
 .tool.is-open { background: #2f3a4a; box-shadow: inset 2px 0 0 var(--accent); }
 .tool-icon { font-size: 26px; line-height: 1.05; }
 .tool-name {

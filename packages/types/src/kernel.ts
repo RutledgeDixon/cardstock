@@ -180,6 +180,14 @@ export interface KernelPort {
     plane: { origin: Vec3; normal: Vec3 },
   ): Promise<GeometryResult>;
 
+  /**
+   * Gather several shapes into one without fusing them.
+   *
+   * Exporting a part made of separate bodies needs this; fusing would change geometry
+   * where bodies merely touch.
+   */
+  compound(shapes: readonly ShapeHandle[]): Promise<GeometryResult>;
+
   boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult>;
   fillet(shape: ShapeHandle, edges: readonly number[], radius: number): Promise<GeometryResult>;
   chamfer(shape: ShapeHandle, edges: readonly number[], distance: number): Promise<GeometryResult>;

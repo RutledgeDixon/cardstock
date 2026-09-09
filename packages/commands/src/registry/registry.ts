@@ -77,6 +77,22 @@ export class CommandRegistry {
             'submenus are one level deep',
           );
         }
+        if (child.sector) {
+          // A child never appears at a context menu's top level, so a sector it claims
+          // can never be used — and worse, it RESERVES that direction, so its own group
+          // cannot take it. That is how "modify.body" ended up with nowhere to sit in
+          // the face menu while its child held the slot.
+          throw new Error(
+            `command "${childId}" claims a radial sector but is a child of ` +
+            `"${command.id}"; the group carries the sector`,
+          );
+        }
+        if (child.toolbar) {
+          throw new Error(
+            `command "${childId}" claims a toolbar slot but is a child of ` +
+            `"${command.id}"; a command belongs in one place`,
+          );
+        }
       }
     }
   }

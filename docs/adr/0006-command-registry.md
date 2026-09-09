@@ -106,3 +106,35 @@ latter are evaluated, and the former render as a pick-one list. The panel builds
 fields from what the definition *declares*, not from what the feature happens to hold, so
 a pattern created with only a direction-x still offers direction-y and direction-z — a
 field that doesn't exist can't be typed into.
+
+## Amendment — a command belongs in exactly one place (review pass)
+
+Three of the boolean children and `modify.move` declared radial sectors, and the
+primitives declared toolbar slots, while all of them were group children. A child never
+appears at a context menu's top level, so those declarations were unreachable — and the
+sectors were worse than unreachable, because a sector is *reserved* at registration.
+`modify.body` could not take the face menu's slot because its own child `modify.move` was
+holding it, and the registry correctly refused the clash.
+
+The registry now rejects a child that declares a sector or a toolbar slot, for the same
+reason it rejects a sector clash: the alternative is a declaration that silently does
+nothing until it blocks something real.
+
+## Where an operation lands
+
+The host resolved every new feature against `terminalFeature()` — the last leaf in the
+tree. With one body that is right and invisible. With two it is wrong in a way that looks
+like the app being "tied to the first thing you drew": pick a face on the second body,
+press Shell, and the first body is hollowed instead. Worse for edge operations, where the
+picked indices only mean anything against the shape they came from, so the fillet would
+land on a real but unrelated edge.
+
+A body id **is** the id of the feature that produced it, so the selection names the target
+outright. The rule now: the selection wins; the terminal feature is the fallback when
+nothing is selected; geometry selected across two bodies is refused rather than guessed.
+Booleans take the same route — two selected bodies say which is base and which is tool,
+which for a cut is the difference between the two possible answers.
+
+Feature defaults are seated on the **target body's** bounding box rather than the whole
+scene, because a hole centred between two bodies 60mm apart lands in the gap, cuts
+nothing, and reports success.

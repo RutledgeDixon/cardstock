@@ -86,6 +86,9 @@ export class WorkerKernel implements KernelPort {
   ) {
     return this.#call<GeometryResult>('draft', shape, faces, angle, pull, neutralPlane);
   }
+  compound(shapes: readonly ShapeHandle[]) {
+    return this.#call<GeometryResult>('compound', shapes);
+  }
   shell(shape: ShapeHandle, openFaces: readonly number[], thickness: number) {
     return this.#call<GeometryResult>('shell', shape, openFaces, thickness);
   }

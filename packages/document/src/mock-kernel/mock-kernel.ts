@@ -238,6 +238,20 @@ export class MockKernel implements KernelPort {
     });
   }
 
+  async compound(shapes: readonly ShapeHandle[]): Promise<GeometryResult> {
+    await this.#record('compound', `${shapes.length} shape(s)`);
+    if (shapes.length === 0) throw new KernelError('nothing to combine', 'compound');
+    if (shapes.length === 1) return { handle: shapes[0]! };
+    const parts = shapes.map((h) => this.#require(h, 'compound'));
+    return this.#create({
+      volume: parts.reduce((v, p) => v + p.volume, 0),
+      faces: parts.reduce((n, p) => n + p.faces, 0),
+      edges: parts.reduce((n, p) => n + p.edges, 0),
+      vertices: parts.reduce((n, p) => n + p.vertices, 0),
+      description: `compound(${parts.map((p) => p.description).join(',')})`,
+    });
+  }
+
   async shell(
     shape: ShapeHandle, openFaces: readonly number[], thickness: number,
   ): Promise<GeometryResult> {

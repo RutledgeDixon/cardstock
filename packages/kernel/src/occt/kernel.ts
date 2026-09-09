@@ -465,6 +465,26 @@ export class OcctKernel implements KernelPort {
    * only needs to look right, a printed part needs to be right. OCCT writes through the
    * emscripten virtual filesystem, so the file is written, read back and unlinked.
    */
+  /**
+   * Gather several shapes into one, without fusing them.
+   *
+   * Export needs this: a part on the plate may be several separate bodies, and exporting
+   * only the last one is a silently wrong file. A compound keeps them distinct — fusing
+   * would change the geometry of bodies that merely touch — and a slicer is happy to
+   * take several shells in one STL.
+   */
+  async compound(shapes: readonly ShapeHandle[]): Promise<GeometryResult> {
+    if (shapes.length === 0) throw new KernelError('nothing to combine', 'compound');
+    if (shapes.length === 1) return { handle: shapes[0]! };
+
+    // TopoDS_Builder is the constructible one in this build; BRep_Builder is not bound.
+    const builder = new this.oc.TopoDS_Builder();
+    const compound = new this.oc.TopoDS_Compound();
+    builder.MakeCompound(compound);
+    for (const handle of shapes) builder.Add(compound, this.registry.get(handle));
+    return { handle: this.#wrap(compound) };
+  }
+
   async exportStl(
     shape: ShapeHandle,
     options: { quality?: TessellationQuality; binary?: boolean } = {},
@@ -481,15 +501,11 @@ export class OcctKernel implements KernelPort {
     );
 
     const path = `/export-${Date.now()}-${Math.random().toString(36).slice(2)}.stl`;
-    const writer = new this.oc.StlAPI_Writer();
-    // ASCIIMode is exposed as a getter method here, not a settable field, so the mode is
-    // set through the underlying property when the binding allows it and otherwise left
-    // at OCCT's default. The test asserts which format actually comes out.
-    const modeSetter = (writer as unknown as Record<string, unknown>).set_ASCIIMode;
-    if (typeof modeSetter === 'function') {
-      (modeSetter as (v: boolean) => void).call(writer, !(options.binary ?? true));
-    }
-    const ok = writer.Write(input, path, new this.oc.Message_ProgressRange());
+    // StlAPI.Write, not StlAPI_Writer: the writer's ASCIIMode is not actually bound to
+    // the C++ field on this build — assigning it succeeds, changes nothing, and every
+    // export came out ASCII, five times the size of the binary a slicer would rather
+    // have. The static Write takes the mode as an argument, which does work.
+    const ok = this.oc.StlAPI.Write(input, path, !(options.binary ?? true));
     if (!ok) throw new KernelError('OpenCascade refused to write the STL', 'exportStl');
 
     const bytes = this.oc.FS.readFile(path, { encoding: 'binary' }) as Uint8Array;

@@ -133,6 +133,30 @@ window.__smoke = async function smoke() {
     await sleep(600);
   }
 
+  // --- every submenu opens, is complete, and fits on screen ----------------------
+  // A group near the foot of the strip opened a flyout that ran off the bottom of the
+  // window, and a DISABLED group could not be opened at all, so its children could not
+  // explain why they were unavailable.
+  {
+    let allOpen = true, allOnScreen = true, allPopulated = true;
+    for (const button of [...document.querySelectorAll('.tool.is-group')]) {
+      const groupSlot = button.closest('.toolslot');
+      groupSlot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      await sleep(250);
+      const menu = document.querySelector('.submenu');
+      if (!menu) { allOpen = false; continue; }
+      const r = menu.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0) allOnScreen = false;
+      if (menu.querySelectorAll('button').length < 2) allPopulated = false;
+      groupSlot.dispatchEvent(
+        new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+      await sleep(600);
+    }
+    check('everyGroupOpens', allOpen);
+    check('everySubmenuFitsOnScreen', allOnScreen);
+    check('everySubmenuHasItems', allPopulated);
+  }
+
   // --- radial menu --------------------------------------------------------------
   canvas.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 200 }));
   await sleep(200);
@@ -176,6 +200,69 @@ window.__smoke = async function smoke() {
       && [...viewer.bodies.values()].some((b) => b.data.indices.length > 0));
     doc.removeFeature(drilled);
     await window.__rebuild?.();
+  }
+
+  // --- a part made of SEVERAL bodies, and an export that contains all of them -----
+  // The failure this guards: every new feature attaching to whichever body happens to
+  // be last, and an export writing only that one.
+  {
+    const before = viewer.bodies.size;
+    await window.__host.addPrimitive('box');
+    await sleep(1200);
+    check('secondBodyIsSeparate', viewer.bodies.size === before + 1);
+
+    const ids = [...viewer.bodies.keys()];
+    const first = ids[0], second = ids[ids.length - 1];
+
+    // A hole with the SECOND body selected must land on the second body.
+    viewer.selection.clear();
+    viewer.selection.click({ bodyId: second, kind: 'face', index: 0 });
+    const drilled = await window.__host.addSolidFeature('hole');
+    await sleep(1800);
+    check('featureFollowsTheSelection',
+      !!drilled && doc.feature(drilled)?.inputs?.base === second);
+
+    // And an edge operation on the FIRST body while the second is newer.
+    viewer.selection.clear();
+    viewer.selection.click({ bodyId: first, kind: 'edge', index: 0 });
+    const rounded = await window.__host.addEdgeOperation('fillet');
+    await sleep(1800);
+    check('edgeOperationFollowsTheSelection',
+      !!rounded && doc.feature(rounded)?.inputs?.base === first);
+    viewer.selection.clear();
+
+    // The real Export button, and what it actually hands to the browser.
+    let blob = null;
+    const originalUrl = URL.createObjectURL;
+    URL.createObjectURL = (b) => { blob = b; return originalUrl.call(URL, b); };
+    document.querySelector('[data-command="file.export"]')?.click();
+    for (let i = 0; i < 40 && !blob; i++) await sleep(250);
+    URL.createObjectURL = originalUrl;
+
+    check('exportProducesAFile', !!blob);
+    if (blob) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const view = new DataView(bytes.buffer);
+      const ascii = new TextDecoder().decode(bytes.slice(0, 5)) === 'solid';
+      // Binary, because ASCII is roughly five times the size for the same mesh.
+      check('exportIsBinaryStl', !ascii);
+      if (!ascii) {
+        const triangles = view.getUint32(80, true);
+        check('exportLengthMatchesItsHeader', bytes.length === 84 + triangles * 50);
+        let minX = Infinity, maxX = -Infinity;
+        for (let t = 0; t < triangles; t++) {
+          const at = 84 + t * 50 + 12;
+          for (let c = 0; c < 3; c++) {
+            const x = view.getFloat32(at + c * 12, true);
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          }
+        }
+        // Two bodies sit side by side, so the file must span further than either alone.
+        const widest = Math.max(...[...viewer.bodies.values()]
+          .map((b) => b.data.bounds.max.x - b.data.bounds.min.x));
+        check('exportContainsEveryBody', maxX - minX > widest + 1);
+      }
+    }
   }
 
   // --- sketching ----------------------------------------------------------------

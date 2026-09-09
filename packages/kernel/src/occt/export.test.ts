@@ -16,22 +16,26 @@ const isAscii = (bytes: Uint8Array) =>
   new TextDecoder().decode(bytes.slice(0, 5)) === 'solid';
 
 describe('STL export', () => {
-  it('produces a well-formed file whose length matches its triangle count', async () => {
+  it('produces a BINARY file whose length matches its triangle count', async () => {
     const { handle } = await kernel.makeBox({ dx: 40, dy: 30, dz: 20 });
     const bytes = await kernel.exportStl(handle);
-    expect(bytes.length).toBeGreaterThan(84);
 
-    if (isAscii(bytes)) {
-      const text = new TextDecoder().decode(bytes);
-      expect(text).toMatch(/^solid/);
-      expect(text).toMatch(/endsolid\s*$/);
-      // A box is 12 triangles however it is tessellated.
-      expect(text.match(/facet normal/g)).toHaveLength(12);
-    } else {
-      const { triangles, expectedLength } = readBinaryStl(bytes);
-      expect(triangles).toBe(12);
-      expect(bytes.length).toBe(expectedLength);
-    }
+    // Binary by default, and asserted rather than tolerated: ASCII is roughly five
+    // times the size for the same mesh, and StlAPI_Writer's ASCIIMode is not bound on
+    // this build, so an export can silently regress to ASCII if the call changes.
+    expect(isAscii(bytes)).toBe(false);
+    const { triangles, expectedLength } = readBinaryStl(bytes);
+    expect(triangles).toBe(12); // a box, however it is tessellated
+    expect(bytes.length).toBe(expectedLength);
+  });
+
+  it('writes ASCII when asked, and it is much bigger', async () => {
+    const { handle } = await kernel.makeBox({ dx: 40, dy: 30, dz: 20 });
+    const binary = await kernel.exportStl(handle);
+    const ascii = await kernel.exportStl(handle, { binary: false });
+    expect(isAscii(ascii)).toBe(true);
+    expect(new TextDecoder().decode(ascii).match(/facet normal/g)).toHaveLength(12);
+    expect(ascii.length).toBeGreaterThan(binary.length * 3);
   });
 
   it('exports curved geometry at export quality, not display quality', async () => {
