@@ -89,6 +89,17 @@ export type SketchConstraint =
 
 export type SketchConstraintType = SketchConstraint['type'];
 
+/**
+ * A constraint before it has an id.
+ *
+ * Distributive: a plain `Omit<SketchConstraint, 'id'>` collapses the union to the keys
+ * every member shares, which is just `type`, so every other field becomes an error.
+ */
+export type NewSketchConstraint =
+  SketchConstraint extends infer T
+    ? T extends { id: string } ? Omit<T, 'id'> : never
+    : never;
+
 /** Constraints carrying a numeric value, which the UI shows as an editable dimension. */
 export const DIMENSIONAL_CONSTRAINTS: readonly SketchConstraintType[] = [
   'distance', 'pointLineDistance', 'radius', 'diameter', 'angle', 'lockX', 'lockY',

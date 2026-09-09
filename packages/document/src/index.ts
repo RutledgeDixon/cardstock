@@ -44,3 +44,13 @@ export {
   type HistoryStep, type MatchThresholds, type Resolution, type ResolutionMethod,
   type TopoRef,
 } from './toporef/index.js';
+
+export {
+  Sketch, distance, referencedIds,
+  type SketchData, type SketchPlane, type SketchStatus,
+} from './sketch/sketch.js';
+export {
+  DEFAULT_INFERENCE, inferAxisAlignment, inferForNewLine, snapToAxis, snapToPoint,
+  type Inference, type InferenceOptions,
+} from './sketch/inference.js';
+export { MockSolver } from './sketch/mock-solver.js';
