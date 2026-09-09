@@ -29,3 +29,11 @@ kbd {
   background: #262a33; border: 1px solid #363b46; border-bottom-width: 2px;
   border-radius: 4px; padding: 0 4px; color: #9aa3b2; font-size: 11px;
 }
+
+#params { top: 56px; right: 12px; width: 232px; pointer-events: auto; }
+#params .row { display: grid; grid-template-columns: 58px 1fr 34px; align-items: center; gap: 6px; margin-bottom: 4px; }
+#params label { color: #8b93a3; }
+#params output { text-align: right; color: #7fb2ff; }
+#params input[type=range] { width: 100%; accent-color: #4f8fe0; height: 16px; }
+#stats { margin-top: 8px; padding-top: 8px; border-top: 1px solid #2c313b; line-height: 1.5; }
+.err { color: #ff8f6a; }

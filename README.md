@@ -54,12 +54,16 @@ npm run boundaries   # architectural layering check
 
 ## Status
 
-**Phase 1** — the viewer. Keyboard-first turntable navigation, and face/edge/vertex
-picking against a static tessellation fixture. `npm run dev`, then point at the model
-and press Tab to cycle what you can select.
+**Phase 3 complete.** `npm run dev` gives a live parametric model: real OpenCascade
+geometry in a Web Worker, driven by parameter sliders, rendered and picked in the
+viewer. Drag a slider and the solid rebuilds — only the affected branch, typically in
+tens of milliseconds.
 
-Phase 0 (foundations and de-risking spikes) is complete — see `docs/adr/` for the
-decisions and `tools/spikes/` for the measurements behind them. Phase 2 builds the
-document model and recompute engine; Phase 3 replaces the fixture with the live kernel.
+Phases 0–3 done: de-risking spikes, the viewer with keyboard-first navigation and
+face/edge/vertex picking, the pure part model with its incremental recompute engine, and
+the real geometry kernel behind `KernelPort`. See `docs/adr/` for the decisions and
+`tools/spikes/` for the measurements behind them.
+
+Next is Phase 4, topological naming — making references survive edits.
 
 Part files are `.card`.
