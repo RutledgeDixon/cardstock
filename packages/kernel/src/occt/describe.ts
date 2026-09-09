@@ -1,6 +1,6 @@
 import type { OpenCascadeInstance, TopoDS_Shape } from 'replicad-opencascadejs';
 import type { Bounds, EntityFingerprint, ShapeDescription, Vec3 } from '@cardstock/types';
-import { subShapes } from './topology.js';
+import { shapeIndexer, subShapes } from './topology.js';
 
 /**
  * Fingerprint every sub-shape, so topological references can be re-identified after a
@@ -57,13 +57,17 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
   // (ADR-0001), so the adjacency map is built by hand.
   const edgeNeighbours = new Map<number, string[]>();
   const faceTypeByIndex: string[] = [];
+  // Bucketed rather than a linear scan per edge: this loop runs once per edge per face,
+  // so a linear findIndex made adjacency the single most expensive part of describing a
+  // large shape.
+  const edgeIndexOf = shapeIndexer(oc, edgeShapes);
 
   faceShapes.forEach((faceShape, faceIndex) => {
     const surface = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(faceShape), true);
     const type = surfaceTypeName(oc, surface.GetType());
     faceTypeByIndex[faceIndex] = type;
     for (const edge of subShapes(oc, faceShape, 'TopAbs_EDGE')) {
-      const edgeIndex = edgeShapes.findIndex((e) => e.IsSame(edge));
+      const edgeIndex = edgeIndexOf(edge);
       if (edgeIndex < 0) continue;
       const list = edgeNeighbours.get(edgeIndex);
       if (list) list.push(type);

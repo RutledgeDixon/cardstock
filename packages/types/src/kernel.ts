@@ -189,15 +189,50 @@ export interface KernelPort {
   compound(shapes: readonly ShapeHandle[]): Promise<GeometryResult>;
 
   boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult>;
+  /**
+   * One boolean against many tools at once.
+   *
+   * Sequential pairwise booleans are O(n^2): each one re-solves the intersection graph
+   * of everything already combined. Use this wherever the tools are known up front.
+   */
+  booleanMany(
+    op: BooleanOp, base: ShapeHandle, tools: readonly ShapeHandle[],
+  ): Promise<GeometryResult>;
   fillet(shape: ShapeHandle, edges: readonly number[], radius: number): Promise<GeometryResult>;
   chamfer(shape: ShapeHandle, edges: readonly number[], distance: number): Promise<GeometryResult>;
   transform(shape: ShapeHandle, matrix: Matrix4): Promise<GeometryResult>;
+  /**
+   * Apply several transforms to one shape in a single call.
+   *
+   * The kernel is behind a worker boundary, so a hundred one-at-a-time transforms is a
+   * hundred round trips before any geometry is built.
+   */
+  transformMany(shape: ShapeHandle, matrices: readonly Matrix4[]): Promise<GeometryResult[]>;
 
   tessellate(
     shape: ShapeHandle,
     bodyId: BodyId,
     quality: TessellationQuality,
   ): Promise<TessellatedBody>;
+
+  /**
+   * Start recording allocations, so intermediates can be freed together.
+   *
+   * OCCT objects are manually managed, and a feature typically allocates several shapes
+   * on the way to the one it returns. Scoping is how those get freed without every
+   * feature having to remember.
+   */
+  /**
+   * Live shape count — an otherwise invisible number.
+   *
+   * OCCT objects are manually managed, so a leak shows up here as a count that climbs
+   * and never settles. Under repeated edits it should plateau at the cache limit.
+   */
+  stats(): Promise<{ shapes: number }>;
+
+  beginScope(): Promise<void>;
+  /** Free everything allocated since `beginScope`, except `keep`. Returns the count. */
+  endScope(keep: readonly ShapeHandle[]): Promise<number>;
 
   massProperties(shape: ShapeHandle): Promise<MassProperties>;
   /** Fingerprints for every sub-shape. Drives topological naming (Phase 4). */

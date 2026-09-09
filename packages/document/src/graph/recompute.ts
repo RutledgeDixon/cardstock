@@ -346,6 +346,14 @@ export class RecomputeEngine {
     }
 
     // --- actually build it
+    //
+    // Scoped, because a feature usually allocates more shapes than it returns — a hole
+    // makes a drill cylinder, a pattern makes a copy per instance — and OCCT objects are
+    // manually managed, so an intermediate nobody frees stays in the WASM heap for the
+    // life of the session. Scoping it here means a new feature gets this for free rather
+    // than having to remember; a feature that passes an INPUT straight through is safe,
+    // because that handle was allocated in an earlier scope.
+    await this.kernel.beginScope();
     try {
       const result = await definition.compute({
         kernel: this.kernel,
@@ -368,6 +376,12 @@ export class RecomputeEngine {
         cached: false, fellBack: primary !== null,
         message: e instanceof Error ? e.message : String(e),
       };
+    } finally {
+      // Whatever this feature ended up publishing is kept; everything else it made goes.
+      // Read back from the state we are about to return rather than from `result`, so a
+      // feature that threw halfway through still has its debris collected.
+      const published = this.#cache.get(hash);
+      await this.kernel.endScope(published ? [published] : []).catch(() => 0);
     }
   }
 

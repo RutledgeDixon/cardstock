@@ -36,6 +36,7 @@ export class MockKernel implements KernelPort {
   readonly calls: MockCall[] = [];
   readonly released: ShapeHandle[] = [];
   #shapes = new Map<string, MockShape>();
+  #scopes: ShapeHandle[][] = [];
   #next = 0;
   /** op name -> how many more times it should throw. */
   #failures = new Map<string, number>();
@@ -82,7 +83,36 @@ export class MockKernel implements KernelPort {
   #create(shape: MockShape): GeometryResult {
     const handle = `mock-${this.#next++}` as ShapeHandle;
     this.#shapes.set(handle, shape);
+    this.#scopes[this.#scopes.length - 1]?.push(handle);
     return { handle };
+  }
+
+  /**
+   * Mirrors the real kernel's allocation scopes, so a test can assert that a feature's
+   * intermediates are freed — that is a document-level contract, not an OCCT detail.
+   */
+  async stats(): Promise<{ shapes: number }> {
+    return { shapes: this.#shapes.size };
+  }
+
+  async beginScope(): Promise<void> {
+    this.calls.push({ op: 'beginScope', detail: '' });
+    this.#scopes.push([]);
+  }
+
+  async endScope(keep: readonly ShapeHandle[]): Promise<number> {
+    const allocated = this.#scopes.pop() ?? [];
+    const kept = new Set(keep);
+    let freed = 0;
+    for (const handle of allocated) {
+      if (kept.has(handle)) {
+        this.#scopes[this.#scopes.length - 1]?.push(handle);
+        continue;
+      }
+      if (this.#shapes.delete(handle)) { this.released.push(handle); freed++; }
+    }
+    this.calls.push({ op: 'endScope', detail: `freed ${freed}` });
+    return freed;
   }
 
   #require(handle: ShapeHandle, op: string): MockShape {
@@ -236,6 +266,25 @@ export class MockKernel implements KernelPort {
       faces: s.faces, edges: s.edges, vertices: s.vertices,
       description: `draft(${s.description},${angle})`,
     });
+  }
+
+  async transformMany(
+    shape: ShapeHandle, matrices: readonly Matrix4[],
+  ): Promise<GeometryResult[]> {
+    await this.#record('transformMany', `${matrices.length}`);
+    const out: GeometryResult[] = [];
+    for (const matrix of matrices) out.push(await this.transform(shape, matrix));
+    return out;
+  }
+
+  async booleanMany(
+    op: BooleanOp, base: ShapeHandle, tools: readonly ShapeHandle[],
+  ): Promise<GeometryResult> {
+    await this.#record(`${op}Many`, `${tools.length} tool(s)`);
+    if (tools.length === 0) return { handle: base };
+    let result: GeometryResult = { handle: base };
+    for (const tool of tools) result = await this.boolean(op, result.handle, tool);
+    return result;
   }
 
   async compound(shapes: readonly ShapeHandle[]): Promise<GeometryResult> {

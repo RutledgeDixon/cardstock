@@ -33,6 +33,28 @@ export class OcctKernel implements KernelPort {
     return this.registry.add(shape);
   }
 
+  /**
+   * How many shapes are live inside the kernel.
+   *
+   * Worth surfacing because it is an invisible failure mode: OCCT objects are manually
+   * managed, so a leak shows up as a shape count that climbs and never settles, long
+   * before the tab runs out of memory. Under a scrubbed dimension this should plateau at
+   * the document's cache limit.
+   *
+   * The WASM heap size is deliberately NOT reported: this build exposes neither HEAP8
+   * nor wasmMemory on the module, and a number that is always zero is worse than no
+   * number at all.
+   */
+  async stats(): Promise<{ shapes: number }> {
+    return { shapes: this.registry.size };
+  }
+
+  async beginScope(): Promise<void> { this.registry.beginScope(); }
+
+  async endScope(keep: readonly ShapeHandle[]): Promise<number> {
+    return this.registry.endScope(keep);
+  }
+
   /** Run a builder to completion and surface OCCT's own failure as a KernelError. */
   #build(builder: { Build(range: unknown): void; Shape(): TopoDS_Shape }, op: string): TopoDS_Shape {
     try {
@@ -335,6 +357,56 @@ export class OcctKernel implements KernelPort {
       : new this.oc.BRepAlgoAPI_Common(a, b);
     const shape = this.#build(builder, op);
     const history = captureHistory(this.oc, builder, [a, b], shape);
+    return { handle: this.#wrap(shape), history };
+  }
+
+  /**
+   * One boolean over many tools at once.
+   *
+   * N sequential pairwise booleans is O(n^2) and ruinously so in practice: fusing a
+   * 150-copy pattern one union at a time took two minutes, because each fuse re-solved
+   * the intersection graph of everything already fused. OCCT's multi-argument form
+   * builds that graph once — the same result, in a fraction of the time.
+   */
+  /**
+   * Apply several transforms to one shape in a single call.
+   *
+   * The kernel lives behind a worker, so a pattern that placed its copies one at a time
+   * cost one round trip per copy — 99 messages for a 100-copy pattern, before any
+   * geometry was built. The work itself is trivial; the crossing is not.
+   */
+  async transformMany(
+    shape: ShapeHandle, matrices: readonly Matrix4[],
+  ): Promise<GeometryResult[]> {
+    const results: GeometryResult[] = [];
+    for (const matrix of matrices) results.push(await this.transform(shape, matrix));
+    return results;
+  }
+
+  async booleanMany(
+    op: BooleanOp, base: ShapeHandle, tools: readonly ShapeHandle[],
+  ): Promise<GeometryResult> {
+    if (tools.length === 0) return { handle: base };
+    if (tools.length === 1) return this.boolean(op, base, tools[0]!);
+
+    const a = this.registry.get(base);
+    const shapes = tools.map((t) => this.registry.get(t));
+
+    const builder =
+      op === 'union' ? new this.oc.BRepAlgoAPI_Fuse()
+      : op === 'cut' ? new this.oc.BRepAlgoAPI_Cut()
+      : new this.oc.BRepAlgoAPI_Common();
+
+    const args = new this.oc.NCollection_List_TopoDS_Shape();
+    args.Append(a);
+    builder.SetArguments(args);
+
+    const toolList = new this.oc.NCollection_List_TopoDS_Shape();
+    for (const shape of shapes) toolList.Append(shape);
+    builder.SetTools(toolList);
+
+    const shape = this.#build(builder as never, op);
+    const history = captureHistory(this.oc, builder as never, [a, ...shapes], shape);
     return { handle: this.#wrap(shape), history };
   }
 

@@ -3,7 +3,10 @@ export { ShapeRegistry } from './occt/registry.js';
 export {
   createOcctKernel, loadOpenCascade, resetOpenCascadeForTests, type SessionOptions,
 } from './occt/session.js';
-export { subShapes, countSubShapes, drainShapeList, indexOfShape, type ShapeKind } from './occt/topology.js';
+export {
+  subShapes, countSubShapes, drainShapeList, indexOfShape, shapeIndexer, asWire,
+  type ShapeKind,
+} from './occt/topology.js';
 export { captureHistory, type HistoryBuilder } from './occt/history.js';
 export { tessellate, tessellationTransferables } from './tessellate/tessellate.js';
 export { WorkerKernel, createWorkerKernel } from './rpc/client.js';

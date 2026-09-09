@@ -26,6 +26,15 @@ export function subShapes(
   kind: ShapeKind,
 ): TopoDS_Shape[] {
   const out: TopoDS_Shape[] = [];
+  // Bucketed dedupe. Comparing each visit against everything kept so far is O(n^2) and
+  // it dominated everything that enumerates topology: a 150-copy pattern spent 2.5s in
+  // tessellation and 3.4s in describeShape, almost all of it in IsSame. Bucketing by
+  // bounding box makes the comparison local — IsSame still DECIDES, so semantics are
+  // unchanged and coincident-but-distinct shapes (a cylinder's seam edge) stay distinct;
+  // the box only narrows who is worth asking about.
+  const buckets = new Map<string, TopoDS_Shape[]>();
+  const box = new oc.Bnd_Box();
+
   const explorer = new oc.TopExp_Explorer(
     shape,
     oc.TopAbs_ShapeEnum[kind],
@@ -33,10 +42,42 @@ export function subShapes(
   );
   for (; explorer.More(); explorer.Next()) {
     const current = explorer.Current();
-    if (!out.some((s) => s.IsSame(current))) out.push(current);
+    const key = bucketKey(oc, box, current);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      if (bucket.some((s) => s.IsSame(current))) continue;
+      bucket.push(current);
+    } else {
+      buckets.set(key, [current]);
+    }
+    out.push(current);
   }
   explorer.delete();
+  box.delete();
   return out;
+}
+
+/**
+ * A cheap, exact-enough bucket key: the sub-shape's bounding box, quantised.
+ *
+ * Quantised coarsely on purpose. A key that is too precise would split two genuinely
+ * identical visits into different buckets and let a duplicate through, which is far
+ * worse than a bucket holding a few extra candidates — those cost one IsSame each.
+ */
+function bucketKey(
+  oc: OpenCascadeInstance,
+  box: { SetVoid(): void; SetGap(g: number): void; IsVoid(): boolean;
+         CornerMin(): { X(): number; Y(): number; Z(): number };
+         CornerMax(): { X(): number; Y(): number; Z(): number } },
+  shape: TopoDS_Shape,
+): string {
+  box.SetVoid();
+  oc.BRepBndLib.Add(shape, box as never, false);
+  if (box.IsVoid()) return 'void';
+  const low = box.CornerMin();
+  const high = box.CornerMax();
+  const q = (v: number) => Math.round(v * 1e3);
+  return `${q(low.X())},${q(low.Y())},${q(low.Z())},${q(high.X())},${q(high.Y())},${q(high.Z())}`;
 }
 
 /**
@@ -95,4 +136,36 @@ export function drainShapeList(list: {
 /** Index of `needle` within `haystack` by geometric identity, or -1. */
 export function indexOfShape(haystack: readonly TopoDS_Shape[], needle: TopoDS_Shape): number {
   return haystack.findIndex((s) => s.IsSame(needle));
+}
+
+/**
+ * A reusable "which index is this shape?" lookup.
+ *
+ * `indexOfShape` is a linear scan, which is fine once and quadratic in a loop — building
+ * the edge/face adjacency map with it cost more than the entire rest of describeShape on
+ * a large part. This buckets the haystack once, by the same bounding-box key the dedupe
+ * uses, so each lookup compares against a handful of candidates instead of all of them.
+ * `IsSame` still decides.
+ */
+export function shapeIndexer(
+  oc: OpenCascadeInstance,
+  haystack: readonly TopoDS_Shape[],
+): (needle: TopoDS_Shape) => number {
+  const box = new oc.Bnd_Box();
+  const buckets = new Map<string, number[]>();
+  haystack.forEach((shape, index) => {
+    const key = bucketKey(oc, box, shape);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(index);
+    else buckets.set(key, [index]);
+  });
+
+  return (needle) => {
+    const candidates = buckets.get(bucketKey(oc, box, needle));
+    if (!candidates) return -1;
+    for (const index of candidates) {
+      if (haystack[index]!.IsSame(needle)) return index;
+    }
+    return -1;
+  };
 }

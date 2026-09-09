@@ -86,6 +86,15 @@ export class WorkerKernel implements KernelPort {
   ) {
     return this.#call<GeometryResult>('draft', shape, faces, angle, pull, neutralPlane);
   }
+  booleanMany(op: BooleanOp, base: ShapeHandle, tools: readonly ShapeHandle[]) {
+    return this.#call<GeometryResult>('booleanMany', op, base, tools);
+  }
+  transformMany(shape: ShapeHandle, matrices: readonly Matrix4[]) {
+    return this.#call<GeometryResult[]>('transformMany', shape, matrices);
+  }
+  stats() { return this.#call<{ shapes: number }>('stats'); }
+  beginScope() { return this.#call<void>('beginScope'); }
+  endScope(keep: readonly ShapeHandle[]) { return this.#call<number>('endScope', keep); }
   compound(shapes: readonly ShapeHandle[]) {
     return this.#call<GeometryResult>('compound', shapes);
   }
