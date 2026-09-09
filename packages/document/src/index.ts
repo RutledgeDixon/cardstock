@@ -66,3 +66,11 @@ export {
   SketchTools, type ToolKind, type ToolPreview, type ToolResult,
 } from './sketch/tools.js';
 export { placementForFace, placementForFaceIndex } from './sketch/face-plane.js';
+export {
+  PHASE7_FEATURES, circularPatternFeature, holeFeature, linearPatternFeature,
+  mirrorFeature, revolveFeature, shellFeature,
+} from './features/solid-features.js';
+export {
+  FASTENERS, SMALL_HOLE_THRESHOLD, compensatedDiameter, fastenerNames, findFastener,
+  holeDiameter, type Fastener, type HoleFit,
+} from './features/fasteners.js';

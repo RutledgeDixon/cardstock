@@ -3,6 +3,7 @@ import {
   type CommandContext, type CommandRegistry, type CommandState,
   type ResolvedCommand, layoutRadial, sectorOffset,
 } from '@cardstock/commands';
+import { Submenu } from '../submenu/Submenu.js';
 
 /**
  * The radial context menu.
@@ -105,30 +106,15 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
       </div>
 
       {flyout && (
-        <div
-          className="radial-overflow"
-          style={{
-            // Anchor beside the sector it came from, so the eye does not have to
-            // re-find the menu.
-            left: at.x + flyout.at.x + (flyout.at.x < 0 ? -140 : 44),
-            top: at.y + flyout.at.y,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <div className="radial-overflow-title">{flyout.title}</div>
-          {flyout.items.map(({ command, enabled }) => (
-            <button
-              key={command.id}
-              type="button"
-              disabled={enabled !== true}
-              title={enabled !== true ? String(enabled) : (command.hint ?? '')}
-              data-command={command.id}
-              onClick={() => { onRun(command.id); onClose(); }}
-            >
-              <span aria-hidden="true">{command.icon}</span> {command.title}
-            </button>
-          ))}
-        </div>
+        <Submenu
+          items={flyout.items}
+          title={flyout.title}
+          // Beside the sector it came from, so the eye does not have to re-find the menu.
+          anchor={flyout.at.x < 0
+            ? { top: at.y + flyout.at.y, right: window.innerWidth - (at.x + flyout.at.x) + 44 }
+            : { top: at.y + flyout.at.y, left: at.x + flyout.at.x + 44 }}
+          onRun={(id) => { onRun(id); onClose(); }}
+        />
       )}
     </div>
   );

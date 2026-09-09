@@ -68,10 +68,17 @@ export async function captureFaceRef(
   return captureTopoRef(feature, 'face', index, description);
 }
 
-export async function captureEdgeRefs(
-  doc: Document,
+/**
+ * Mint durable references for several picked sub-shapes of one feature.
+ *
+ * Kind is a parameter rather than a second near-identical function because every
+ * face-consuming feature (shell) needs exactly what the edge-consuming ones (fillet,
+ * chamfer) need.
+ */
+export async function captureRefs(
   kernel: KernelPort,
   feature: FeatureId,
+  kind: 'face' | 'edge' | 'vertex',
   indices: readonly number[],
   handleFor: (feature: FeatureId) => string | null,
 ): Promise<TopoRef[]> {
@@ -79,7 +86,7 @@ export async function captureEdgeRefs(
   if (!handle) return [];
   const description = await kernel.describeShape(handle as never);
   return indices
-    .map((index) => captureTopoRef(feature, 'edge', index, description))
+    .map((index) => captureTopoRef(feature, kind, index, description))
     .filter((ref): ref is TopoRef => ref !== null);
 }
 

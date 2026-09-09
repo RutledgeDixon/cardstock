@@ -22,7 +22,11 @@ export interface HostDeps {
    * Lives here rather than on the viewer because it needs the kernel's fingerprints; the
    * viewer only knows tessellation indices, which are not a durable identity.
    */
-  captureEdgeRefs: (feature: FeatureId, indices: readonly number[]) => Promise<TopoRef[]>;
+  captureRefs: (
+    feature: FeatureId,
+    kind: 'face' | 'edge' | 'vertex',
+    indices: readonly number[],
+  ) => Promise<TopoRef[]>;
   rebuild: () => Promise<void>;
   exportStl: () => Promise<void>;
   openPalette: () => void;
@@ -117,7 +121,7 @@ export function createHost(deps: HostDeps): CommandHost {
         deps.notify('Nothing to modify', 'error');
         return null;
       }
-      const refs = await deps.captureEdgeRefs(source, edges.map((e) => e.index));
+      const refs = await deps.captureRefs(source, 'edge', edges.map((e) => e.index));
       if (refs.length === 0) {
         deps.notify('Could not identify those edges', 'error');
         return null;
@@ -132,6 +136,88 @@ export function createHost(deps: HostDeps): CommandHost {
       viewer.selection.clear();
       deps.setFocused(id);
       await deps.rebuild();
+      deps.openPanel(id);
+      return id;
+    },
+
+    /**
+     * Sensible starting values per feature type.
+     *
+     * Kept as data so a new feature needs an entry here rather than a new code path.
+     */
+    async addSolidFeature(type) {
+      const needsFaces = new Set(['shell']);
+
+      // Seat the defaults on the part that is actually on screen: a hole drilled at the
+      // origin of a part that lives somewhere else just misses, and a pattern spaced
+      // 20 mm apart on a 200 mm part looks like nothing happened.
+      const box = viewer.bounds();
+      const size = box
+        ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z)
+        : 20;
+      const mid = (lo: number, hi: number) => (lo + hi) / 2;
+      const round = (n: number) => String(Math.round(n * 100) / 100);
+
+      const defaults: Record<string, Record<string, string>> = {
+        revolve: { angle: '360', axisZ: '1' },
+        shell: { thickness: '2' },
+        mirror: {
+          normalX: '1', keepOriginal: '1',
+          x: box ? round(box.min.x) : '0',
+        },
+        linearPattern: { count: '3', spacing: round(size * 1.5), dx: '1' },
+        circularPattern: {
+          count: '6', angle: '360', axisZ: '1',
+          ...(box ? { x: round(mid(box.min.x, box.max.x)), y: round(mid(box.min.y, box.max.y)) } : {}),
+        },
+        hole: {
+          standard: 'M3', fit: 'normal', style: 'simple',
+          x: box ? round(mid(box.min.x, box.max.x)) : '0',
+          y: box ? round(mid(box.min.y, box.max.y)) : '0',
+          // Start at the top of the part and drill clear through it.
+          z: box ? round(box.max.z) : '10',
+          depth: box ? round((box.max.z - box.min.z) + 1) : '10',
+        },
+        extrude: { distance: '10' },
+      };
+
+      const source = deps.terminalFeature();
+      if (!source) { deps.notify('Nothing to work from yet', 'error'); return null; }
+
+      const definition = doc.registry.get(type);
+      if (!definition) { deps.notify(`Unknown feature "${type}"`, 'error'); return null; }
+
+      // Features that consume picked geometry get the current selection, captured as
+      // durable references. Shell is the one here; the rest simply ignore it.
+      const selections: Record<string, TopoRef[]> = {};
+      const picked = viewer.selection.selected.filter((r) => r.kind === 'face');
+      if (needsFaces.has(type)) {
+        if (picked.length === 0) {
+          deps.notify('Select the faces to open first', 'error');
+          return null;
+        }
+        const refs = await deps.captureRefs(source, 'face', picked.map((f) => f.index));
+        if (refs.length === 0) {
+          deps.notify('Could not identify those faces', 'error');
+          return null;
+        }
+        selections.faces = refs;
+      }
+
+      // Shape-consuming features attach to the current body; the rest stand alone.
+      const role = definition.primaryInput ?? definition.shapeInputs[0];
+      const id = doc.newFeatureId(type);
+      doc.addFeature({
+        id, type, name: nameFor(type),
+        values: defaults[type] ?? {},
+        inputs: role ? { [role]: source } : {},
+        selections,
+      });
+      viewer.selection.clear();
+
+      deps.setFocused(id);
+      await deps.rebuild();
+      viewer.fitAll();
       deps.openPanel(id);
       return id;
     },

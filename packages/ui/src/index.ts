@@ -1,5 +1,6 @@
 export { Toolbar } from './toolbar/Toolbar.js';
 export { RadialMenu, type RadialMenuProps } from './radial/RadialMenu.js';
+export { Submenu, type SubmenuAnchor, type SubmenuProps } from './submenu/Submenu.js';
 export { CommandPalette } from './palette/CommandPalette.js';
 export { FeatureTree, type FeatureRow } from './tree/FeatureTree.js';
 export { ParameterPanel, type FieldSpec } from './panels/ParameterPanel.js';

@@ -243,8 +243,15 @@ export class RecomputeEngine {
     }
 
     // --- evaluate value expressions
+    //
+    // Only the keys the definition declares as numeric. Anything else is a plain setting
+    // — a fastener size like "M3", a hole style like "counterbore" — and evaluating it
+    // as an expression would fail with "unknown parameter M3". Definitions read those
+    // straight off feature.values.
+    const numericKeys = new Set(definition.valueKeys);
     const values: Record<string, number> = {};
     for (const [key, expression] of Object.entries(feature.values)) {
+      if (!numericKeys.has(key)) continue;
       try {
         values[key] = evaluate(parse(expression), scope);
       } catch (e) {
@@ -265,8 +272,18 @@ export class RecomputeEngine {
     if (refRoles.length > 0 && primaryRole && shapes[primaryRole]) {
       const description = await this.#describe(shapes[primaryRole]!);
       for (const [role, refs] of refRoles) {
+        // A document is a file, so its selections are untrusted input. Malformed data
+        // should say what is wrong, not surface as a TypeError from deep in the engine.
+        if (!Array.isArray(refs)) {
+          broken.push({ role, index: 0, reason: `selection "${role}" is not a list` });
+          continue;
+        }
         const indices: number[] = [];
         for (const [position, ref] of (refs as readonly TopoRef[]).entries()) {
+          if (!ref || typeof ref !== 'object' || !('fingerprint' in ref)) {
+            broken.push({ role, index: position, reason: `selection "${role}" is malformed` });
+            continue;
+          }
           const chain = buildHistoryChain(
             ref, feature, primaryRole, states, allFeatures, this.registry,
           );
@@ -314,6 +331,9 @@ export class RecomputeEngine {
     const hash = contentHash({
       type: feature.type,
       values,
+      // Raw values too, so a change to a non-numeric setting is not invisible to the
+      // cache and served stale.
+      settings: feature.values,
       selections,
       inputs: inputHashes,
       sketch: sketchHash,

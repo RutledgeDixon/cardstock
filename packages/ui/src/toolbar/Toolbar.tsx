@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import type { CommandRegistry, CommandState, ResolvedCommand } from '@cardstock/commands';
+import type { CommandRegistry, CommandState } from '@cardstock/commands';
+import { Submenu } from '../submenu/Submenu.js';
 
 /**
  * The tool panel: a full-height strip down the right edge, like a desktop taskbar.
@@ -9,8 +9,9 @@ import type { CommandRegistry, CommandState, ResolvedCommand } from '@cardstock/
  * and stays scannable as it grows. Contents come straight from the command registry, so
  * there is no second list to keep in sync.
  *
- * Groups (New shape, Modify edge) open a one-level flyout. Deliberately the only nesting
- * in the app: a child may not itself be a group, and the registry enforces that.
+ * Groups open a one-level submenu, through the shared Submenu component so every flyout
+ * in the app looks and behaves the same. A child may not itself be a group; the registry
+ * enforces that.
  */
 export function Toolbar({
   registry, state, onRun,
@@ -31,7 +32,7 @@ export function Toolbar({
     const onDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
       if (panelRef.current?.contains(target)) return;
-      if (target.closest('.flyout')) return; // the flyout lives outside the panel now
+      if (target.closest('.submenu')) return; // the submenu is portalled outside the panel
       setOpenGroup(null);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenGroup(null); };
@@ -79,6 +80,10 @@ export function Toolbar({
         // A gap in the declared order becomes a divider, which is how the strip stays
         // grouped without nesting anything.
         const divided = index > 0 && command.toolbar!.order - previous >= 10;
+        // The first pinned entry takes the slack, pushing it and anything after it to
+        // the bottom of the strip.
+        const pinned = command.toolbar?.pin === 'end'
+          && entries[index - 1]?.command.toolbar?.pin !== 'end';
         const isGroup = registry.isGroup(command.id);
         const disabled = enabled !== true;
         const open = openGroup?.id === command.id;
@@ -86,7 +91,7 @@ export function Toolbar({
         return (
           <div
             key={command.id}
-            className={`toolslot${divided ? ' is-divided' : ''}`}
+            className={`toolslot${divided ? ' is-divided' : ''}${pinned ? ' is-pinned' : ''}`}
             onPointerEnter={(e) => { if (isGroup && !disabled) hold(command.id, e.currentTarget); }}
             onPointerLeave={release}
           >
@@ -109,59 +114,18 @@ export function Toolbar({
               {isGroup && <span className="tool-caret" aria-hidden="true">‹</span>}
             </button>
 
-            {isGroup && open && createPortal(
-              <Flyout
+            {isGroup && open && (
+              <Submenu
                 items={registry.childrenOf(command.id, state)}
-                at={{ top: openGroup!.top, right: openGroup!.right }}
+                anchor={{ top: openGroup!.top, right: openGroup!.right }}
                 onRun={(id) => { onRun(id); setOpenGroup(null); }}
                 onEnter={() => hold(command.id)}
                 onLeave={release}
-              />,
-              document.body,
+              />
             )}
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * Rendered into document.body rather than inside the panel.
- *
- * The panel scrolls vertically, and a box with `overflow-y: auto` computes `overflow-x`
- * as `auto` too whatever you ask for — so a flyout nested inside it is clipped away
- * entirely. A portal sidesteps that.
- */
-function Flyout({
-  items, at, onRun, onEnter, onLeave,
-}: {
-  items: readonly ResolvedCommand[];
-  at: { top: number; right: number };
-  onRun: (id: string) => void;
-  onEnter: () => void;
-  onLeave: () => void;
-}) {
-  return (
-    <div
-      className="flyout"
-      style={{ top: at.top, right: at.right }}
-      onPointerEnter={onEnter}
-      onPointerLeave={onLeave}
-    >
-      {items.map(({ command, enabled }) => (
-        <button
-          key={command.id}
-          type="button"
-          disabled={enabled !== true}
-          title={enabled !== true ? String(enabled) : (command.hint ?? '')}
-          data-command={command.id}
-          onClick={() => onRun(command.id)}
-        >
-          <span className="flyout-icon" aria-hidden="true">{command.icon}</span>
-          <span>{command.title}</span>
-        </button>
-      ))}
     </div>
   );
 }

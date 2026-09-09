@@ -15,7 +15,7 @@ import {
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
-  captureEdgeRefs, captureFaceRef, rebuild, terminalFeature, type RebuildReport,
+  captureRefs, captureFaceRef, rebuild, terminalFeature, type RebuildReport,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
@@ -31,10 +31,51 @@ function leafBodyCount(doc: Document): number {
 }
 
 /** Field labels, so the panel reads as dimensions rather than as variable names. */
+/**
+ * Human labels for feature fields.
+ *
+ * Looked up as `type.key` first, then `key`: `dx` is a box's length but a linear
+ * pattern's direction, and reading "length" over a direction component is worse than
+ * reading the raw key.
+ */
 const FIELD_LABELS: Record<string, string> = {
   dx: 'length', dy: 'width', dz: 'height',
   radius: 'radius', height: 'height', distance: 'distance',
   x: 'x', y: 'y', z: 'z',
+
+  'hole.standard': 'fastener', 'hole.fit': 'fit', 'hole.style': 'style',
+  'hole.x': 'centre x', 'hole.y': 'centre y', 'hole.z': 'top of hole',
+  'hole.diameter': 'diameter (overrides fastener)',
+  'hole.compensation': 'FDM compensation',
+  'hole.counterboreDepth': 'counterbore depth',
+
+  'shell.thickness': 'wall thickness',
+
+  'revolve.angle': 'angle °',
+  'revolve.axisX': 'axis x', 'revolve.axisY': 'axis y', 'revolve.axisZ': 'axis z',
+
+  'mirror.normalX': 'plane normal x', 'mirror.normalY': 'plane normal y',
+  'mirror.normalZ': 'plane normal z', 'mirror.keepOriginal': 'keep original (1/0)',
+  'mirror.x': 'plane through x', 'mirror.y': 'plane through y', 'mirror.z': 'plane through z',
+
+  'linearPattern.count': 'copies', 'linearPattern.spacing': 'spacing',
+  'linearPattern.dx': 'direction x', 'linearPattern.dy': 'direction y',
+  'linearPattern.dz': 'direction z',
+
+  'circularPattern.count': 'copies', 'circularPattern.angle': 'sweep °',
+  'circularPattern.x': 'centre x', 'circularPattern.y': 'centre y',
+  'circularPattern.z': 'centre z',
+  'circularPattern.axisX': 'axis x', 'circularPattern.axisY': 'axis y',
+  'circularPattern.axisZ': 'axis z',
+};
+
+/** Fields that are not lengths, by `type.key` then `key`. Everything else is mm. */
+const FIELD_UNITS: Record<string, string> = {
+  angle: '\u00b0', count: '', keepOriginal: '',
+  axisX: '', axisY: '', axisZ: '',
+  normalX: '', normalY: '', normalZ: '',
+  // A box's dx is a length; a pattern's dx is a direction component.
+  'linearPattern.dx': '', 'linearPattern.dy': '', 'linearPattern.dz': '',
 };
 
 /**
@@ -171,8 +212,8 @@ export function App() {
     const host = createHost({
       doc, viewer,
       terminalFeature: () => terminalFeature(doc),
-      captureEdgeRefs: (feature, indices) =>
-        captureEdgeRefs(doc, kernel, feature, indices, (id) => handles.get(id) ?? null),
+      captureRefs: (feature, kind, indices) =>
+        captureRefs(kernel, feature, kind, indices, (id) => handles.get(id) ?? null),
       rebuild: doRebuild,
       exportStl: async () => {
         const terminal = terminalFeature(doc);
@@ -324,6 +365,9 @@ export function App() {
       __viewer: viewer, __doc: doc, __kernel: kernel, __registry: registry, __host: host,
       __step: (steps = 60, dt = 1 / 60) => { for (let i = 0; i < steps; i++) viewer.step(dt); },
       __session: () => sessionRef.current,
+      // The harness needs to undo what it built; a document edit alone leaves the
+      // viewer showing the old bodies.
+      __rebuild: () => doRebuild(),
     });
 
     return teardown;
@@ -413,11 +457,37 @@ export function App() {
   }, [doc, report]);
 
   const focusedFeature = focused && doc ? doc.feature(focused) : null;
-  const fields: FieldSpec[] = focusedFeature
-    ? Object.entries(focusedFeature.values).map(([key, value]) => ({
-        key, label: FIELD_LABELS[key] ?? key, value,
-      }))
-    : [];
+  const focusedDefinition = focusedFeature ? doc?.registry.get(focusedFeature.type) : undefined;
+  const unitFor = (type: string, key: string) => {
+    const unit = FIELD_UNITS[`${type}.${key}`] ?? FIELD_UNITS[key];
+    return unit === undefined ? {} : { unit };
+  };
+  /**
+   * Every field the feature declares, not just the ones it happens to hold a value for.
+   *
+   * A pattern created with only a direction-x would otherwise offer no way to type a
+   * direction-y — the field simply wouldn't exist. Unset numeric fields show 0, which is
+   * their real effective value: a hole's diameter of 0 means "take it from the fastener
+   * table", which is exactly what leaving it unset does.
+   */
+  const fields: FieldSpec[] = (() => {
+    if (!focusedFeature) return [];
+    const { type, values } = focusedFeature;
+    const declared = focusedDefinition
+      ? [...Object.keys(focusedDefinition.choiceKeys ?? {}), ...focusedDefinition.valueKeys]
+      : [];
+    const keys = [...new Set([...declared, ...Object.keys(values)])];
+    return keys.map((key) => {
+      const choices = focusedDefinition?.choiceKeys?.[key];
+      return {
+        key,
+        label: FIELD_LABELS[`${type}.${key}`] ?? FIELD_LABELS[key] ?? key,
+        value: values[key] ?? (choices ? choices[0]! : '0'),
+        ...(unitFor(type, key)),
+        ...(choices ? { choices } : {}),
+      };
+    });
+  })();
   const parameters: FieldSpec[] = doc
     ? doc.parameters.all().map((p) => ({ key: p.name, label: p.name, value: p.expression }))
     : [];

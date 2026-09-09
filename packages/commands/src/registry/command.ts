@@ -67,8 +67,14 @@ export interface Command {
    * commands may not claim the same sector in the same context.
    */
   readonly sector?: Readonly<Partial<Record<CommandContext, number>>>;
-  /** Presence puts it on the toolbar, ordered by this number. */
-  readonly toolbar?: { readonly order: number };
+  /**
+   * Presence puts it on the toolbar, ordered by this number.
+   *
+   * `pin: 'end'` sends it to the bottom of the strip, the way a desktop panel keeps its
+   * tray there: Export is not part of the modelling flow and shouldn't be the thing that
+   * scrolls off when the flow grows.
+   */
+  readonly toolbar?: { readonly order: number; readonly pin?: 'end' };
   /** Chords like 'f', 'ctrl+k', 'shift+e'. */
   readonly keys?: readonly string[];
   /**

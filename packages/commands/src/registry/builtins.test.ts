@@ -62,10 +62,42 @@ describe('the built-in command set', () => {
     }
   });
 
-  it('offers the two groups, and only those', () => {
+  it('keeps every submenu exactly one level deep', () => {
+    // The rule that keeps the toolbar readable: a group may hold leaves, never another
+    // group. Asserting the shape rather than a fixed list of groups means adding a
+    // submenu doesn't need this test edited — only breaking the rule does.
     const registry = build();
-    const groups = registry.all().filter((c) => registry.isGroup(c.id)).map((c) => c.id);
-    expect(groups.sort()).toEqual(['create.shape', 'modify.edge', 'sketch.new']);
+    const groups = registry.all().filter((c) => registry.isGroup(c.id));
+    expect(groups.length).toBeGreaterThan(0);
+    for (const group of groups) {
+      for (const childId of group.children ?? []) {
+        const child = registry.get(childId);
+        expect(child, `${group.id} lists a child "${childId}" that does not exist`).toBeDefined();
+        expect(registry.isGroup(childId), `${group.id} > ${childId} is a nested submenu`)
+          .toBe(false);
+        expect(child?.toolbar, `${childId} is both a submenu child and a toolbar button`)
+          .toBeUndefined();
+      }
+    }
+  });
+
+  it('reaches every command from the toolbar, a context menu or a key', () => {
+    // A command nobody can invoke is dead weight; this catches one dropped from a
+    // group's children list during a reshuffle.
+    const registry = build();
+    const inGroup = new Set(registry.all().flatMap((c) => c.children ?? []));
+    const contexts: CommandContext[] =
+      ['sketch', 'empty', 'body', 'face', 'edge', 'vertex', 'tree-item'];
+    const inSomeMenu = new Set(
+      contexts.flatMap((c) => registry.forContext(c, state).map((r) => r.command.id)),
+    );
+    for (const command of registry.all()) {
+      const reachable = command.toolbar !== undefined
+        || inGroup.has(command.id)
+        || inSomeMenu.has(command.id)
+        || (command.keys?.length ?? 0) > 0;
+      expect(reachable, `${command.id} cannot be invoked from anywhere`).toBe(true);
+    }
   });
 
   it('puts every primitive behind the New shape group rather than on the toolbar', () => {

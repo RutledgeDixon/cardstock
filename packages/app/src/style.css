@@ -24,7 +24,7 @@ button:disabled { cursor: default; }
 /* The viewer is the app: it fills everything, chrome floats over the edges. */
 #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
-.panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .radial-overflow, .notice {
+.panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .notice {
   background: #1c1f26e6;
   border: 1px solid var(--panel-edge);
   border-radius: 7px;
@@ -47,6 +47,9 @@ button:disabled { cursor: default; }
 
 .toolslot { position: relative; flex: 0 0 auto; }
 .toolslot.is-divided { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--panel-edge); }
+/* Takes the leftover space, so Export sits at the foot of the strip like a panel's
+   tray — and stays put as the modelling tools above it grow. */
+.toolslot.is-pinned { margin-top: auto; padding-top: 7px; border-top: 1px solid var(--panel-edge); }
 
 /* Icon above, name beneath: readable without hovering, and stays scannable as the
    panel grows. */
@@ -66,23 +69,6 @@ button:disabled { cursor: default; }
   overflow: hidden; word-break: break-word; min-height: 2.3em;
 }
 .tool-caret { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--dim); }
-
-.flyout {
-  position: fixed; z-index: 8;
-  display: flex; flex-direction: column; min-width: 148px; padding: 4px;
-  /* Overlap the panel edge by a pixel so there is no gap for the pointer to fall
-     through on its way across. */
-  margin-right: -1px;
-  background: #212731f7; border: 1px solid var(--panel-edge); border-radius: 7px;
-  backdrop-filter: blur(10px);
-}
-.flyout button {
-  display: flex; align-items: center; gap: 9px;
-  padding: 7px 10px; border-radius: 5px; text-align: left; white-space: nowrap;
-}
-.flyout button:hover:not(:disabled) { background: #2f3a4a; }
-.flyout button:disabled { color: #565d6a; }
-.flyout-icon { width: 18px; text-align: center; font-size: 15px; }
 
 /* ---------------------------------------------------------------- left rail */
 .left-rail {
@@ -119,6 +105,17 @@ button:disabled { cursor: default; }
 .field { margin-bottom: 7px; }
 .field label { display: block; color: var(--dim); font-size: 10px; margin-bottom: 2px; }
 .field-body { display: flex; align-items: center; gap: 5px; }
+.field select {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #2a3240;
+  border-radius: 3px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 4px;
+}
+.field select:focus { outline: none; border-color: #4f77b8; }
 .field input {
   flex: 1; min-width: 0;
   background: #12151a; color: var(--ink);
@@ -167,17 +164,30 @@ b { color: var(--accent); font-weight: 600; }
 .radial-item:disabled { color: #575e6b; opacity: .6; }
 .radial-icon { font-size: 15px; }
 .radial-label { font-size: 10px; white-space: nowrap; }
-.radial-overflow {
-  position: absolute; z-index: 21; padding: 5px; min-width: 152px;
-  display: flex; flex-direction: column;
+/* ------------------------------------------------------------------ submenus */
+/* Every flyout in the app renders through the Submenu component, so this block is the
+   only place submenu appearance is defined. Change it here and the toolbar groups, the
+   radial groups and the radial overflow all follow. */
+.submenu {
+  position: fixed; z-index: 30;
+  display: flex; flex-direction: column; min-width: 156px; padding: 4px;
+  background: #212731f7; border: 1px solid var(--panel-edge); border-radius: 7px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 20px #0008;
 }
-.radial-overflow-title {
+.submenu-title {
   color: var(--dim); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
-  padding: 3px 8px 5px;
+  padding: 3px 9px 6px;
 }
-.radial-overflow button { padding: 5px 8px; border-radius: 4px; text-align: left; }
-.radial-overflow button:hover:not(:disabled) { background: #2f3a4a; }
-.radial-overflow button:disabled { color: #575e6b; }
+.submenu-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 5px; text-align: left; white-space: nowrap;
+  color: var(--ink);
+}
+.submenu-item:hover:not(:disabled) { background: #2f3a4a; }
+.submenu-item:disabled { color: #565d6a; }
+.submenu-icon { width: 18px; text-align: center; font-size: 15px; }
+.submenu-label { font-size: 11.5px; }
 
 /* ---------------------------------------------------------------- palette */
 .palette-scrim {

@@ -9,7 +9,7 @@
  *   - a second shape being invisible (one body id reused for every tessellation)
  *   - camera keys going dead (keyboard not re-attached on effect re-run)
  *   - the radial menu flooding with irrelevant commands
- *   - the toolbar flyout being clipped away, or jumping out from under the cursor
+ *   - the toolbar submenu being clipped away, or jumping out from under the cursor
  *   - a sketch feature never rebuilding because the graph never learned it changed
  *
  * Returns { passed, failed, results }. Anything false is a regression.
@@ -17,6 +17,25 @@
 window.__smoke = async function smoke() {
   const host_beginSketch = () => window.__host.beginSketch('xy');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /**
+   * Wait for the DOM to catch up, bounded.
+   *
+   * React commits a state change on a later tick than the promise that triggered it, so
+   * asserting straight after an `await host.x()` tests the scheduler, not the app.
+   *
+   * Polls on setTimeout rather than requestAnimationFrame: a hidden or unfocused pane
+   * throttles rAF to a couple of frames a second (measured: 8 seconds between frames),
+   * which made this report a sketchbar missing that was in fact already on screen.
+   * setTimeout is clamped too, to ~1s, but it is clamped predictably.
+   */
+  const waitFor = async (selector, timeout = 8000) => {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      if (document.querySelector(selector)) return true;
+      if (Date.now() >= deadline) return false;
+      await sleep(50);
+    }
+  };
   const results = {};
   const check = (name, value) => { results[name] = value; return value; };
 
@@ -84,24 +103,32 @@ window.__smoke = async function smoke() {
   check('toolbarPopulated', tools.length >= 8);
   check('toolbarHasSketchAndExport',
     tools.includes('sketch.new') && tools.includes('file.export'));
+  // Every group is a toolbar button that opens a submenu; a leaf that leaked onto the
+  // toolbar, or a group that lost its children, shows up here.
+  check('toolbarGroupsPresent',
+    ['create.shape', 'build.solid', 'modify.body', 'pattern.new', 'boolean.combine']
+      .every((id) => tools.includes(id)));
+  check('toolbarHidesGroupedLeaves',
+    !tools.includes('primitive.box') && !tools.includes('boolean.cut')
+    && !tools.includes('modify.shell'));
 
-  // --- flyout stays put and survives the pointer crossing into it ---------------
+  // --- submenu stays put and survives the pointer crossing into it ---------------
   const slot = document.querySelector('[data-command="create.shape"]')?.closest('.toolslot');
   slot?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   await sleep(220);
-  const flyout = document.querySelector('.flyout');
-  check('flyoutOpens', !!flyout);
-  if (flyout) {
-    const rect = () => { const r = document.querySelector('.flyout')?.getBoundingClientRect(); return r && `${Math.round(r.x)},${Math.round(r.y)}`; };
+  const submenu = document.querySelector('.submenu');
+  check('submenuOpens', !!submenu);
+  if (submenu) {
+    const rect = () => { const r = document.querySelector('.submenu')?.getBoundingClientRect(); return r && `${Math.round(r.x)},${Math.round(r.y)}`; };
     const atOpen = rect();
-    slot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: flyout }));
-    flyout.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    slot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: submenu }));
+    submenu.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
     await sleep(200);
-    check('flyoutDoesNotJump', rect() === atOpen);
-    check('flyoutSurvivesHover', !!document.querySelector('.flyout'));
-    check('flyoutHasShapes',
-      [...document.querySelectorAll('.flyout button')].length === 3);
-    document.querySelector('.flyout')?.dispatchEvent(
+    check('submenuDoesNotJump', rect() === atOpen);
+    check('submenuSurvivesHover', !!document.querySelector('.submenu'));
+    check('submenuHasShapes',
+      [...document.querySelectorAll('.submenu button')].length === 3);
+    document.querySelector('.submenu')?.dispatchEvent(
       new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
     await sleep(600);
   }
@@ -124,7 +151,7 @@ window.__smoke = async function smoke() {
   document.querySelector('[data-command="create.shape"]')?.closest('.toolslot')
     ?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   await sleep(220);
-  document.querySelector('.flyout [data-command="primitive.cylinder"]')?.click();
+  document.querySelector('.submenu [data-command="primitive.cylinder"]')?.click();
   await sleep(1400);
   check('addingShapeAddsFeature', doc.features.length === featuresBefore + 1);
   check('addingShapeAddsVisibleBody', viewer.bodies.size === bodiesBefore + 1);
@@ -134,9 +161,26 @@ window.__smoke = async function smoke() {
     return new Set(boxes.map((b) => `${b.min.x.toFixed(1)},${b.max.x.toFixed(1)}`)).size === boxes.length;
   })());
 
+  // --- a phase 7 feature end to end ---------------------------------------------
+  // The Node tests cover the geometry; what only the browser can prove is that the
+  // toolbar's defaults actually land on the part rather than at the origin, which is
+  // where an unseated hole silently misses.
+  {
+    const before = doc.features.length;
+    const drilled = await window.__host.addSolidFeature('hole');
+    check('holeAddsFeature', !!drilled && doc.features.length === before + 1);
+    check('holeBuilds',
+      [...(doc.engine.lastStates?.values() ?? [])].every((st) => st.status === 'ok'));
+    // A hole that missed the part leaves the solid untouched: same triangle count.
+    check('holeCutsTheSolid', viewer.bodies.size > 0
+      && [...viewer.bodies.values()].some((b) => b.data.indices.length > 0));
+    doc.removeFeature(drilled);
+    await window.__rebuild?.();
+  }
+
   // --- sketching ----------------------------------------------------------------
   await host_beginSketch();
-  check('sketchOpens', !!document.querySelector('.sketchbar'));
+  check('sketchOpens', await waitFor('.sketchbar'));
   check('sketchToolsPresent',
     [...document.querySelectorAll('.sketchbar-tools button')].length >= 5);
   const session = window.__session?.();

@@ -76,8 +76,22 @@ export interface FeatureDefinition {
    * so their failure blocks everything downstream — correctly.
    */
   readonly primaryInput?: string;
-  /** Numeric inputs this feature expects. */
+  /**
+   * Numeric inputs this feature expects.
+   *
+   * Only these are evaluated as expressions. Any other key in a feature's values is a
+   * plain setting the definition reads directly — a fastener size, a hole style — which
+   * would otherwise fail to parse as an expression.
+   */
   readonly valueKeys: readonly string[];
+  /**
+   * Non-numeric settings and the values they accept.
+   *
+   * Declared rather than inferred so the parameter panel can offer a fastener size as a
+   * list to pick from instead of a text box you can typo into, and so a feature's
+   * variants stay in the panel where they belong rather than becoming toolbar buttons.
+   */
+  readonly choiceKeys?: Readonly<Record<string, readonly string[]>>;
   compute(ctx: ComputeContext): Promise<GeometryResult>;
 }
 

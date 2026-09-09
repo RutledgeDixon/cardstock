@@ -150,6 +150,46 @@ export class MockKernel implements KernelPort {
     });
   }
 
+  async revolve(shape: ShapeHandle, _axis: unknown, angle: number): Promise<GeometryResult> {
+    await this.#record('revolve', `${angle}deg`);
+    const s = this.#require(shape, 'revolve');
+    if (angle === 0) throw new KernelError('revolve angle must not be zero', 'revolve');
+    const area = Number(/face\(([-\d.]+)\)/.exec(s.description)?.[1] ?? 1);
+    return this.#create({
+      volume: area * Math.abs(angle) / 360 * 10,
+      faces: s.faces + 3, edges: s.edges * 2, vertices: s.vertices * 2,
+      description: `revolve(${s.description},${angle})`,
+    });
+  }
+
+  async shell(
+    shape: ShapeHandle, openFaces: readonly number[], thickness: number,
+  ): Promise<GeometryResult> {
+    await this.#record('shell', `t${thickness} open [${openFaces.join(',')}]`);
+    const s = this.#require(shape, 'shell');
+    if (thickness === 0) throw new KernelError('shell thickness must not be zero', 'shell');
+    for (const index of openFaces) {
+      if (index >= s.faces) {
+        throw new KernelError(
+          `face ${index} does not exist (shape has ${s.faces})`, 'shell',
+        );
+      }
+    }
+    return this.#create({
+      // A shell keeps a wall of the given thickness: a plausible, monotone stand-in.
+      volume: s.volume * Math.min(0.9, Math.abs(thickness) / 10),
+      faces: s.faces * 2 - openFaces.length,
+      edges: s.edges * 2, vertices: s.vertices * 2,
+      description: `shell(${s.description},${thickness})`,
+    });
+  }
+
+  async mirror(shape: ShapeHandle, _plane: unknown): Promise<GeometryResult> {
+    await this.#record('mirror', this.describe(shape));
+    const s = this.#require(shape, 'mirror');
+    return { ...this.#create({ ...s, description: `mirrored(${s.description})` }) };
+  }
+
   // ---------------------------------------------------------------- operations
   async boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult> {
     await this.#record(op, `${this.describe(base)},${this.describe(tool)}`);

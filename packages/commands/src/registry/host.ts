@@ -21,6 +21,14 @@ export interface CommandHost {
   addPrimitive(type: 'box' | 'cylinder' | 'sphere'): Promise<FeatureId>;
   /** Apply an edge operation to the current edge selection. */
   addEdgeOperation(type: 'fillet' | 'chamfer'): Promise<FeatureId | null>;
+  /**
+   * Add a feature of the given type onto the current body.
+   *
+   * One entry point rather than a method per feature, so adding a feature is a matter of
+   * registering a command and a definition — not of threading another method through the
+   * host, the app and the interface.
+   */
+  addSolidFeature(type: string): Promise<FeatureId | null>;
   /** Combine the two most recent bodies. */
   addBoolean(op: 'union' | 'cut' | 'intersect'): Promise<FeatureId | null>;
   addMove(): Promise<FeatureId | null>;

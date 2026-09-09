@@ -107,6 +107,82 @@ export class OcctKernel implements KernelPort {
     return { handle: this.#wrap(result), history };
   }
 
+  async revolve(
+    shape: ShapeHandle,
+    axis: { origin: Vec3; direction: Vec3 },
+    angle: number,
+  ): Promise<GeometryResult> {
+    if (angle === 0) throw new KernelError('revolve angle must not be zero', 'revolve');
+    if (Math.abs(angle) > 360) {
+      throw new KernelError('revolve angle cannot exceed 360 degrees', 'revolve');
+    }
+    const input = this.registry.get(shape);
+    const gpAxis = new this.oc.gp_Ax1(
+      new this.oc.gp_Pnt(axis.origin.x, axis.origin.y, axis.origin.z),
+      new this.oc.gp_Dir(axis.direction.x, axis.direction.y, axis.direction.z),
+    );
+    const builder = new this.oc.BRepPrimAPI_MakeRevol(
+      input, gpAxis, (angle * Math.PI) / 180, true,
+    );
+    const result = builder.Shape();
+    const history = captureHistory(this.oc, builder, [input], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  async shell(
+    shape: ShapeHandle,
+    openFaces: readonly number[],
+    thickness: number,
+  ): Promise<GeometryResult> {
+    if (thickness === 0) throw new KernelError('shell thickness must not be zero', 'shell');
+    const input = this.registry.get(shape);
+    const faces = subShapes(this.oc, input, 'TopAbs_FACE');
+
+    // TopTools_ListOfShape is not bound in this build; the NCollection template name is
+    // (ADR-0001). Overloads dispatch by arity, so there are no _N suffixes either.
+    const toRemove = new this.oc.NCollection_List_TopoDS_Shape();
+    for (const index of openFaces) {
+      const face = faces[index];
+      if (!face) {
+        throw new KernelError(
+          `face ${index} does not exist (shape has ${faces.length})`, 'shell',
+        );
+      }
+      toRemove.Append(face);
+    }
+
+    const builder = new this.oc.BRepOffsetAPI_MakeThickSolid();
+    // MakeThickSolidByJoin can throw before Build() ever runs — an offset that would
+    // self-intersect fails right here — so it needs the same wrapping as Build().
+    try {
+      builder.MakeThickSolidByJoin(
+        input, toRemove, thickness, 1e-6,
+        this.oc.BRepOffset_Mode.BRepOffset_Skin, false, false,
+        this.oc.GeomAbs_JoinType.GeomAbs_Arc, false,
+        new this.oc.Message_ProgressRange(),
+      );
+    } catch (e) {
+      throw new KernelError(describeOcctError(this.oc, e, 'shell'), 'shell');
+    }
+    const result = this.#build(builder as never, 'shell');
+    const history = captureHistory(this.oc, builder as never, [input], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  async mirror(
+    shape: ShapeHandle,
+    plane: { origin: Vec3; normal: Vec3 },
+  ): Promise<GeometryResult> {
+    const input = this.registry.get(shape);
+    const trsf = new this.oc.gp_Trsf();
+    trsf.SetMirror(new this.oc.gp_Ax2(
+      new this.oc.gp_Pnt(plane.origin.x, plane.origin.y, plane.origin.z),
+      new this.oc.gp_Dir(plane.normal.x, plane.normal.y, plane.normal.z),
+    ));
+    const builder = new this.oc.BRepBuilderAPI_Transform(input, trsf, true);
+    return { handle: this.#wrap(builder.Shape()) };
+  }
+
   // ---------------------------------------------------------------- operations
   async boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult> {
     const a = this.registry.get(base);
@@ -313,14 +389,16 @@ function faceNormal(oc: OpenCascadeInstance, shape: TopoDS_Shape): Vec3 | null {
  * geometry failure surfaces as an opaque number.
  */
 function describeOcctError(oc: OpenCascadeInstance, error: unknown, op: string): string {
-  if (typeof error === 'number') {
+  // Emscripten throws an OCCT failure as a raw pointer under legacy exceptions and as a
+  // WebAssembly.Exception under the native ones. Both stringify to something useless
+  // ("[object WebAssembly.Exception]"), so ask the runtime for the real message first.
+  if (typeof error === 'number' || (typeof error === 'object' && error !== null
+      && !(error instanceof Error))) {
     try {
-      // The binding is typed for an Exception object, but emscripten hands us the
-      // raw pointer; the call works either way.
-      const message = (oc.getExceptionMessage as unknown as (p: number) => string)(error);
+      const message = (oc.getExceptionMessage as unknown as (p: unknown) => string)(error);
       if (message) return `${op}: ${message}`;
     } catch { /* fall through */ }
-    return `${op} failed inside OpenCascade (exception ${error})`;
+    return `${op} failed inside OpenCascade — the operation is not valid for this shape`;
   }
   return error instanceof Error ? error.message : `${op} failed: ${String(error)}`;
 }

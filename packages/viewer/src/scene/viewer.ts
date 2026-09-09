@@ -4,7 +4,7 @@ import {
 
 const _plane = new Plane();
 const _raycaster = new Raycaster();
-import type { EntityRef, TessellatedBody } from '@cardstock/types';
+import type { Bounds, EntityRef, TessellatedBody } from '@cardstock/types';
 import { CameraController } from '../camera/controller.js';
 import { Picker, type PickResult } from '../picking/picker.js';
 import { SelectionManager } from '../picking/selection.js';
@@ -81,8 +81,13 @@ export class Viewer {
 
   get bodies(): ReadonlyMap<string, BodyView> { return this.#bodies; }
 
-  /** Frame everything currently loaded. */
-  fitAll(): void {
+  /**
+   * The box around everything currently loaded, or null when nothing is.
+   *
+   * Public because "where is the model" is a question the app asks too — a new hole
+   * wants to land on the part, not at the origin.
+   */
+  bounds(): Bounds | null {
     let min = [Infinity, Infinity, Infinity];
     let max = [-Infinity, -Infinity, -Infinity];
     for (const b of this.#bodies.values()) {
@@ -90,11 +95,19 @@ export class Viewer {
       min = [Math.min(min[0]!, bounds.min.x), Math.min(min[1]!, bounds.min.y), Math.min(min[2]!, bounds.min.z)];
       max = [Math.max(max[0]!, bounds.max.x), Math.max(max[1]!, bounds.max.y), Math.max(max[2]!, bounds.max.z)];
     }
-    if (!Number.isFinite(min[0])) return;
-    const bounds = {
+    if (!Number.isFinite(min[0])) return null;
+    return {
       min: { x: min[0]!, y: min[1]!, z: min[2]! },
       max: { x: max[0]!, y: max[1]!, z: max[2]! },
     };
+  }
+
+  /** Frame everything currently loaded. */
+  fitAll(): void {
+    const bounds = this.bounds();
+    if (!bounds) return;
+    const min = [bounds.min.x, bounds.min.y, bounds.min.z];
+    const max = [bounds.max.x, bounds.max.y, bounds.max.z];
     this.controller.fit(bounds, this.aspect);
     // Keep the camera well clear of the model regardless of its size.
     const span = Math.hypot(max[0]! - min[0]!, max[1]! - min[1]!, max[2]! - min[2]!);

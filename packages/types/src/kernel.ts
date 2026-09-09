@@ -121,6 +121,31 @@ export interface KernelPort {
   /** Sweep a face along its normal. Negative distance extrudes the other way. */
   extrude(shape: ShapeHandle, distance: number, symmetric?: boolean): Promise<GeometryResult>;
 
+  /** Sweep a profile around an axis. `angle` in degrees; 360 makes a full solid. */
+  revolve(
+    shape: ShapeHandle,
+    axis: { origin: Vec3; direction: Vec3 },
+    angle: number,
+  ): Promise<GeometryResult>;
+
+  /**
+   * Hollow a solid, removing the named faces to leave openings.
+   *
+   * Negative thickness offsets inward, which is what "wall thickness" means for a
+   * printed part; positive grows it outward.
+   */
+  shell(
+    shape: ShapeHandle,
+    openFaces: readonly number[],
+    thickness: number,
+  ): Promise<GeometryResult>;
+
+  /** Reflect through a plane. */
+  mirror(
+    shape: ShapeHandle,
+    plane: { origin: Vec3; normal: Vec3 },
+  ): Promise<GeometryResult>;
+
   boolean(op: BooleanOp, base: ShapeHandle, tool: ShapeHandle): Promise<GeometryResult>;
   fillet(shape: ShapeHandle, edges: readonly number[], radius: number): Promise<GeometryResult>;
   chamfer(shape: ShapeHandle, edges: readonly number[], distance: number): Promise<GeometryResult>;

@@ -14,6 +14,13 @@ export interface FieldSpec {
   readonly label: string;
   readonly value: string;
   readonly unit?: string;
+  /**
+   * When present the field is a pick-one list rather than a typed expression.
+   *
+   * A fastener size is not a quantity you can compute, and typing "M3" into a box that
+   * wants a number is a mistake the UI shouldn't allow in the first place.
+   */
+  readonly choices?: readonly string[];
 }
 
 export function ParameterPanel({
@@ -38,7 +45,22 @@ export function ParameterPanel({
 
       {fields.length > 0 && (
         <section>
-          {fields.map((field) => (
+          {fields.map((field) => (field.choices ? (
+            <div className="field" key={field.key}>
+              <label htmlFor={`f-${field.key}`}>{field.label}</label>
+              <div className="field-body">
+                <select
+                  id={`f-${field.key}`}
+                  value={field.value}
+                  onChange={(e) => onCommit(field.key, e.currentTarget.value)}
+                >
+                  {field.choices.map((choice) => (
+                    <option key={choice} value={choice}>{choice}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
             <ExpressionInput
               key={field.key}
               label={field.label}
@@ -48,7 +70,7 @@ export function ParameterPanel({
               onCommit={(expression) => onCommit(field.key, expression)}
               {...(onPreview ? { onPreview: (e: string) => onPreview(field.key, e) } : {})}
             />
-          ))}
+          )))}
         </section>
       )}
 
