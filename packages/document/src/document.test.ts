@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeatureId } from '@cardstock/types';
 import { Document } from './document.js';
-import { MockKernel } from './mock-kernel/mock-kernel.js';
+import { MockKernel, mockTopoRef } from './mock-kernel/mock-kernel.js';
 
 /**
  * The Phase 2 exit criteria, as executable assertions.
@@ -39,7 +39,7 @@ function buildChain(d: Document) {
   });
   const fillet = d.addFeature({
     id: 'fillet' as FeatureId, type: 'fillet', name: 'Round',
-    values: { radius: '4' }, inputs: { base: cut.id }, selections: { edges: [0, 1] },
+    values: { radius: '4' }, inputs: { base: cut.id }, selections: { edges: [mockTopoRef('cut', 'edge', 0), mockTopoRef('cut', 'edge', 1)] },
   });
   const move = d.addFeature({
     id: 'move' as FeatureId, type: 'move', name: 'Position',

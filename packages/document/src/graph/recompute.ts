@@ -1,4 +1,8 @@
-import type { FeatureId, KernelPort, ShapeHandle } from '@cardstock/types';
+import type {
+  FeatureId, KernelPort, ShapeDescription, ShapeHandle, ShapeHistory,
+} from '@cardstock/types';
+import { resolveTopoRef, type HistoryStep } from '../toporef/resolver.js';
+import type { TopoRef } from '../toporef/types.js';
 import { evaluate, parse } from '../params/expression.js';
 import type { ParameterTable } from '../params/parameters.js';
 import type { Feature, FeatureRegistry } from '../features/feature.js';
@@ -34,6 +38,10 @@ export interface FeatureState {
   readonly cached: boolean;
   /** True when `handle` is the passthrough input rather than this feature's own output. */
   readonly fellBack: boolean;
+  /** How this feature's operation mapped its inputs onto its output. Drives naming. */
+  readonly history?: ShapeHistory | null;
+  /** References that could not be resolved, with the reason, for the repair UI. */
+  readonly brokenReferences?: readonly { role: string; index: number; reason: string }[];
 }
 
 export interface RecomputeResult {
@@ -69,12 +77,14 @@ export interface RecomputeOptions {
 
 export class RecomputeEngine {
   readonly #cache = new Map<string, ShapeHandle>();
+  /** Fingerprints per shape handle. Only fetched for features that reference topology. */
+  readonly #descriptions = new Map<string, ShapeDescription>();
   /** Insertion-ordered hashes, for LRU-ish eviction. */
   #previous: Map<FeatureId, FeatureState> | null = null;
 
   constructor(
     private readonly kernel: KernelPort,
-    private readonly registry: FeatureRegistry,
+    readonly registry: FeatureRegistry,
   ) {}
 
   get cacheSize(): number { return this.#cache.size; }
@@ -86,7 +96,16 @@ export class RecomputeEngine {
       await this.kernel.release(handle).catch(() => {});
     }
     this.#cache.clear();
+    this.#descriptions.clear();
     this.#previous = null;
+  }
+
+  async #describe(handle: ShapeHandle): Promise<ShapeDescription> {
+    const cached = this.#descriptions.get(handle);
+    if (cached) return cached;
+    const description = await this.kernel.describeShape(handle);
+    this.#descriptions.set(handle, description);
+    return description;
   }
 
   async recompute(
@@ -141,7 +160,7 @@ export class RecomputeEngine {
         return this.#finish(states, visited, computed, reused, skipped, params, cyclicFeatures, true);
       }
 
-      const state = await this.#computeOne(feature, states, scope, computed, reused);
+      const state = await this.#computeOne(feature, states, byId, scope, computed, reused);
       states.set(id, state);
     }
 
@@ -151,6 +170,7 @@ export class RecomputeEngine {
   async #computeOne(
     feature: Feature,
     states: Map<FeatureId, FeatureState>,
+    allFeatures: ReadonlyMap<FeatureId, Feature>,
     scope: (n: string) => number | undefined,
     computed: FeatureId[],
     reused: FeatureId[],
@@ -215,9 +235,44 @@ export class RecomputeEngine {
       }
     }
 
-    const selections = (feature.selections ?? {}) as Record<string, readonly number[]>;
+    // --- resolve topological references against the input shape
+    const primaryRole = definition.primaryInput;
+    const resolved: Record<string, number[]> = {};
+    const broken: { role: string; index: number; reason: string }[] = [];
+    const refRoles = Object.entries(feature.selections ?? {});
 
-    // --- content hash: same inputs, same geometry, so reuse it
+    if (refRoles.length > 0 && primaryRole && shapes[primaryRole]) {
+      const description = await this.#describe(shapes[primaryRole]!);
+      for (const [role, refs] of refRoles) {
+        const indices: number[] = [];
+        for (const [position, ref] of (refs as readonly TopoRef[]).entries()) {
+          const chain = buildHistoryChain(
+            ref, feature, primaryRole, states, allFeatures, this.registry,
+          );
+          const outcome = resolveTopoRef(ref, description, chain);
+          if (outcome.ok) indices.push(outcome.index);
+          else broken.push({ role, index: position, reason: outcome.reason });
+        }
+        resolved[role] = indices;
+      }
+    }
+
+    if (broken.length > 0) {
+      // Never guess. A wrong fillet that looks plausible gets printed before anyone
+      // notices; a refused one is fixed by re-picking in ten seconds.
+      return {
+        id: feature.id, status: 'error', handle: primary, hash: primaryHash,
+        cached: false, fellBack: primary !== null, brokenReferences: broken,
+        message: broken.length === 1
+          ? broken[0]!.reason
+          : `${broken.length} references could not be resolved`,
+      };
+    }
+
+    const selections = resolved;
+
+    // --- content hash: same inputs, same geometry, so reuse it. Hashing the RESOLVED
+    // indices means a reference that re-resolves to where it was is a cache hit.
     const hash = contentHash({
       type: feature.type,
       values,
@@ -238,7 +293,10 @@ export class RecomputeEngine {
       });
       computed.push(feature.id);
       this.#cache.set(hash, result.handle);
-      return { id: feature.id, status: 'ok', handle: result.handle, hash, cached: false, fellBack: false };
+      return {
+        id: feature.id, status: 'ok', handle: result.handle, hash,
+        cached: false, fellBack: false, history: result.history ?? null,
+      };
     } catch (e) {
       // Local failure: keep the last good shape flowing downstream so the rest of the
       // model still builds, and flag this feature precisely.
@@ -282,4 +340,42 @@ export class RecomputeEngine {
     }
     return removed;
   }
+}
+
+/**
+ * The operations between a reference's origin and the shape it is being resolved
+ * against, oldest first.
+ *
+ * Walks back up the primary-input chain from the consuming feature to the origin
+ * feature, then reverses. An empty chain means the reference was picked on the very
+ * shape now being resolved — the ordinary case, needing no provenance at all.
+ */
+function buildHistoryChain(
+  ref: TopoRef,
+  consumer: Feature,
+  primaryRole: string,
+  states: ReadonlyMap<FeatureId, FeatureState>,
+  features: ReadonlyMap<FeatureId, Feature>,
+  registry: FeatureRegistry,
+): HistoryStep[] {
+  const steps: HistoryStep[] = [];
+  const seen = new Set<string>([consumer.id]);
+  let currentId = consumer.inputs[primaryRole];
+
+  while (currentId && currentId !== ref.origin.featureId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const feature = features.get(currentId);
+    const state = states.get(currentId);
+    if (!feature || !state) break;
+
+    const definition = registry.get(feature.type);
+    const role = definition?.primaryInput;
+    const inputIndex = role ? Math.max(0, definition!.shapeInputs.indexOf(role)) : 0;
+
+    steps.push({ featureId: currentId, inputIndex, history: state.history ?? null });
+    currentId = role ? feature.inputs[role] : undefined;
+  }
+
+  // Collected consumer-first; provenance replays origin-first.
+  return steps.reverse();
 }

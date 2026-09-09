@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "outDir": "./dist", "rootDir": "./src", "noEmit": false },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "dist"],
+  "references": [
+    { "path": "../packages/types" },
+    { "path": "../packages/document" },
+    { "path": "../packages/kernel" }
+  ]
+}

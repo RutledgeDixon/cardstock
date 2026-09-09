@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeatureId } from '@cardstock/types';
 import { Document } from './document.js';
-import { MockKernel } from './mock-kernel/mock-kernel.js';
+import { MockKernel, mockTopoRef } from './mock-kernel/mock-kernel.js';
 
 /**
  * Reorder rewires the primary-input chain, so dragging a feature does what a SolidWorks
@@ -17,7 +17,7 @@ function chain(d: Document) {
   d.addFeature({ id: 'box' as FeatureId, type: 'box', name: 'Box', values: { dx: '40', dy: '30', dz: '20' }, inputs: {} });
   d.addFeature({ id: 'cyl' as FeatureId, type: 'cylinder', name: 'Drill', values: { radius: '6', height: '40' }, inputs: {} });
   d.addFeature({ id: 'cut' as FeatureId, type: 'cut', name: 'Hole', values: {}, inputs: { base: 'box' as FeatureId, tool: 'cyl' as FeatureId } });
-  d.addFeature({ id: 'fil' as FeatureId, type: 'fillet', name: 'Round', values: { radius: '3' }, inputs: { base: 'cut' as FeatureId }, selections: { edges: [0] } });
+  d.addFeature({ id: 'fil' as FeatureId, type: 'fillet', name: 'Round', values: { radius: '3' }, inputs: { base: 'cut' as FeatureId }, selections: { edges: [mockTopoRef('cut', 'edge', 0)] } });
 }
 
 const inputsOf = (d: Document, id: string) => d.feature(id as FeatureId)!.inputs;

@@ -25,12 +25,15 @@ export function captureHistory(
   result: TopoDS_Shape,
 ): ShapeHistory {
   const resultFaces = subShapes(oc, result, 'TopAbs_FACE');
+  const resultEdges = subShapes(oc, result, 'TopAbs_EDGE');
   const perInput: InputHistory[] = [];
 
   for (const input of inputs) {
     const modifiedFaces = new Map<number, number[]>();
+    const modifiedEdges = new Map<number, number[]>();
     const generatedFaces = new Map<number, number[]>();
     const deletedFaces: number[] = [];
+    const deletedEdges: number[] = [];
 
     const inputFaces = subShapes(oc, input, 'TopAbs_FACE');
     inputFaces.forEach((face, faceIndex) => {
@@ -54,14 +57,32 @@ export function captureHistory(
     const inputEdges = subShapes(oc, input, 'TopAbs_EDGE');
     inputEdges.forEach((edge, edgeIndex) => {
       try {
+        // Record deletion, but do NOT stop here: a filleted edge is both consumed AND
+        // the generator of the fillet surface, which is the most valuable mapping the
+        // operation produces.
+        if (builder.IsDeleted(edge)) deletedEdges.push(edgeIndex);
+      } catch { /* builders may refuse shapes they never saw */ }
+
+      try {
+        // Generated() on an edge yields FACES — a fillet's surface, for instance.
         const generated = drainShapeList(builder.Generated(edge))
           .map((s) => indexOfShape(resultFaces, s))
           .filter((i) => i >= 0);
         if (generated.length > 0) generatedFaces.set(edgeIndex, generated);
       } catch { /* most edges generate nothing */ }
+
+      try {
+        // Modified() on an edge yields the EDGES it became. Without this an edge
+        // reference cannot be traced through a boolean at all, which is exactly what a
+        // fillet reference needs to survive.
+        const modified = drainShapeList(builder.Modified(edge))
+          .map((s) => indexOfShape(resultEdges, s))
+          .filter((i) => i >= 0);
+        if (modified.length > 0) modifiedEdges.set(edgeIndex, modified);
+      } catch { /* unchanged edges legitimately report nothing */ }
     });
 
-    perInput.push({ modifiedFaces, generatedFaces, deletedFaces });
+    perInput.push({ modifiedFaces, modifiedEdges, generatedFaces, deletedFaces, deletedEdges });
   }
 
   return { inputs: perInput };

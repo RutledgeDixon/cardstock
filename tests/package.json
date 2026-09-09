@@ -1,0 +1,13 @@
+{
+  "name": "@cardstock/tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests and the regression corpus: real geometry driven through the real document.",
+  "scripts": { "test": "vitest run", "typecheck": "tsc -b" },
+  "dependencies": {
+    "@cardstock/types": "*",
+    "@cardstock/document": "*",
+    "@cardstock/kernel": "*"
+  }
+}

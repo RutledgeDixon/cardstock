@@ -9,7 +9,8 @@
     "node": ">=22"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "tests"
   ],
   "scripts": {
     "dev": "npm run dev -w @cardstock/app",

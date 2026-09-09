@@ -35,4 +35,12 @@ export {
   type DocumentFile, type DocumentMeta, type Migration,
 } from './serialize/schema.js';
 
-export { MockKernel, type MockCall } from './mock-kernel/mock-kernel.js';
+export {
+  MockKernel, mockFingerprint, mockTopoRef, type MockCall,
+} from './mock-kernel/mock-kernel.js';
+
+export {
+  DEFAULT_THRESHOLDS, bestMatch, captureTopoRef, resolveTopoRef, scoreMatch,
+  type HistoryStep, type MatchThresholds, type Resolution, type ResolutionMethod,
+  type TopoRef,
+} from './toporef/index.js';

@@ -24,6 +24,9 @@ const ALLOWED = {
   commands: ['types', 'document'],
   ui: ['types', 'document', 'commands', 'viewer'],
   app: ['types', 'document', 'kernel', 'viewer', 'commands', 'ui'],
+  // Integration tests sit outside the layering on purpose: they exist to drive the real
+  // document against the real kernel, which no production package may do.
+  tests: ['types', 'document', 'kernel', 'viewer'],
 };
 
 /** External packages each package may NOT import, with the reason. */
@@ -71,7 +74,9 @@ function walk(dir, out = []) {
 const violations = [];
 
 for (const pkg of Object.keys(ALLOWED)) {
-  const srcDir = join(ROOT, 'packages', pkg, 'src');
+  const srcDir = pkg === 'tests'
+    ? join(ROOT, 'tests', 'src')
+    : join(ROOT, 'packages', pkg, 'src');
   let files;
   try {
     files = walk(srcDir);

@@ -72,6 +72,28 @@ locally: the feature falls back to its input, downstream keeps building, and the
 shows exactly what needs fixing. Repair is re-picking the entity, which mints a fresh
 fingerprint.
 
+## Two traps found while implementing this
+
+**"Unchanged" does not mean "same index".** OCCT's history records only what an operation
+*changed*. It is tempting to read a missing entry as "this entity is still itself, at the
+same index" — and that is wrong. An operation can leave an edge geometrically untouched
+while the shape it belongs to renumbers everything around it. Carrying the old index
+forward on that assumption resolves to a real, valid, completely unrelated edge: a silent
+misplacement, which is the exact failure this subsystem exists to prevent. An absent
+mapping therefore ends the trail and hands the question to fingerprinting, which asks
+*which entity looks like the one I picked* rather than *which entity happens to sit at
+that number*. This was caught by the integration test, not the unit tests — the unit test
+had encoded the same wrong assumption.
+
+**A deleted edge still generates.** A filleted edge reports `IsDeleted() === true` *and*
+generates the fillet surface. Treating deletion as a reason to stop querying loses the
+single most valuable mapping the operation produces.
+
+**Provenance is verified, not trusted.** A traced index is still scored against the
+fingerprint before being accepted. A history map can be right that an entity survived
+while being wrong about where it landed, and an unverified hit there is indistinguishable
+from a correct one until the part is printed.
+
 ## Why "never guess" is the important rule
 
 A wrong fillet that looks plausible is worse than a missing one. The user prints the

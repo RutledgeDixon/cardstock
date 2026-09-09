@@ -189,35 +189,21 @@ export class MockKernel implements KernelPort {
   }
 
   /**
-   * Synthetic fingerprints, spread deterministically through the unit cube.
+   * Synthetic fingerprints.
    *
-   * Enough to satisfy the interface and drive integration tests. Resolver unit tests
-   * build ShapeDescriptions by hand instead, so they can pose the exact ambiguities that
-   * matter rather than whatever this happens to generate.
+   * Deliberately a function of the entity INDEX alone, never of how many entities the
+   * shape has: a reference to edge 3 then resolves to edge 3 in any mock shape that has
+   * one, which keeps recompute tests about the graph rather than about fingerprint
+   * arithmetic. Resolver unit tests build ShapeDescriptions by hand instead, so they can
+   * pose the exact ambiguities that matter.
    */
   async describeShape(shape: ShapeHandle): Promise<ShapeDescription> {
     await this.#record('describeShape', this.describe(shape));
     const s = this.#require(shape, 'describeShape');
-    const spread = (i: number, n: number) => (n <= 1 ? 0.5 : i / (n - 1));
-
-    const make = (
-      kind: EntityFingerprint['kind'], index: number, count: number, type: string,
-    ): EntityFingerprint => ({
-      kind,
-      index,
-      geometryType: type,
-      centroid: { x: spread(index, count), y: 0, z: 0 },
-      centroidNormalised: { x: spread(index, count), y: 0, z: 0 },
-      direction: kind === 'vertex' ? null : { x: 1, y: 0, z: 0 },
-      measure: 1,
-      measureRatio: 1 / Math.max(count, 1),
-      neighbourTypes: kind === 'edge' ? ['plane', 'plane'] : [],
-    });
-
     return {
-      faces: Array.from({ length: s.faces }, (_, i) => make('face', i, s.faces, 'plane')),
-      edges: Array.from({ length: s.edges }, (_, i) => make('edge', i, s.edges, 'line')),
-      vertices: Array.from({ length: s.vertices }, (_, i) => make('vertex', i, s.vertices, 'point')),
+      faces: Array.from({ length: s.faces }, (_, i) => mockFingerprint('face', i)),
+      edges: Array.from({ length: s.edges }, (_, i) => mockFingerprint('edge', i)),
+      vertices: Array.from({ length: s.vertices }, (_, i) => mockFingerprint('vertex', i)),
       bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
     };
   }
@@ -245,4 +231,39 @@ export class MockKernel implements KernelPort {
     this.released.push(shape);
     this.#shapes.delete(shape);
   }
+}
+
+/** The fingerprint MockKernel generates for a given entity. Exported so tests can mint
+ *  references that resolve against it. */
+export function mockFingerprint(
+  kind: EntityFingerprint['kind'],
+  index: number,
+): EntityFingerprint {
+  // Spread indices around the unit cube so neighbours are distinguishable, and vary the
+  // direction so opposite entities do not collide.
+  const t = (index % 16) / 16;
+  return {
+    kind,
+    index,
+    geometryType: kind === 'face' ? 'plane' : kind === 'edge' ? 'line' : 'point',
+    centroid: { x: t, y: (index % 4) / 4, z: (index % 3) / 3 },
+    centroidNormalised: { x: t, y: (index % 4) / 4, z: (index % 3) / 3 },
+    direction: kind === 'vertex' ? null : { x: 0, y: 0, z: 1 },
+    measure: 1,
+    measureRatio: 0.1,
+    neighbourTypes: kind === 'edge' ? ['plane', 'plane'] : [],
+  };
+}
+
+/** A TopoRef that resolves to `index` against any MockKernel shape that has one. */
+export function mockTopoRef(
+  featureId: string,
+  kind: EntityFingerprint['kind'],
+  index: number,
+): {
+  kind: EntityFingerprint['kind'];
+  origin: { featureId: string; index: number };
+  fingerprint: EntityFingerprint;
+} {
+  return { kind, origin: { featureId, index }, fingerprint: mockFingerprint(kind, index) };
 }

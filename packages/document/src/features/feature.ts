@@ -1,5 +1,6 @@
 import type { FeatureId } from '@cardstock/types';
 import type { GeometryResult, KernelPort, ShapeHandle } from '@cardstock/types';
+import type { TopoRef } from '../toporef/types.js';
 
 /**
  * A feature: one step in the model's history.
@@ -20,11 +21,11 @@ export interface Feature {
   /**
    * Topological selections, e.g. which edges to fillet.
    *
-   * Phase 2 stores raw indices into the input shape's tessellation. Phase 4 replaces
-   * these with durable TopoRefs resolved through OCCT provenance — the indices here are
-   * explicitly NOT stable across a rebuild, which is the whole problem Phase 4 solves.
+   * Durable references, not indices. The engine resolves them against the feature's
+   * input shape on every rebuild and hands `compute` plain indices, so feature
+   * definitions never deal with naming. See docs/toponaming.md.
    */
-  readonly selections?: Readonly<Record<string, readonly number[]>>;
+  readonly selections?: Readonly<Record<string, readonly TopoRef[]>>;
 }
 
 export interface ComputeContext {
@@ -34,6 +35,7 @@ export interface ComputeContext {
   readonly values: Readonly<Record<string, number>>;
   /** Resolved shape inputs. */
   readonly shapes: Readonly<Record<string, ShapeHandle>>;
+  /** Already resolved to indices in the input shape — definitions never see a TopoRef. */
   readonly selections: Readonly<Record<string, readonly number[]>>;
 }
 

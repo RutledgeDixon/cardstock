@@ -35,10 +35,14 @@ export type BooleanOp = 'union' | 'cut' | 'intersect';
 export interface InputHistory {
   /** input face index -> result face indices it became. Absent = unchanged. */
   readonly modifiedFaces: ReadonlyMap<number, readonly number[]>;
+  /** input edge index -> result edge indices it became. Absent = unchanged. */
+  readonly modifiedEdges: ReadonlyMap<number, readonly number[]>;
   /** input edge index -> result face indices it generated (e.g. a fillet surface). */
   readonly generatedFaces: ReadonlyMap<number, readonly number[]>;
   /** input face indices that no longer exist in the result. */
   readonly deletedFaces: readonly number[];
+  /** input edge indices that no longer exist in the result. */
+  readonly deletedEdges: readonly number[];
 }
 
 export interface ShapeHistory {
