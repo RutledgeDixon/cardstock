@@ -58,11 +58,13 @@ describe('context filtering', () => {
     ]);
   });
 
-  it('returns commands for the context plus the always-available ones', () => {
+  it('returns only the commands that belong to the context', () => {
     const ids = registry.forContext('edge', state).map((r) => r.command.id);
     expect(ids).toContain('fillet');
-    expect(ids).toContain('undo');
     expect(ids).not.toContain('sketch');
+    // 'undo' is always available to the palette and its key, but declares no sector for
+    // edges, so it stays out of the edge menu. See the flooding tests below.
+    expect(ids).not.toContain('undo');
   });
 
   it('orders by sector, then alphabetically', () => {
@@ -75,7 +77,9 @@ describe('enablement carries a reason', () => {
   it('reports why a command is unavailable', () => {
     // Disabled buttons stay visible and say why; a greyed button with no explanation is
     // just a dead end.
-    registry.register(cmd({ id: 'x', enabled: () => 'Select an edge first' }));
+    registry.register(cmd({
+      id: 'x', contexts: ['edge'], enabled: () => 'Select an edge first',
+    }));
     expect(registry.forContext('edge', state)[0]!.enabled).toBe('Select an edge first');
   });
 
@@ -149,5 +153,75 @@ describe('key chords', () => {
   it('exposes the full keymap', () => {
     registry.register(cmd({ id: 'a', keys: ['f', 'shift+f'] }));
     expect([...registry.keymap().keys()].sort()).toEqual(['f', 'shift+f']);
+  });
+});
+
+describe('groups are one level deep', () => {
+  const group = (id: string, children: string[]) =>
+    cmd({ id, children, contexts: ['empty'] });
+
+  it('exposes a group\'s children', () => {
+    registry.registerAll([
+      group('create.shape', ['box', 'cyl']),
+      cmd({ id: 'box', contexts: ['empty'] }),
+      cmd({ id: 'cyl', contexts: ['empty'] }),
+    ]);
+    expect(registry.isGroup('create.shape')).toBe(true);
+    expect(registry.childrenOf('create.shape', state).map((r) => r.command.id))
+      .toEqual(['box', 'cyl']);
+  });
+
+  it('hides children from top-level listings, so each appears in exactly one place', () => {
+    registry.registerAll([
+      group('create.shape', ['box']),
+      cmd({ id: 'box', contexts: ['empty'], toolbar: { order: 1 } }),
+    ]);
+    expect(registry.forContext('empty', state).map((r) => r.command.id)).toEqual(['create.shape']);
+    expect(registry.toolbar(state).map((r) => r.command.id)).toEqual([]);
+  });
+
+  it('rejects a group nested inside a group', () => {
+    // Submenus are one level. Without this the toolbar quietly grows into a tree.
+    expect(() => registry.registerAll([
+      group('outer', ['inner']),
+      group('inner', ['leaf']),
+      cmd({ id: 'leaf', contexts: ['empty'] }),
+    ])).toThrow(/cannot be both a group and a child/);
+  });
+
+  it('rejects a group listing a child that does not exist', () => {
+    // Otherwise the child vanishes twice over: hidden from top level for being a child,
+    // absent from the flyout for not existing.
+    expect(() => registry.registerAll([group('outer', ['ghost'])]))
+      .toThrow(/unknown child "ghost"/);
+  });
+
+  it('reports non-groups as not groups', () => {
+    registry.register(cmd({ id: 'plain' }));
+    expect(registry.isGroup('plain')).toBe(false);
+    expect(registry.childrenOf('plain', state)).toEqual([]);
+  });
+});
+
+describe('always-commands do not flood every context menu', () => {
+  it('keeps a sectorless always-command out of the radial', () => {
+    // Otherwise a right-click on an edge offers Export STL and the palette, and stops
+    // being a short list of things you might do to that edge.
+    registry.registerAll([
+      cmd({ id: 'file.export', contexts: ['always'] }),
+      cmd({ id: 'modify.edge', contexts: ['edge'], sector: { edge: 0 } }),
+    ]);
+    expect(registry.forContext('edge', state).map((r) => r.command.id)).toEqual(['modify.edge']);
+  });
+
+  it('still admits an always-command that declares a sector for the context', () => {
+    registry.register(cmd({ id: 'view.fit', contexts: ['always'], sector: { empty: 6 } }));
+    expect(registry.forContext('empty', state).map((r) => r.command.id)).toEqual(['view.fit']);
+    expect(registry.forContext('edge', state)).toEqual([]);
+  });
+
+  it('leaves the palette able to find it regardless', () => {
+    registry.register(cmd({ id: 'file.export', title: 'Export STL', contexts: ['always'] }));
+    expect(registry.search('export', state).map((r) => r.command.id)).toEqual(['file.export']);
   });
 });

@@ -53,16 +53,76 @@ export class CommandRegistry {
 
   registerAll(commands: Iterable<Command>): void {
     for (const command of commands) this.register(command);
+    this.#validateGroups();
+  }
+
+  /**
+   * Groups are one level deep, and every child must exist.
+   *
+   * Checked after registration rather than during it, because a group is usually
+   * declared before its children. A missing child would otherwise silently disappear
+   * from the UI: hidden from top level for being a child, absent from the flyout for
+   * not existing.
+   */
+  #validateGroups(): void {
+    for (const command of this.#commands.values()) {
+      for (const childId of command.children ?? []) {
+        const child = this.#commands.get(childId);
+        if (!child) {
+          throw new Error(`command "${command.id}" lists unknown child "${childId}"`);
+        }
+        if (child.children?.length) {
+          throw new Error(
+            `command "${childId}" cannot be both a group and a child of "${command.id}" — ` +
+            'submenus are one level deep',
+          );
+        }
+      }
+    }
+  }
+
+  /** Ids that appear inside some group, and so must not appear at top level too. */
+  #childIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const command of this.#commands.values()) {
+      for (const child of command.children ?? []) ids.add(child);
+    }
+    return ids;
+  }
+
+  /** A group's contents, resolved against the current state. */
+  childrenOf(id: string, state: CommandState): ResolvedCommand[] {
+    const parent = this.#commands.get(id);
+    if (!parent?.children) return [];
+    return parent.children
+      .map((childId) => this.#commands.get(childId))
+      .filter((c): c is Command => c !== undefined)
+      .map((command) => ({ command, enabled: command.enabled(state) }));
+  }
+
+  /** True when this command opens a flyout rather than doing something itself. */
+  isGroup(id: string): boolean {
+    return (this.#commands.get(id)?.children?.length ?? 0) > 0;
   }
 
   get(id: string): Command | undefined { return this.#commands.get(id); }
   all(): Command[] { return [...this.#commands.values()]; }
   get size(): number { return this.#commands.size; }
 
-  /** Commands for a context, in stable sector order. Includes disabled ones. */
+  /**
+   * Commands for a context, in stable sector order. Includes disabled ones.
+   *
+   * An `always` command is available to the palette and its keybinding everywhere, but
+   * only reaches the radial menu if it declares a SECTOR for that context. Without that
+   * rule every menu fills with Export, Undo and the palette itself, and a right-click
+   * stops being a short list of the things you might do to what you clicked.
+   */
   forContext(context: CommandContext, state: CommandState): ResolvedCommand[] {
+    const children = this.#childIds();
     return [...this.#commands.values()]
-      .filter((c) => c.contexts.includes(context) || c.contexts.includes('always'))
+      .filter((c) => !children.has(c.id))
+      .filter((c) => c.contexts.includes(context)
+        || (c.contexts.includes('always') && c.sector?.[context] !== undefined))
       .map((command) => ({
         command,
         enabled: command.enabled(state),
@@ -80,8 +140,9 @@ export class CommandRegistry {
 
   /** Toolbar contents, in declared order. Disabled entries stay visible with a reason. */
   toolbar(state: CommandState): ResolvedCommand[] {
+    const children = this.#childIds();
     return [...this.#commands.values()]
-      .filter((c) => c.toolbar !== undefined)
+      .filter((c) => c.toolbar !== undefined && !children.has(c.id))
       .map((command) => ({ command, enabled: command.enabled(state) }))
       .sort((a, b) => a.command.toolbar!.order - b.command.toolbar!.order);
   }

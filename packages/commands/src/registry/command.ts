@@ -66,6 +66,16 @@ export interface Command {
   readonly toolbar?: { readonly order: number };
   /** Chords like 'f', 'ctrl+k', 'shift+e'. */
   readonly keys?: readonly string[];
+  /**
+   * Command ids shown in a flyout under this one.
+   *
+   * Deliberately ONE level: a child may not itself have children, and the registry
+   * enforces that. Submenus are otherwise how a toolbar rots into a tree, so this exists
+   * only for the two cases where grouping genuinely reads better than a longer strip —
+   * "New shape" and "Modify edge". A command listed as someone's child is hidden from
+   * top-level listings, so it appears in exactly one place.
+   */
+  readonly children?: readonly string[];
   enabled(state: CommandState): Enablement;
   run(): void | Promise<void>;
 }

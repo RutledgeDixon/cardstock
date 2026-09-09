@@ -1,5 +1,6 @@
 :root {
   color-scheme: dark;
+  --panel-w: 76px;
   --bg: #14161a;
   --panel: #1c1f26;
   --panel-edge: #2c313b;
@@ -30,22 +31,55 @@ button:disabled { cursor: default; }
   backdrop-filter: blur(10px);
 }
 
-/* ---------------------------------------------------------------- toolbar: right, one level */
-.toolbar {
-  position: fixed; right: 12px; top: 12px; z-index: 5;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px;
-  background: #1c1f26e6; border: 1px solid var(--panel-edge); border-radius: 7px;
+/* ------------------------------------------------ tool panel: full-height right edge */
+/* A desktop-style panel rather than a floating strip: it owns the right edge, and the
+   viewport is inset to match so nothing important hides underneath it. */
+.toolpanel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 6;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 5px; overflow-y: auto; overflow-x: visible;
+  background: #191c22f2;
+  border-left: 1px solid var(--panel-edge);
+  backdrop-filter: blur(10px);
 }
+.toolpanel::-webkit-scrollbar { width: 6px; }
+.toolpanel::-webkit-scrollbar-thumb { background: #333a46; border-radius: 3px; }
+
+.toolslot { position: relative; flex: 0 0 auto; }
+.toolslot.is-divided { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--panel-edge); }
+
+/* Icon above, name beneath: readable without hovering, and stays scannable as the
+   panel grows. */
 .tool {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px 6px 8px; border-radius: 5px; width: 100%;
-  color: var(--ink); text-align: left; white-space: nowrap;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 100%; padding: 7px 2px 5px; border-radius: 6px; color: var(--ink);
 }
 .tool:hover:not(:disabled) { background: #2a303b; }
-.tool:disabled { color: #575e6b; }
-.tool-grouped { margin-top: 6px; border-top: 1px solid var(--panel-edge); padding-top: 10px; }
-.tool-icon { width: 16px; text-align: center; font-size: 14px; }
-.tool-label { font-size: 11px; }
+.tool:disabled { color: #565d6a; }
+.tool.is-open { background: #2f3a4a; box-shadow: inset 2px 0 0 var(--accent); }
+.tool-icon { font-size: 17px; line-height: 1.1; }
+.tool-name {
+  font-size: 9.5px; line-height: 1.15; text-align: center;
+  /* Wrap to two lines rather than truncating: "New shape" and "Modify edge" are the
+     labels that make the panel readable, and "New sha…" is not a label. */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; word-break: break-word; min-height: 2.3em;
+}
+.tool-caret { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--dim); }
+
+.flyout {
+  position: fixed; z-index: 8;
+  display: flex; flex-direction: column; min-width: 138px; padding: 4px;
+  background: #212731f7; border: 1px solid var(--panel-edge); border-radius: 7px;
+  backdrop-filter: blur(10px);
+}
+.flyout button {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 9px; border-radius: 5px; text-align: left; white-space: nowrap;
+}
+.flyout button:hover:not(:disabled) { background: #2f3a4a; }
+.flyout button:disabled { color: #565d6a; }
+.flyout-icon { width: 15px; text-align: center; }
 
 /* ---------------------------------------------------------------- left rail */
 .left-rail {
@@ -100,7 +134,7 @@ button:disabled { cursor: default; }
 
 /* ---------------------------------------------------------------- status bar */
 .status {
-  position: fixed; left: 12px; right: 12px; bottom: 8px; z-index: 4;
+  position: fixed; left: 12px; right: calc(var(--panel-w) + 12px); bottom: 8px; z-index: 4;
   display: flex; gap: 16px; align-items: center; padding: 5px 10px;
 }
 .status-left { flex: 1 1 auto; }
@@ -131,8 +165,12 @@ b { color: var(--accent); font-weight: 600; }
 .radial-icon { font-size: 15px; }
 .radial-label { font-size: 10px; white-space: nowrap; }
 .radial-overflow {
-  position: absolute; z-index: 21; padding: 5px; min-width: 168px;
+  position: absolute; z-index: 21; padding: 5px; min-width: 152px;
   display: flex; flex-direction: column;
+}
+.radial-overflow-title {
+  color: var(--dim); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 8px 5px;
 }
 .radial-overflow button { padding: 5px 8px; border-radius: 4px; text-align: left; }
 .radial-overflow button:hover:not(:disabled) { background: #2f3a4a; }

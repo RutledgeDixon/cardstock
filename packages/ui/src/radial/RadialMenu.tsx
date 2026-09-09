@@ -24,7 +24,9 @@ export interface RadialMenuProps {
 const RADIUS = 92;
 
 export function RadialMenu({ registry, state, context, at, onRun, onClose }: RadialMenuProps) {
-  const [overflow, setOverflow] = useState<readonly ResolvedCommand[] | null>(null);
+  const [flyout, setFlyout] = useState<{
+    items: readonly ResolvedCommand[]; title: string; at: { x: number; y: number };
+  } | null>(null);
   const slots = layoutRadial(registry.forContext(context, state));
 
   useEffect(() => {
@@ -57,7 +59,10 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
                 type="button"
                 className="radial-item radial-more"
                 style={style}
-                onClick={() => setOverflow(slot.overflow!)}
+                onClick={() => setFlyout({
+                  items: slot.overflow!, title: 'More',
+                  at: { x: offset.x * RADIUS, y: offset.y * RADIUS },
+                })}
               >
                 <span className="radial-icon">…</span>
                 <span className="radial-label">More</span>
@@ -66,6 +71,7 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
           }
 
           const disabled = slot.enabled !== true;
+          const isGroup = registry.isGroup(slot.command!.id);
           return (
             <button
               key={slot.command!.id}
@@ -75,27 +81,47 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
               disabled={disabled}
               title={disabled ? String(slot.enabled) : (slot.command!.hint ?? '')}
               data-command={slot.command!.id}
-              onClick={() => { onRun(slot.command!.id); onClose(); }}
+              onClick={() => {
+                // A group opens its options in place rather than doing something.
+                if (isGroup) {
+                  setFlyout({
+                    items: registry.childrenOf(slot.command!.id, state),
+                    title: slot.command!.title,
+                    at: { x: offset.x * RADIUS, y: offset.y * RADIUS },
+                  });
+                  return;
+                }
+                onRun(slot.command!.id);
+                onClose();
+              }}
             >
               <span className="radial-icon" aria-hidden="true">{slot.command!.icon}</span>
-              <span className="radial-label">{slot.command!.title}</span>
+              <span className="radial-label">
+                {slot.command!.title}{isGroup ? ' ›' : ''}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {overflow && (
+      {flyout && (
         <div
           className="radial-overflow"
-          style={{ left: at.x + RADIUS, top: at.y }}
+          style={{
+            // Anchor beside the sector it came from, so the eye does not have to
+            // re-find the menu.
+            left: at.x + flyout.at.x + (flyout.at.x < 0 ? -140 : 44),
+            top: at.y + flyout.at.y,
+          }}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          {overflow.map(({ command, enabled }) => (
+          <div className="radial-overflow-title">{flyout.title}</div>
+          {flyout.items.map(({ command, enabled }) => (
             <button
               key={command.id}
               type="button"
               disabled={enabled !== true}
-              title={enabled !== true ? String(enabled) : ''}
+              title={enabled !== true ? String(enabled) : (command.hint ?? '')}
               data-command={command.id}
               onClick={() => { onRun(command.id); onClose(); }}
             >
