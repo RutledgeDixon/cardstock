@@ -118,6 +118,12 @@ export interface KernelPort {
 
   /** Build a planar face from a closed profile: first loop outer, the rest holes. */
   makeFace(profile: ProfileSpec): Promise<GeometryResult>;
+  /**
+   * Build a wire from a profile's first loop, whether or not it closes.
+   *
+   * A sweep path is a sketch that was never meant to close, so it cannot become a face.
+   */
+  makePath(profile: ProfileSpec): Promise<GeometryResult>;
   /** Sweep a face along its normal. Negative distance extrudes the other way. */
   extrude(shape: ShapeHandle, distance: number, symmetric?: boolean): Promise<GeometryResult>;
 
@@ -126,6 +132,34 @@ export interface KernelPort {
     shape: ShapeHandle,
     axis: { origin: Vec3; direction: Vec3 },
     angle: number,
+  ): Promise<GeometryResult>;
+
+  /**
+   * Sweep a profile along a path taken from another shape.
+   *
+   * The path may be a wire, an edge, or a face whose outer boundary is the path — a
+   * sketch drawn to be followed is not prepared differently from one to be swept.
+   */
+  sweep(profile: ShapeHandle, path: ShapeHandle): Promise<GeometryResult>;
+
+  /** Blend a run of profiles into one solid, in the order given. */
+  loft(
+    profiles: readonly ShapeHandle[],
+    options?: { ruled?: boolean },
+  ): Promise<GeometryResult>;
+
+  /**
+   * Taper faces away from a neutral plane, by degrees.
+   *
+   * `pull` is the direction matter is removed from — for a printed part, the build
+   * direction. Only planar, cylindrical and conical faces can be tapered.
+   */
+  draft(
+    shape: ShapeHandle,
+    faces: readonly number[],
+    angle: number,
+    pull: Vec3,
+    neutralPlane: { origin: Vec3; normal: Vec3 },
   ): Promise<GeometryResult>;
 
   /**

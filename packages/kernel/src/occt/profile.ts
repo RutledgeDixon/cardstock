@@ -11,31 +11,53 @@ import { KernelError } from '@cardstock/types';
  * never has to think in world space and the same profile can sit on any face.
  */
 
-export function makeFace(oc: OpenCascadeInstance, profile: ProfileSpec): TopoDS_Shape {
-  if (profile.loops.length === 0) {
-    throw new KernelError('a face needs at least one closed loop', 'makeFace');
-  }
-
+/** The sketch plane and its 2D-to-3D mapping, shared by every profile consumer. */
+function placementOf(oc: OpenCascadeInstance, profile: ProfileSpec) {
   const { origin, normal, xAxis } = profile.placement;
   const axis = new oc.gp_Ax3(
     new oc.gp_Pnt(origin.x, origin.y, origin.z),
     new oc.gp_Dir(normal.x, normal.y, normal.z),
     new oc.gp_Dir(xAxis.x, xAxis.y, xAxis.z),
   );
-  const plane = new oc.gp_Pln(axis);
-
-  /** Sketch (u, v) to a 3D point on the plane. */
-  const to3d = (p: Vec2) => {
-    const xDir = axis.XDirection();
-    const yDir = axis.YDirection();
-    return new oc.gp_Pnt(
-      origin.x + xDir.X() * p.x + yDir.X() * p.y,
-      origin.y + xDir.Y() * p.x + yDir.Y() * p.y,
-      origin.z + xDir.Z() * p.x + yDir.Z() * p.y,
-    );
+  return {
+    plane: new oc.gp_Pln(axis),
+    /** Sketch (u, v) to a 3D point on the plane. */
+    to3d: (p: Vec2) => {
+      const xDir = axis.XDirection();
+      const yDir = axis.YDirection();
+      return new oc.gp_Pnt(
+        origin.x + xDir.X() * p.x + yDir.X() * p.y,
+        origin.y + xDir.Y() * p.x + yDir.Y() * p.y,
+        origin.z + xDir.Z() * p.x + yDir.Z() * p.y,
+      );
+    },
   };
+}
 
-  const wires = profile.loops.map((loop) => makeWire(oc, loop, plane, to3d));
+/**
+ * Build a wire from a profile, closed or not.
+ *
+ * A sweep path is a sketch that was never meant to close — an L-bend, an arc — so it
+ * cannot go through makeFace. Everything else about it is the same sketch, mapped onto
+ * the same plane, which is why this shares placement and segment handling rather than
+ * being a second way to draw.
+ */
+export function makePath(oc: OpenCascadeInstance, profile: ProfileSpec): TopoDS_Shape {
+  const loop = profile.loops[0];
+  if (!loop || loop.segments.length === 0) {
+    throw new KernelError('a path needs at least one segment', 'makePath');
+  }
+  const { plane, to3d } = placementOf(oc, profile);
+  return makeWire(oc, loop, plane, to3d, 'makePath');
+}
+
+export function makeFace(oc: OpenCascadeInstance, profile: ProfileSpec): TopoDS_Shape {
+  if (profile.loops.length === 0) {
+    throw new KernelError('a face needs at least one closed loop', 'makeFace');
+  }
+
+  const { plane, to3d } = placementOf(oc, profile);
+  const wires = profile.loops.map((loop) => makeWire(oc, loop, plane, to3d, 'makeFace'));
 
   const builder = new oc.BRepBuilderAPI_MakeFace(wires[0]!, false);
   // Later loops are holes. They must run opposite to the outer boundary, or OCCT adds
@@ -53,6 +75,7 @@ function makeWire(
   loop: ProfileLoopSpec,
   plane: gp_Pln,
   to3d: (p: Vec2) => gp_Pnt,
+  op: string,
 ): TopoDS_Wire {
   const wire = new oc.BRepBuilderAPI_MakeWire();
   let added = 0;
@@ -84,8 +107,8 @@ function makeWire(
     }
   }
 
-  if (added === 0) throw new KernelError('the profile loop produced no edges', 'makeFace');
-  if (!wire.IsDone()) throw new KernelError('the profile loop does not form a closed wire', 'makeFace');
+  if (added === 0) throw new KernelError('the profile loop produced no edges', op);
+  if (!wire.IsDone()) throw new KernelError('the profile loop does not form a connected wire', op);
   return wire.Wire();
 }
 

@@ -8,7 +8,8 @@ import type { OpenCascadeInstance, TopoDS_Shape } from 'replicad-opencascadejs';
  * it is the kind of thing that looks like noise until it silently corrupts a model.
  */
 
-export type ShapeKind = 'TopAbs_FACE' | 'TopAbs_EDGE' | 'TopAbs_VERTEX' | 'TopAbs_SOLID';
+export type ShapeKind =
+  | 'TopAbs_FACE' | 'TopAbs_EDGE' | 'TopAbs_VERTEX' | 'TopAbs_SOLID' | 'TopAbs_WIRE';
 
 /**
  * Unique sub-shapes in deterministic traversal order.
@@ -36,6 +37,31 @@ export function subShapes(
   }
   explorer.delete();
   return out;
+}
+
+/**
+ * The wire to sweep along, or the outer boundary of a profile.
+ *
+ * Sketches arrive as faces and paths as edges or wires, and every sweeping operation
+ * wants a wire either way, so the conversion lives here rather than at each call site.
+ * The first wire of a face is its outer boundary — the same convention makeFace builds
+ * to, where later loops are holes.
+ */
+export function asWire(
+  oc: OpenCascadeInstance,
+  shape: TopoDS_Shape,
+): TopoDS_Shape | null {
+  if (shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_WIRE) return shape;
+
+  const wires = subShapes(oc, shape, 'TopAbs_WIRE');
+  if (wires.length > 0) return wires[0]!;
+
+  // A bare edge is a legitimate path; wrap it so the sweep can take it.
+  const edges = subShapes(oc, shape, 'TopAbs_EDGE');
+  if (edges.length === 0) return null;
+  const builder = new oc.BRepBuilderAPI_MakeWire();
+  for (const edge of edges) builder.Add(oc.TopoDS.Edge(edge));
+  return builder.IsDone() ? builder.Wire() : null;
 }
 
 export function countSubShapes(

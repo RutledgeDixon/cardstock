@@ -51,6 +51,11 @@ const FIELD_LABELS: Record<string, string> = {
 
   'shell.thickness': 'wall thickness',
 
+  'draft.angle': 'taper \u00b0', 'draft.neutralZ': 'pivot height',
+  'draft.pullX': 'pull x', 'draft.pullY': 'pull y', 'draft.pullZ': 'pull z',
+
+  'loft.ruled': 'straight sides (1/0)',
+
   'revolve.angle': 'angle °',
   'revolve.axisX': 'axis x', 'revolve.axisY': 'axis y', 'revolve.axisZ': 'axis z',
 
@@ -76,6 +81,8 @@ const FIELD_UNITS: Record<string, string> = {
   normalX: '', normalY: '', normalZ: '',
   // A box's dx is a length; a pattern's dx is a direction component.
   'linearPattern.dx': '', 'linearPattern.dy': '', 'linearPattern.dz': '',
+  'draft.pullX': '', 'draft.pullY': '', 'draft.pullZ': '',
+  ruled: '', symmetric: '',
 };
 
 /**

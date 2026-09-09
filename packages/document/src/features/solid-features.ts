@@ -3,8 +3,14 @@ import type { ComputeContext, FeatureDefinition } from './feature.js';
 import { fastenerNames, findFastener, holeDiameter, type HoleFit } from './fasteners.js';
 
 /**
- * The Phase 7 feature set: revolve, shell, mirror, patterns and holes.
+ * The Phase 7 feature set: revolve, sweep, loft, shell, draft, mirror, patterns, holes.
  */
+
+/** How many sections a loft accepts. Two are required; the rest are optional roles. */
+export const LOFT_MAX_SECTIONS = 8;
+const loftRoles = Array.from(
+  { length: LOFT_MAX_SECTIONS }, (_, i) => `section${i}`,
+);
 
 const axisFrom = (values: Readonly<Record<string, number>>): Vec3 => {
   const axis = { x: values.axisX ?? 0, y: values.axisY ?? 0, z: values.axisZ ?? 1 };
@@ -31,6 +37,66 @@ export const revolveFeature: FeatureDefinition = {
       },
       values.angle ?? 360,
     );
+  },
+};
+
+export const sweepFeature: FeatureDefinition = {
+  type: 'sweep',
+  label: 'Sweep',
+  shapeInputs: ['profile', 'path'],
+  primaryInput: 'profile',
+  valueKeys: [],
+  async compute({ kernel, shapes }) {
+    const { profile, path } = shapes;
+    if (!profile) throw new Error('a sweep needs a profile to sweep');
+    if (!path) throw new Error('a sweep needs a path to follow');
+    return kernel.sweep(profile, path);
+  },
+};
+
+export const loftFeature: FeatureDefinition = {
+  type: 'loft',
+  label: 'Loft',
+  // Two sections are required and the rest are optional roles, so a loft can take
+  // between two and LOFT_MAX_SECTIONS profiles without the input map becoming a list
+  // the engine would have to special-case.
+  shapeInputs: loftRoles.slice(0, 2),
+  optionalShapeInputs: loftRoles.slice(2),
+  primaryInput: 'section0',
+  valueKeys: ['ruled'],
+  async compute({ kernel, shapes, values }) {
+    // Order matters — a loft through the same sections in a different order is a
+    // different solid — so walk the roles rather than Object.values.
+    const sections = loftRoles
+      .map((role) => shapes[role])
+      .filter((handle): handle is ShapeHandle => handle !== undefined);
+    if (sections.length < 2) throw new Error('a loft needs at least two profiles');
+    return kernel.loft(sections, { ruled: (values.ruled ?? 0) > 0.5 });
+  },
+};
+
+export const draftFeature: FeatureDefinition = {
+  type: 'draft',
+  label: 'Draft',
+  shapeInputs: ['base'],
+  primaryInput: 'base',
+  valueKeys: ['angle', 'pullX', 'pullY', 'pullZ', 'neutralZ'],
+  async compute({ kernel, shapes, values, selections }) {
+    const base = shapes.base;
+    if (!base) throw new Error('draft needs a solid');
+    const faces = selections.faces ?? [];
+    if (faces.length === 0) throw new Error('draft has no faces selected');
+
+    const pull = { x: values.pullX ?? 0, y: values.pullY ?? 0, z: values.pullZ ?? 1 };
+    const length = Math.hypot(pull.x, pull.y, pull.z);
+    const direction = length < 1e-9 ? { x: 0, y: 0, z: 1 } : pull;
+    return kernel.draft(base, faces, values.angle ?? 3, direction, {
+      // The neutral plane is where the taper pivots: the face that keeps its size. For a
+      // printed part that is the one on the plate, so it defaults to a height, not a
+      // full plane the user would have to describe.
+      origin: { x: 0, y: 0, z: values.neutralZ ?? 0 },
+      normal: direction,
+    });
   },
 };
 
@@ -250,6 +316,7 @@ export const holeFeature: FeatureDefinition = {
 };
 
 export const PHASE7_FEATURES: readonly FeatureDefinition[] = [
-  revolveFeature, shellFeature, mirrorFeature,
+  revolveFeature, sweepFeature, loftFeature,
+  shellFeature, draftFeature, mirrorFeature,
   linearPatternFeature, circularPatternFeature, holeFeature,
 ];

@@ -146,7 +146,7 @@ export function createHost(deps: HostDeps): CommandHost {
      * Kept as data so a new feature needs an entry here rather than a new code path.
      */
     async addSolidFeature(type) {
-      const needsFaces = new Set(['shell']);
+      const needsFaces = new Set(['shell', 'draft']);
 
       // Seat the defaults on the part that is actually on screen: a hole drilled at the
       // origin of a part that lives somewhere else just misses, and a pattern spaced
@@ -179,6 +179,9 @@ export function createHost(deps: HostDeps): CommandHost {
           depth: box ? round((box.max.z - box.min.z) + 1) : '10',
         },
         extrude: { distance: '10' },
+        draft: { angle: '3', pullZ: '1', neutralZ: box ? round(box.min.z) : '0' },
+        sweep: {},
+        loft: { ruled: '0' },
       };
 
       const source = deps.terminalFeature();
@@ -204,13 +207,36 @@ export function createHost(deps: HostDeps): CommandHost {
         selections.faces = refs;
       }
 
-      // Shape-consuming features attach to the current body; the rest stand alone.
-      const role = definition.primaryInput ?? definition.shapeInputs[0];
+      /*
+       * Wire the shape inputs.
+       *
+       * A one-input feature attaches to the current body. A feature wanting more —
+       * a sweep needs a profile and a path, a loft needs sections — takes the most
+       * recent leaves in the order they were made, which is the order the user drew
+       * them. The panel then lets them be re-pointed; guessing wrong is cheap, and
+       * having to pick two things before the button does anything is not.
+       */
+      const roles = definition.shapeInputs;
+      const inputs: Record<string, FeatureId> = {};
+      if (roles.length <= 1) {
+        const role = definition.primaryInput ?? roles[0];
+        if (role) inputs[role] = source;
+      } else {
+        const available = leafFeatures().slice(-roles.length);
+        if (available.length < roles.length) {
+          deps.notify(
+            `${definition.label} needs ${roles.length} sketches or bodies`, 'error',
+          );
+          return null;
+        }
+        roles.forEach((role, i) => { inputs[role] = available[i]!; });
+      }
+
       const id = doc.newFeatureId(type);
       doc.addFeature({
         id, type, name: nameFor(type),
         values: defaults[type] ?? {},
-        inputs: role ? { [role]: source } : {},
+        inputs,
         selections,
       });
       viewer.selection.clear();

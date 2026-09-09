@@ -165,7 +165,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '⬒',
       contexts: ['always'],
       toolbar: { order: 11 },
-      children: ['sketch.extrude', 'build.revolve'],
+      children: ['sketch.extrude', 'build.revolve', 'build.sweep', 'build.loft'],
       enabled: (s) => (s.sketching ? 'Finish the sketch first' : true),
       run: () => {},
     },
@@ -187,6 +187,26 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       contexts: ['always'],
       enabled: (s) => (s.sketching ? 'Finish the sketch first' : true),
       run: async () => { await host.addSolidFeature('revolve'); },
+    },
+    {
+      id: 'build.sweep',
+      title: 'Sweep',
+      hint: 'Run the sketch along a path drawn as a second sketch',
+      icon: '⤳',
+      contexts: ['always'],
+      enabled: (s) => (s.sketching ? 'Finish the sketch first'
+        : s.featureCount >= 2 ? true : 'Draw a profile and a path first'),
+      run: async () => { await host.addSolidFeature('sweep'); },
+    },
+    {
+      id: 'build.loft',
+      title: 'Loft',
+      hint: 'Blend two or more sketches into one solid',
+      icon: '⧗',
+      contexts: ['always'],
+      enabled: (s) => (s.sketching ? 'Finish the sketch first'
+        : s.featureCount >= 2 ? true : 'Draw at least two sections first'),
+      run: async () => { await host.addSolidFeature('loft'); },
     },
 
     // ---------------------------------------------------------------- primitives
@@ -272,7 +292,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '◫',
       contexts: ['body', 'always'],
       toolbar: { order: 31 },
-      children: ['modify.shell', 'modify.mirror', 'modify.move'],
+      children: ['modify.shell', 'modify.draft', 'modify.mirror', 'modify.move'],
       enabled: needsModel,
       run: () => {},
     },
@@ -285,6 +305,16 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       enabled: (s) => (s.selectionKind === 'face' && s.selectionCount > 0
         ? true : 'Select the faces to open'),
       run: async () => { await host.addSolidFeature('shell'); },
+    },
+    {
+      id: 'modify.draft',
+      title: 'Draft',
+      hint: 'Taper the selected faces away from the plate',
+      icon: '◺',
+      contexts: ['face'],
+      enabled: (s) => (s.selectionKind === 'face' && s.selectionCount > 0
+        ? true : 'Select the faces to taper'),
+      run: async () => { await host.addSolidFeature('draft'); },
     },
     {
       id: 'modify.mirror',

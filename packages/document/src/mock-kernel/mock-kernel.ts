@@ -135,10 +135,28 @@ export class MockKernel implements KernelPort {
     });
   }
 
+  async makePath(profile: ProfileSpec): Promise<GeometryResult> {
+    await this.#record('makePath', `${profile.loops[0]?.segments.length ?? 0} segment(s)`);
+    const loop = profile.loops[0];
+    if (!loop || loop.segments.length === 0) {
+      throw new KernelError('a path needs at least one segment', 'makePath');
+    }
+    return this.#create({
+      volume: 0, faces: 0,
+      edges: loop.segments.length, vertices: loop.segments.length + 1,
+      description: `path(${loop.segments.length})`,
+    });
+  }
+
   async extrude(shape: ShapeHandle, distance: number, symmetric = false): Promise<GeometryResult> {
     await this.#record('extrude', `${distance}${symmetric ? ' symmetric' : ''}`);
     const s = this.#require(shape, 'extrude');
     if (distance === 0) throw new KernelError('extrude distance must not be zero', 'extrude');
+    if (s.description.startsWith('path(')) {
+      throw new KernelError(
+        'extrude needs a closed profile — this sketch is an open path', 'extrude',
+      );
+    }
     // The mock records face area in `description`; recover it to give a plausible volume.
     const area = Number(/face\(([-\d.]+)\)/.exec(s.description)?.[1] ?? 1);
     return this.#create({
@@ -159,6 +177,64 @@ export class MockKernel implements KernelPort {
       volume: area * Math.abs(angle) / 360 * 10,
       faces: s.faces + 3, edges: s.edges * 2, vertices: s.vertices * 2,
       description: `revolve(${s.description},${angle})`,
+    });
+  }
+
+  async sweep(profile: ShapeHandle, path: ShapeHandle): Promise<GeometryResult> {
+    await this.#record('sweep', `${this.describe(profile)} along ${this.describe(path)}`);
+    const p = this.#require(profile, 'sweep');
+    const along = this.#require(path, 'sweep');
+    const area = Number(/face\(([-\d.]+)\)/.exec(p.description)?.[1] ?? 1);
+    return this.#create({
+      // Length is not something the mock can know, so it stands in with the path's own
+      // edge count: monotone in the thing that would make a real sweep longer.
+      volume: area * Math.max(1, along.edges),
+      faces: p.faces + p.edges, edges: p.edges * 3, vertices: p.vertices * 2,
+      description: `sweep(${p.description},${along.description})`,
+    });
+  }
+
+  async loft(
+    profiles: readonly ShapeHandle[], options: { ruled?: boolean } = {},
+  ): Promise<GeometryResult> {
+    await this.#record('loft', profiles.map((h) => this.describe(h)).join(','));
+    if (profiles.length < 2) {
+      throw new KernelError('a loft needs at least two profiles', 'loft');
+    }
+    const sections = profiles.map((h) => this.#require(h, 'loft'));
+    const areas = sections.map(
+      (s) => Number(/face\(([-\d.]+)\)/.exec(s.description)?.[1] ?? 1),
+    );
+    return this.#create({
+      // Average section area over a unit run between each pair: the prismatoid rule
+      // without the geometry, which keeps the volume monotone in the sections.
+      volume: areas.slice(1).reduce((sum, a, i) => sum + (a + areas[i]!) / 2, 0),
+      faces: sections.reduce((n, s) => n + s.edges, 0) + 2,
+      edges: sections.reduce((n, s) => n + s.edges * 2, 0),
+      vertices: sections.reduce((n, s) => n + s.vertices, 0),
+      description: `loft(${sections.map((s) => s.description).join(',')}${options.ruled ? ',ruled' : ''})`,
+    });
+  }
+
+  async draft(
+    shape: ShapeHandle, faces: readonly number[], angle: number,
+    _pull: unknown, _neutralPlane: unknown,
+  ): Promise<GeometryResult> {
+    await this.#record('draft', `${angle}deg on [${faces.join(',')}]`);
+    const s = this.#require(shape, 'draft');
+    if (angle === 0) throw new KernelError('draft angle must not be zero', 'draft');
+    for (const index of faces) {
+      if (index >= s.faces) {
+        throw new KernelError(
+          `face ${index} does not exist (shape has ${s.faces})`, 'draft',
+        );
+      }
+    }
+    return this.#create({
+      // Tapering removes a wedge; the sign follows the angle so an inward draft shrinks.
+      volume: s.volume * (1 - Math.tan((angle * Math.PI) / 180) * 0.1 * faces.length),
+      faces: s.faces, edges: s.edges, vertices: s.vertices,
+      description: `draft(${s.description},${angle})`,
     });
   }
 

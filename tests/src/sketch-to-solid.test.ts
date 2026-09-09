@@ -102,22 +102,43 @@ describe('a sketch becomes a solid', () => {
 });
 
 describe('sketch failures are reported on the sketch', () => {
-  it('names an unclosed profile rather than failing the extrude', async () => {
+  it('builds an unclosed sketch as a path, and says so when it is extruded', async () => {
+    // An open sketch is not a mistake — it is how a sweep path is drawn. So the sketch
+    // itself succeeds, and the feature that actually needs a closed profile is the one
+    // that fails, naming the real reason.
     const doc = new Document(kernel, undefined, solver);
     const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
     const b = sketch.addPoint(20, 0);
     sketch.addLine('origin', b); // a single line encloses nothing
+
+    let result = await doc.recompute();
+    expect(result.states.get(id)!.status).toBe('ok');
+
     doc.addFeature({
       id: EXTRUDE, type: 'extrude', name: 'Body',
       values: { distance: '5' }, inputs: { profile: id },
     });
+    result = await doc.recompute();
+    expect(result.states.get(id)!.status).toBe('ok');
+    expect(result.states.get(EXTRUDE)!.status).toBe('error');
+    expect(result.states.get(EXTRUDE)!.message).toMatch(/open path/);
+  });
+
+  it('still refuses a sketch whose profile is ambiguous', async () => {
+    // Three segments meeting at a point cannot be walked into either a loop or a path,
+    // so this must stay an error rather than quietly becoming one arbitrary chain.
+    const doc = new Document(kernel, undefined, solver);
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const b = sketch.addPoint(20, 0);
+    const c = sketch.addPoint(20, 10);
+    const d = sketch.addPoint(20, -10);
+    sketch.addLine('origin', b);
+    sketch.addLine(b, c);
+    sketch.addLine(b, d);
 
     const result = await doc.recompute();
-    const sketchState = result.states.get(id)!;
-    expect(sketchState.status).toBe('error');
-    expect(sketchState.message).toMatch(/does not close/);
-    // The error belongs to the sketch; the extrude is merely blocked by it.
-    expect(result.states.get(EXTRUDE)!.status).toBe('blocked');
+    expect(result.states.get(id)!.status).toBe('error');
+    expect(result.states.get(id)!.message).toMatch(/ambiguous/);
   });
 
   it('reports an over-constrained sketch with the offending constraint ids', async () => {

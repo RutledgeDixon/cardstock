@@ -85,3 +85,25 @@ a CI job. Revisit if a second symbol goes missing.
   `First()` / `RemoveFirst()`. History calls return a fresh list each time, so this is safe.
 - Every OCCT object needs explicit `.delete()` — the refcounted handle registry in
   `@cardstock/kernel` exists to make that systematic rather than ad hoc.
+
+## Phase 7 addendum — sweeping
+
+**`BRepOffsetAPI_MakePipe` requires a G1-continuous spine, and does not say so.** Given a
+path with a right-angle corner it swept only the first leg and returned a perfectly valid
+solid of exactly the wrong size — no exception, no `IsDone()` of false. `MakePipeShell`
+with an explicit `SetTransitionMode(BRepBuilderAPI_RightCorner)` handles corners, and
+mitres them so the swept volume is exactly the path length times the section.
+
+**`MakePipeShell.Add` takes a WIRE, not a face.** Handed a face it raises
+`BRepFill_Section: bad shape type of section`. Sketches arrive as faces, so the profile
+goes through `asWire` first. `MakeSolid()` then caps the ends; `Build()` alone leaves a
+shell with no volume.
+
+**`WithContact: true` moves the profile.** It translates the section until it touches the
+spine, which quietly moved a section centred on a radius-20 path out to radius 21 and
+changed the volume by 5%. It is false here: the profile stays where it was drawn.
+
+**`BRepOffsetAPI_DraftAngle` reports failure through `AddDone()`, not by throwing.** A
+face it cannot taper — anything but planar, cylindrical or conical — is accepted by
+`Add()` and then poisons `Build()`. Each face is checked as it goes in, so the error can
+name which one.

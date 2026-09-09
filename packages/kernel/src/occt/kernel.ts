@@ -7,11 +7,11 @@ import {
   KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
 import { ShapeRegistry } from './registry.js';
-import { subShapes } from './topology.js';
+import { asWire, subShapes } from './topology.js';
 import { captureHistory } from './history.js';
 import { tessellate } from '../tessellate/tessellate.js';
 import { describeShape } from './describe.js';
-import { makeFace } from './profile.js';
+import { makeFace, makePath } from './profile.js';
 
 /**
  * KernelPort over OpenCascade.
@@ -76,6 +76,10 @@ export class OcctKernel implements KernelPort {
     return { handle: this.#wrap(makeFace(this.oc, profile)) };
   }
 
+  async makePath(profile: ProfileSpec): Promise<GeometryResult> {
+    return { handle: this.#wrap(makePath(this.oc, profile)) };
+  }
+
   /**
    * Sweep a face along its own normal.
    *
@@ -87,7 +91,19 @@ export class OcctKernel implements KernelPort {
     let input = this.registry.get(shape);
 
     const normal = faceNormal(this.oc, input);
-    if (!normal) throw new KernelError('extrude needs a planar face', 'extrude');
+    if (!normal) {
+      // Naming the likely cause matters: the usual way to get here is an open sketch,
+      // which builds happily as a sweep path and only fails when something tries to
+      // extrude it.
+      const open = input.ShapeType() === this.oc.TopAbs_ShapeEnum.TopAbs_WIRE
+        || input.ShapeType() === this.oc.TopAbs_ShapeEnum.TopAbs_EDGE;
+      throw new KernelError(
+        open
+          ? 'extrude needs a closed profile — this sketch is an open path'
+          : 'extrude needs a planar face',
+        'extrude',
+      );
+    }
 
     if (symmetric) {
       // Start half a depth back, so the solid straddles the sketch plane.
@@ -126,6 +142,132 @@ export class OcctKernel implements KernelPort {
     );
     const result = builder.Shape();
     const history = captureHistory(this.oc, builder, [input], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  /**
+   * Sweep a profile along a path.
+   *
+   * The path is taken as a wire from whatever shape is handed in — a sketch comes
+   * through as a face, a datum as an edge — so a path sketch does not have to be
+   * prepared differently from a profile sketch.
+   */
+  async sweep(profile: ShapeHandle, path: ShapeHandle): Promise<GeometryResult> {
+    const face = this.registry.get(profile);
+    const spine = asWire(this.oc, this.registry.get(path));
+    if (!spine) throw new KernelError('the sweep path has no edges to follow', 'sweep');
+
+    // The section must be a WIRE. MakePipeShell.Add rejects a face with
+    // "BRepFill_Section: bad shape type of section", and sketches arrive as faces.
+    const section = asWire(this.oc, face);
+    if (!section) throw new KernelError('the sweep profile has no boundary', 'sweep');
+
+    // MakePipe, the obvious choice, requires a G1-continuous spine and silently sweeps
+    // only up to the first corner otherwise — a bent path came back as one straight leg,
+    // the right volume for one leg, and no error at all. MakePipeShell handles corners,
+    // given a transition mode.
+    let builder;
+    try {
+      builder = new this.oc.BRepOffsetAPI_MakePipeShell(this.oc.TopoDS.Wire(spine));
+      builder.SetTransitionMode(
+        this.oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner,
+      );
+      // WithContact is FALSE deliberately: it translates the profile until it touches
+      // the spine, which moved a section centred on a path of radius 20 out to 21 and
+      // quietly changed the swept volume. The profile stays where it was drawn.
+      builder.Add(section, false, false);
+    } catch (e) {
+      throw new KernelError(describeOcctError(this.oc, e, 'sweep'), 'sweep');
+    }
+
+    // Build() makes the shell; MakeSolid caps the ends. Its result is discarded because
+    // Shape() is what changes, not the return value.
+    this.#build(builder as never, 'sweep');
+    if (!builder.MakeSolid()) {
+      throw new KernelError('the sweep did not close into a solid', 'sweep');
+    }
+    const result = builder.Shape();
+    const history = captureHistory(this.oc, builder as never, [face], result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  /**
+   * Blend a run of profiles into one solid.
+   *
+   * `ruled` joins the sections with straight surfaces instead of a smooth approximation,
+   * which is what you want when the shape is meant to have creases rather than curves.
+   */
+  async loft(
+    profiles: readonly ShapeHandle[],
+    options: { ruled?: boolean } = {},
+  ): Promise<GeometryResult> {
+    if (profiles.length < 2) {
+      throw new KernelError('a loft needs at least two profiles', 'loft');
+    }
+    const shapes = profiles.map((p) => this.registry.get(p));
+    const builder = new this.oc.BRepOffsetAPI_ThruSections(
+      true, options.ruled ?? false, 1e-6,
+    );
+    for (const [index, shape] of shapes.entries()) {
+      const wire = asWire(this.oc, shape);
+      if (!wire) throw new KernelError(`loft profile ${index} has no boundary`, 'loft');
+      builder.AddWire(this.oc.TopoDS.Wire(wire));
+    }
+    const result = this.#build(builder as never, 'loft');
+    const history = captureHistory(this.oc, builder as never, shapes, result);
+    return { handle: this.#wrap(result), history };
+  }
+
+  /**
+   * Taper faces away from a neutral plane.
+   *
+   * OCCT reports a failed face through `AddDone()` rather than by throwing, and leaves
+   * the algorithm in a state where Build() raises instead — so each face is checked as
+   * it goes in and named in the error, which is the only way to say *which* face could
+   * not be tapered.
+   */
+  async draft(
+    shape: ShapeHandle,
+    faces: readonly number[],
+    angle: number,
+    pull: Vec3,
+    neutralPlane: { origin: Vec3; normal: Vec3 },
+  ): Promise<GeometryResult> {
+    if (angle === 0) throw new KernelError('draft angle must not be zero', 'draft');
+    const input = this.registry.get(shape);
+    const all = subShapes(this.oc, input, 'TopAbs_FACE');
+
+    const builder = new this.oc.BRepOffsetAPI_DraftAngle(input);
+    const direction = new this.oc.gp_Dir(pull.x, pull.y, pull.z);
+    const plane = new this.oc.gp_Pln(
+      new this.oc.gp_Pnt(neutralPlane.origin.x, neutralPlane.origin.y, neutralPlane.origin.z),
+      new this.oc.gp_Dir(neutralPlane.normal.x, neutralPlane.normal.y, neutralPlane.normal.z),
+    );
+
+    for (const index of faces) {
+      const face = all[index];
+      if (!face) {
+        throw new KernelError(
+          `face ${index} does not exist (shape has ${all.length})`, 'draft',
+        );
+      }
+      try {
+        builder.Add(
+          this.oc.TopoDS.Face(face), direction, (angle * Math.PI) / 180, plane, true,
+        );
+      } catch (e) {
+        throw new KernelError(describeOcctError(this.oc, e, 'draft'), 'draft');
+      }
+      if (!builder.AddDone()) {
+        throw new KernelError(
+          `face ${index} cannot be drafted — only planar, cylindrical and conical faces can`,
+          'draft',
+        );
+      }
+    }
+
+    const result = this.#build(builder as never, 'draft');
+    const history = captureHistory(this.oc, builder as never, [input], result);
     return { handle: this.#wrap(result), history };
   }
 

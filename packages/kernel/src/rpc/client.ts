@@ -68,6 +68,24 @@ export class WorkerKernel implements KernelPort {
   revolve(shape: ShapeHandle, axis: { origin: Vec3; direction: Vec3 }, angle: number) {
     return this.#call<GeometryResult>('revolve', shape, axis, angle);
   }
+  makePath(profile: ProfileSpec) {
+    return this.#call<GeometryResult>('makePath', profile);
+  }
+  sweep(profile: ShapeHandle, path: ShapeHandle) {
+    return this.#call<GeometryResult>('sweep', profile, path);
+  }
+  loft(profiles: readonly ShapeHandle[], options?: { ruled?: boolean }) {
+    return this.#call<GeometryResult>('loft', profiles, options);
+  }
+  draft(
+    shape: ShapeHandle,
+    faces: readonly number[],
+    angle: number,
+    pull: Vec3,
+    neutralPlane: { origin: Vec3; normal: Vec3 },
+  ) {
+    return this.#call<GeometryResult>('draft', shape, faces, angle, pull, neutralPlane);
+  }
   shell(shape: ShapeHandle, openFaces: readonly number[], thickness: number) {
     return this.#call<GeometryResult>('shell', shape, openFaces, thickness);
   }

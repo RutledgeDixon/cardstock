@@ -56,11 +56,25 @@ export const sketchFeature: FeatureDefinition = {
 
     const { loops, openChains } = buildProfile(sketch.geometry);
     if (loops.length === 0) {
-      // Say WHICH way it failed: an open chain and an ambiguous junction need different
-      // fixes, and "no profile" tells the user neither.
-      throw new Error(
-        openChains[0]?.reason ?? 'the sketch contains no closed profile',
-      );
+      // An ambiguous junction is a mistake to fix; the walk could not decide which way
+      // round the profile goes, so guessing would silently make the wrong shape.
+      const ambiguous = openChains.find((c) => c.reason.includes('ambiguous'));
+      if (ambiguous) throw new Error(ambiguous.reason);
+
+      // A sketch that simply doesn't close is a PATH, not a failure — that is how a
+      // sweep's path gets drawn, with no separate mode to choose first. Endpoint
+      // matching is quantised, so a chain that reaches here has a gap the user can see
+      // rather than a rounding difference.
+      const path = openChains
+        .slice()
+        .sort((a, b) => b.segments.length - a.segments.length)[0];
+      if (!path || path.segments.length === 0) {
+        throw new Error('the sketch is empty');
+      }
+      return kernel.makePath({
+        placement,
+        loops: [{ segments: path.segments, signedArea: 0 }],
+      });
     }
 
     // Largest loop is the boundary; the rest are holes.
