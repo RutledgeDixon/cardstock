@@ -42,7 +42,9 @@ export interface SketchViewColours {
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   geometry: 0xe8ecf4,
   construction: 0x6a7180,
-  point: 0x9aa6bb,
+  // Red, and deliberately not a colour the model uses: a neutral vertex disappeared
+  // against the grey of the face being sketched on.
+  point: 0xff4d4d,
   preview: 0x7fb2ff,
   fullyConstrained: 0x6fd39a,
   // The same orange the 3D selection uses, so "selected" means one thing across the app.
@@ -286,19 +288,34 @@ function fatLine(): LineSegments2 {
 }
 
 /**
- * Feed a flat xyz list to a fat line.
+ * Feed a flat xyz list to a fat line, on a FRESH geometry every time.
  *
- * An EMPTY list has to short-circuit: LineSegmentsGeometry.setPositions on no points
- * produces a degenerate instanced geometry that three then tries to draw.
+ * Reusing the geometry and calling `setPositions` again looks right and silently draws
+ * the wrong number of segments. Three caches `_maxInstanceCount` on the geometry when it
+ * first binds its vertex attributes, and replacing those attributes does not invalidate
+ * it — the renderer then draws `min(instanceCount, _maxInstanceCount)` instances. A
+ * sketch redrawn after its first line had instanceCount 3 and _maxInstanceCount 1, so
+ * every line after the first was built, counted, and never painted.
+ *
+ * Disposing the old geometry is what drops those cached bindings; a new geometry then
+ * binds cleanly. Sketches are tens of entities and are already redrawn wholesale, so the
+ * allocation costs nothing worth measuring.
+ *
+ * An EMPTY list still short-circuits: setPositions on no points makes a degenerate
+ * instanced geometry that three then tries to draw.
  */
 function setSegments(line: LineSegments2, values: number[]): void {
+  const previous = line.geometry;
   if (values.length === 0) {
     line.visible = false;
     return;
   }
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions(values);
+  line.geometry = geometry;
   line.visible = true;
-  line.geometry.setPositions(values);
   line.computeLineDistances();
+  previous.dispose();
 }
 
 function setPositions(geometry: BufferGeometry, values: number[]): void {

@@ -73,3 +73,26 @@ Any future "snap to this face" command has the same trap when the face normal is
 - The interaction loop is split into `advance(dt)` so it can be stepped deterministically
   from a test harness. `requestAnimationFrame` does not run while a pane is hidden, so any
   future Playwright camera test must step explicitly rather than wait on frames.
+
+## Addendum — fat lines and a cached instance count
+
+Sketch geometry is drawn with three's `LineSegments2`, because `LineBasicMaterial`'s
+`linewidth` is ignored by every WebGL implementation that matters.
+
+**Reusing the geometry silently draws the wrong number of segments.** Three caches
+`_maxInstanceCount` on an `InstancedBufferGeometry` when it first binds that geometry's
+vertex attributes, and calling `setPositions` again — which replaces those attributes —
+does not invalidate it. The renderer draws `min(instanceCount, _maxInstanceCount)`.
+
+A sketch redrawn after each click therefore locked `_maxInstanceCount` to 1 on the first
+line and never rendered another, while `instanceCount` climbed correctly. Every layer
+above agreed the lines existed: the tools reported them, the sketch held them, the profile
+closed, the solver counted their degrees of freedom. Only the pixels disagreed.
+
+The fix is a FRESH `LineSegmentsGeometry` per update, disposing the old — disposal is what
+drops the cached bindings. Sketches are tens of entities and already redraw wholesale, so
+the allocation costs nothing measurable.
+
+The lesson is the one this file keeps relearning: a rendering bug can be invisible to
+every assertion about state. The smoke test now reads back actual pixels for the first and
+a later segment, because nothing short of that would have caught it.

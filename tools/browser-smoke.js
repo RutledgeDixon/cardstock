@@ -437,6 +437,46 @@ window.__smoke = async function smoke() {
   // --- the active tool says what it is waiting for -------------------------------
   check('toolHintShown', !!document.querySelector('.sketchbar-hint')?.textContent);
 
+  // --- every sketch line is actually PAINTED, not just built ----------------------
+  // Three caches `_maxInstanceCount` when it first binds a geometry's vertex attributes,
+  // and replacing those attributes does not invalidate it — the renderer then draws
+  // min(instanceCount, _maxInstanceCount). Redrawing after each click locked that to 1,
+  // so every line after the first was built, counted, reported by the tools, and never
+  // appeared. Only pixels can catch this: the model was right the whole time.
+  if (session) {
+    window.__host.setSketchTool('line');
+    // One click at a time WITH a redraw between, which is what a person does.
+    for (const at of [{ x: -25, y: -12 }, { x: 25, y: -12 }, { x: 25, y: 12 }]) {
+      session.tools.click(at);
+      session.refresh();
+      viewer.step(1 / 60);
+    }
+    await sleep(200);
+
+    const fat = session.view.group.children.find(
+      (c) => c.type === 'LineSegments2' && (c.geometry.instanceCount ?? 0) >= 2,
+    );
+    check('everySketchSegmentIsDrawable', !!fat
+      && fat.geometry.instanceCount === (fat.geometry._maxInstanceCount ?? fat.geometry.instanceCount));
+
+    // And prove it in pixels rather than in a property.
+    const gl = viewer.renderer.getContext();
+    viewer.renderer.render(viewer.scene, viewer.camera);
+    const paint = (p) => {
+      const w = session.view.toWorld(p).project(viewer.camera);
+      const px = new Uint8Array(4);
+      gl.readPixels(
+        Math.round((w.x * 0.5 + 0.5) * gl.drawingBufferWidth),
+        Math.round((w.y * 0.5 + 0.5) * gl.drawingBufferHeight),
+        1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px,
+      );
+      return `${px[0]},${px[1]},${px[2]}`;
+    };
+    const background = paint({ x: 0, y: 0 });
+    check('firstSketchSegmentPaints', paint({ x: 0, y: -12 }) !== background);
+    check('laterSketchSegmentsPaint', paint({ x: 25, y: 0 }) !== background);
+  }
+
   // --- the snap target is DRAWN ---------------------------------------------------
   // The tools always reported which vertex a click would join, and nothing drew it: a
   // click that connected and one that missed looked identical, and the one that
