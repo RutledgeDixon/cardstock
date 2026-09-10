@@ -274,6 +274,15 @@ window.__smoke = async function smoke() {
   await sleep(200);
   const radialItems = [...document.querySelectorAll('.radial-item')].map((b) => b.dataset.command ?? 'more');
   check('radialOpens', radialItems.length > 0);
+  // Each command owns a WEDGE of the ring, not a floating label: a far bigger target,
+  // and it shows which direction the command lives in.
+  check('radialDrawsWedges',
+    document.querySelectorAll('.radial-wedge').length === radialItems.length);
+  check('radialWedgesAreRings', (() => {
+    // Out along the rim, back along the inner edge: two arcs, or it is not a band.
+    const d = document.querySelector('.radial-wedge')?.getAttribute('d') ?? '';
+    return (d.match(/A /g) ?? []).length === 2 && d.trim().endsWith('Z');
+  })());
   // It flooded once with Export STL and the palette; a context menu has to stay short.
   check('radialIsShort', radialItems.length <= 8);
   document.querySelector('.radial-scrim')?.dispatchEvent(
@@ -477,6 +486,18 @@ window.__smoke = async function smoke() {
     check('laterSketchSegmentsPaint', paint({ x: 25, y: 0 }) !== background);
   }
 
+  // --- Escape puts the drawing tool down before anything else --------------------
+  // A tool that keeps drawing after Escape is what makes editing an existing sketch —
+  // delete a line, draw a new one, stop — feel like a fight.
+  if (session) {
+    window.__host.setSketchTool('line');
+    await sleep(150);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    await sleep(250);
+    check('escapeReturnsToSelect', window.__host.state().sketchTool === 'select');
+    check('escapeDoesNotCloseTheSketch', window.__host.state().sketching);
+  }
+
   // --- the snap target is DRAWN ---------------------------------------------------
   // The tools always reported which vertex a click would join, and nothing drew it: a
   // click that connected and one that missed looked identical, and the one that
@@ -521,6 +542,18 @@ window.__smoke = async function smoke() {
   }
 
   // --- palette ------------------------------------------------------------------
+  // --- parameters belong to the feature that uses them ----------------------------
+  // The starter plate's `width` sat under PARAMETERS while a HOLE was focused, which
+  // says the hole has a width.
+  {
+    const labels = () => [...document.querySelectorAll('.panel-params .field label')]
+      .map((l) => l.textContent);
+    const drilled = await window.__host.addSolidFeature('hole');
+    await sleep(1400);
+    check('unrelatedParametersAreHidden', labels().length === 0);
+    if (drilled) { doc.removeFeature(drilled); await window.__rebuild?.(); }
+  }
+
   check('paletteFindsEveryCommand',
     registry.search('', registry.all()[0] && {
       selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: true,

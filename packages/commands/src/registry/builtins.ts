@@ -669,12 +669,24 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
     {
       id: 'select.clear',
       title: 'Clear selection',
+      hint: 'Drop the selection; in a sketch, put the drawing tool down first',
       icon: '⨯',
       contexts: ['always', 'edge'],
       sector: { edge: 6 },
       keys: ['escape'],
-      enabled: (s) => (s.selectionCount > 0 ? true : 'Nothing selected'),
-      run: () => host.clearSelection(),
+      enabled: (s) => (s.sketching || s.selectionCount > 0
+        ? true
+        : 'Nothing selected'),
+      run: () => {
+        // In a sketch, Escape means "stop drawing" before it means anything else. A
+        // drawing tool that keeps drawing after Escape is the thing that makes editing an
+        // existing sketch — delete a line, draw a new one, stop — feel like a fight.
+        if (host.state().sketching && host.state().sketchTool !== 'select') {
+          host.setSketchTool('select');
+          return;
+        }
+        host.clearSelection();
+      },
     },
     {
       id: 'app.about',

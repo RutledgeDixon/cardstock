@@ -176,3 +176,28 @@ the items, and a disabled group still opens.
 
 **A disabled entry should teach.** Every constraint carries the selection it wants —
 "Perpendicular — Select two lines" — so a greyed row says what to do instead of dead-ending.
+
+## Amendment — the ring, and Escape (post-review)
+
+**The radial menu is a ring of wedges**, not floating labels at computed offsets. Each
+command owns an annular segment: a far bigger target than a word, and it *shows* which
+direction it owns rather than leaving you to infer it from where a label happens to sit.
+The hole in the middle names the context that was right-clicked. Sectors with nothing in
+them are simply absent, so the ring reads as what is available rather than as a wheel with
+gaps.
+
+The declared-sector rule is unchanged and is now visible: a command occupies the same
+wedge every time, which is the entire point of a pie menu.
+
+**Escape means "put the tool down" first.** In a sketch it returns the active drawing tool
+to Select before it means "clear the selection", and it never closes the sketch. Editing an
+existing sketch — delete a line, draw a new one, stop — was a fight without it, because
+the line tool kept drawing.
+
+## Parameters belong to the feature that uses them
+
+Document parameters are global, but listing all of them under every feature reads as though
+they belong to it: the starter plate's `width` sat under PARAMETERS while a hole was
+focused, which says the hole has a width. The panel now lists only the parameters the
+focused feature's expressions actually reference. With nothing focused the panel is the
+DOCUMENT view, so it lists them all and they stay reachable.

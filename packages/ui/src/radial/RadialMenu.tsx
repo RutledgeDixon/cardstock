@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  RADIAL_SECTORS,
   type CommandContext, type CommandRegistry, type CommandState,
   type ResolvedCommand, layoutRadial, sectorOffset,
 } from '@cardstock/commands';
@@ -11,7 +12,11 @@ import { Submenu } from '../submenu/Submenu.js';
  * Right-click resolves what is under the cursor to a context, and the registry supplies
  * that context's commands in their DECLARED sectors — so a command is always in the same
  * direction and the flick becomes muscle memory. Overflow opens a flat searchable list.
- * There are no submenus.
+ *
+ * Each command is a segment of a ring rather than a floating pill: a wedge is a much
+ * bigger target than a label, it shows exactly which direction it owns, and the ring
+ * makes the fixed layout legible at a glance instead of something you infer from where
+ * the labels happen to sit.
  */
 export interface RadialMenuProps {
   registry: CommandRegistry;
@@ -22,7 +27,44 @@ export interface RadialMenuProps {
   onClose: () => void;
 }
 
-const RADIUS = 92;
+const INNER = 48;
+const OUTER = 116;
+/** Where the icon and label sit: the middle of the band. */
+const MID = (INNER + OUTER) / 2;
+/** Half the gap between neighbouring wedges, in radians. */
+const GAP = 0.03;
+const SPAN = (Math.PI * 2) / RADIAL_SECTORS;
+
+/** A point on the ring, in the SVG's own coordinates. Angle is clockwise from north. */
+const point = (radius: number, angle: number) => ({
+  x: radius * Math.sin(angle),
+  y: -radius * Math.cos(angle),
+});
+
+/**
+ * One wedge of the ring: an arc out at the rim, back along the inner edge.
+ *
+ * A 45-degree span never needs the large-arc flag; the sweep flags are 1 outbound and 0
+ * back, which is what traces the band rather than a bow tie.
+ */
+function wedgePath(sector: number): string {
+  const centre = sector * SPAN;
+  const from = centre - SPAN / 2 + GAP;
+  const to = centre + SPAN / 2 - GAP;
+
+  const outerFrom = point(OUTER, from);
+  const outerTo = point(OUTER, to);
+  const innerTo = point(INNER, to);
+  const innerFrom = point(INNER, from);
+
+  return [
+    `M ${outerFrom.x.toFixed(2)} ${outerFrom.y.toFixed(2)}`,
+    `A ${OUTER} ${OUTER} 0 0 1 ${outerTo.x.toFixed(2)} ${outerTo.y.toFixed(2)}`,
+    `L ${innerTo.x.toFixed(2)} ${innerTo.y.toFixed(2)}`,
+    `A ${INNER} ${INNER} 0 0 0 ${innerFrom.x.toFixed(2)} ${innerFrom.y.toFixed(2)}`,
+    'Z',
+  ].join(' ');
+}
 
 export function RadialMenu({ registry, state, context, at, onRun, onClose }: RadialMenuProps) {
   const [flyout, setFlyout] = useState<{
@@ -36,6 +78,8 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const extent = OUTER + 2;
+
   return (
     <div className="radial-scrim" onPointerDown={onClose} onContextMenu={(e) => e.preventDefault()}>
       <div
@@ -43,66 +87,75 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
         style={{ left: at.x, top: at.y }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="radial-context">{context}</div>
+        <svg
+          className="radial-ring"
+          width={extent * 2}
+          height={extent * 2}
+          viewBox={`${-extent} ${-extent} ${extent * 2} ${extent * 2}`}
+          role="menu"
+          aria-label={`${context} actions`}
+        >
+          {slots.map((slot) => {
+            if (!slot.command && !slot.overflow) return null;
+            const offset = sectorOffset(slot.sector);
+            const label = point(MID, slot.sector * SPAN);
+            const flyoutAt = { x: offset.x * MID, y: offset.y * MID };
 
-        {slots.map((slot) => {
-          if (!slot.command && !slot.overflow) return null;
-          const offset = sectorOffset(slot.sector);
-          const style = {
-            left: offset.x * RADIUS,
-            top: offset.y * RADIUS,
-          };
+            const overflow = slot.overflow;
+            const command = slot.command;
+            const disabled = !overflow && slot.enabled !== true;
+            const isGroup = !!command && registry.isGroup(command.id);
 
-          if (slot.overflow) {
+            const activate = () => {
+              if (overflow) {
+                setFlyout({ items: overflow, title: 'More', at: flyoutAt });
+                return;
+              }
+              if (disabled) return;
+              // A group opens its options in place rather than doing something.
+              if (isGroup) {
+                setFlyout({
+                  items: registry.childrenOf(command!.id, state),
+                  title: command!.title,
+                  at: flyoutAt,
+                });
+                return;
+              }
+              onRun(command!.id);
+              onClose();
+            };
+
+            const title = overflow ? 'More'
+              : disabled ? String(slot.enabled)
+              : (command!.hint ?? command!.title);
+
             return (
-              <button
-                key={`more-${slot.sector}`}
-                type="button"
-                className="radial-item radial-more"
-                style={style}
-                onClick={() => setFlyout({
-                  items: slot.overflow!, title: 'More',
-                  at: { x: offset.x * RADIUS, y: offset.y * RADIUS },
-                })}
+              <g
+                key={overflow ? `more-${slot.sector}` : command!.id}
+                className={`radial-item${disabled ? ' is-disabled' : ''}`}
+                role="menuitem"
+                tabIndex={disabled ? -1 : 0}
+                aria-disabled={disabled || undefined}
+                aria-label={overflow ? 'More' : command!.title}
+                data-command={overflow ? undefined : command!.id}
+                onClick={activate}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') activate(); }}
               >
-                <span className="radial-icon">…</span>
-                <span className="radial-label">More</span>
-              </button>
+                <title>{title}</title>
+                <path className="radial-wedge" d={wedgePath(slot.sector)} />
+                <text className="radial-icon" x={label.x} y={label.y - 7}>
+                  {overflow ? '…' : command!.icon}
+                </text>
+                <text className="radial-label" x={label.x} y={label.y + 10}>
+                  {overflow ? 'More' : `${command!.title}${isGroup ? ' ›' : ''}`}
+                </text>
+              </g>
             );
-          }
+          })}
+        </svg>
 
-          const disabled = slot.enabled !== true;
-          const isGroup = registry.isGroup(slot.command!.id);
-          return (
-            <button
-              key={slot.command!.id}
-              type="button"
-              className="radial-item"
-              style={style}
-              disabled={disabled}
-              title={disabled ? String(slot.enabled) : (slot.command!.hint ?? '')}
-              data-command={slot.command!.id}
-              onClick={() => {
-                // A group opens its options in place rather than doing something.
-                if (isGroup) {
-                  setFlyout({
-                    items: registry.childrenOf(slot.command!.id, state),
-                    title: slot.command!.title,
-                    at: { x: offset.x * RADIUS, y: offset.y * RADIUS },
-                  });
-                  return;
-                }
-                onRun(slot.command!.id);
-                onClose();
-              }}
-            >
-              <span className="radial-icon" aria-hidden="true">{slot.command!.icon}</span>
-              <span className="radial-label">
-                {slot.command!.title}{isGroup ? ' ›' : ''}
-              </span>
-            </button>
-          );
-        })}
+        {/* The hole in the middle names what was right-clicked. */}
+        <div className="radial-context">{context}</div>
       </div>
 
       {flyout && (
@@ -111,8 +164,8 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
           title={flyout.title}
           // Beside the sector it came from, so the eye does not have to re-find the menu.
           anchor={flyout.at.x < 0
-            ? { top: at.y + flyout.at.y, right: window.innerWidth - (at.x + flyout.at.x) + 44 }
-            : { top: at.y + flyout.at.y, left: at.x + flyout.at.x + 44 }}
+            ? { top: at.y + flyout.at.y, right: window.innerWidth - (at.x + flyout.at.x) + 64 }
+            : { top: at.y + flyout.at.y, left: at.x + flyout.at.x + 64 }}
           onRun={(id) => { onRun(id); onClose(); }}
         />
       )}

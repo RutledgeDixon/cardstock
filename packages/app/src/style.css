@@ -159,20 +159,38 @@ b { color: var(--accent); font-weight: 600; }
 .radial-scrim { position: fixed; inset: 0; z-index: 20; }
 .radial { position: absolute; width: 0; height: 0; }
 .radial-context {
-  position: absolute; transform: translate(-50%, -50%);
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
   color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
   pointer-events: none;
 }
-.radial-item {
-  position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  width: 74px; padding: 6px 4px; border-radius: 6px;
-  background: #212731f2; border: 1px solid var(--panel-edge); color: var(--ink);
+/* The ring itself. Centred on the click, so the SVG's own origin is the pivot. */
+.radial-ring {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  overflow: visible;
 }
-.radial-item:hover:not(:disabled) { background: #2f3a4a; border-color: #4f77b8; }
-.radial-item:disabled { color: #575e6b; opacity: .6; }
-.radial-icon { font-size: 15px; }
-.radial-label { font-size: 10px; white-space: nowrap; }
+
+/* Each command owns a WEDGE — a far bigger target than a label, and it shows which
+   direction the command lives in rather than leaving you to infer it. */
+.radial-item { cursor: pointer; outline: none; }
+.radial-wedge {
+  fill: #212731f2;
+  stroke: var(--panel-edge);
+  stroke-width: 1;
+  transition: fill 90ms ease-out;
+}
+.radial-item:hover .radial-wedge,
+.radial-item:focus-visible .radial-wedge { fill: #2f3a4a; stroke: #4f77b8; }
+.radial-item:focus-visible .radial-wedge { stroke-width: 2; }
+.radial-item.is-disabled { cursor: default; }
+.radial-item.is-disabled .radial-wedge { fill: #1b1f27d9; }
+.radial-item.is-disabled text { fill: #575e6b; }
+
+.radial-icon, .radial-label {
+  fill: var(--ink); text-anchor: middle; dominant-baseline: middle;
+  pointer-events: none; user-select: none;
+}
+.radial-icon { font-size: 17px; }
+.radial-label { font-size: 10px; }
 /* ------------------------------------------------------------------ submenus */
 /* Every flyout in the app renders through the Submenu component, so this block is the
    only place submenu appearance is defined. Change it here and the toolbar groups, the

@@ -553,9 +553,26 @@ export function App() {
       };
     });
   })();
-  const parameters: FieldSpec[] = doc
-    ? doc.parameters.all().map((p) => ({ key: p.name, label: p.name, value: p.expression }))
-    : [];
+  /**
+   * Document parameters, filtered to the ones the focused feature actually uses.
+   *
+   * Parameters are document-wide, but listing all of them under every feature reads as
+   * though they belong to it: the starter plate's `width` sat under PARAMETERS while a
+   * hole was focused, which says the hole has a width. With nothing focused the panel is
+   * the DOCUMENT view, so it lists them all and they stay reachable.
+   */
+  const parameters: FieldSpec[] = (() => {
+    if (!doc) return [];
+    const all = doc.parameters.all();
+    if (!focusedFeature) {
+      return all.map((p) => ({ key: p.name, label: p.name, value: p.expression }));
+    }
+    const expressions = Object.values(focusedFeature.values).join(' ');
+    return all
+      // Word-boundary match, so `width` is not found inside `widthwise`.
+      .filter((p) => new RegExp(`\\b${p.name}\\b`).test(expressions))
+      .map((p) => ({ key: p.name, label: p.name, value: p.expression }));
+  })();
 
   const hoverText = (() => {
     const hover = viewer?.selection.hover;
