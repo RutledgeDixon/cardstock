@@ -150,6 +150,14 @@ export function App() {
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  /**
+   * The feature tree's context menu: a plain flyout, not the radial.
+   *
+   * The radial is for things in 3D space, where there is room in every direction. A row
+   * in the top-left corner has room in one direction, and a ring centred there was cut
+   * off by the top and left edges of the page.
+   */
+  const [treeMenuAt, setTreeMenuAt] = useState<{ top: number; left: number } | null>(null);
   /** Where the sketch bar's constraint flyout sits, or null when closed. */
   const [constraintsAt, setConstraintsAt] = useState<{ top: number; left: number } | null>(null);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
@@ -677,7 +685,7 @@ export function App() {
             rows={rows}
             focused={focused}
             onFocus={setFocused}
-            onContextMenu={(id, at) => { setFocused(id); setRadial({ context: 'tree-item', at }); }}
+            onContextMenu={(id, at) => { setFocused(id); setTreeMenuAt({ top: at.y, left: at.x }); }}
             onReorder={(id, toIndex) => {
               const result = doc.moveFeature(id, toIndex);
               if (!result.ok) setNotice({ text: result.reason ?? 'Cannot move there', kind: 'error' });
@@ -727,6 +735,23 @@ export function App() {
           onRun={run}
           onClose={() => setRadial(null)}
         />
+      )}
+
+      {treeMenuAt && registry && (
+        <>
+          {/* A scrim so a click anywhere else closes it; the flyout stops propagation. */}
+          <div
+            className="flyout-scrim"
+            onPointerDown={() => setTreeMenuAt(null)}
+            onContextMenu={(e) => { e.preventDefault(); setTreeMenuAt(null); }}
+          />
+          <Submenu
+            items={registry.forContext('tree-item', hostState())}
+            anchor={treeMenuAt}
+            title={focusedFeature?.name ?? 'Feature'}
+            onRun={(id) => { run(id); setTreeMenuAt(null); }}
+          />
+        </>
       )}
 
       {constraintsAt && registry && (

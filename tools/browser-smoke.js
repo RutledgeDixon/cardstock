@@ -269,6 +269,29 @@ window.__smoke = async function smoke() {
     check('everySubmenuHasItems', allPopulated);
   }
 
+  // --- the feature tree gets a flyout, not the ring ------------------------------
+  // A ring centred on a row in the top-left corner was cut off by two page edges. The
+  // radial is for 3D space, where there is room in every direction.
+  {
+    const row = [...document.querySelectorAll('.tree button')][0];
+    if (row) {
+      const r = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, clientX: r.left + 20, clientY: r.top + 8,
+      }));
+      await sleep(300);
+      const menu = document.querySelector('.submenu');
+      const box = menu?.getBoundingClientRect();
+      check('treeContextMenuIsAFlyout', !!menu && !document.querySelector('.radial'));
+      check('treeContextMenuIsOnScreen',
+        !!box && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight);
+      document.querySelector('.flyout-scrim')?.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true }));
+      await sleep(200);
+      check('treeContextMenuClosesOnClickAway', !document.querySelector('.submenu'));
+    }
+  }
+
   // --- radial menu --------------------------------------------------------------
   canvas.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 200 }));
   await sleep(200);

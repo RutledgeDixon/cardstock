@@ -9,6 +9,10 @@ import { Submenu } from '../submenu/Submenu.js';
 /**
  * The radial context menu.
  *
+ * For things in 3D SPACE only, where there is room in every direction. The feature tree
+ * opens a plain flyout instead: a ring centred on a row in the top-left corner was cut off
+ * by two edges of the page.
+ *
  * Right-click resolves what is under the cursor to a context, and the registry supplies
  * that context's commands in their DECLARED sectors — so a command is always in the same
  * direction and the flick becomes muscle memory. Overflow opens a flat searchable list.
