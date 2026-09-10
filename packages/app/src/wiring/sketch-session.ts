@@ -286,6 +286,7 @@ export class SketchSession {
     this.view.setResolution(this.viewer.viewport.width, this.viewer.viewport.height);
     this.view.update(this.sketch.geometry);
     this.view.setSelection(this.selected);
+    this.view.setSnapTarget(null);
     this.view.setFullyConstrained(this.sketch.status === 'fully-constrained');
   }
 
@@ -312,9 +313,20 @@ export class SketchSession {
   /** Update the rubber-band feedback. Returns what is about to be inferred, if anything. */
   updatePreview(): string | null {
     const at = this.cursor();
-    if (!at) { this.view.clearPreview(); return null; }
+    if (!at) {
+      this.view.clearPreview();
+      this.view.setSnapTarget(null);
+      return null;
+    }
     const preview = this.tools.preview(at);
     this.view.setPreview(preview.segments, preview.circle);
+
+    // Show WHERE the click would land when it would join an existing vertex. The tools
+    // have always reported this and nothing drew it, so connecting to a point and
+    // missing it looked exactly the same — and connecting created no new geometry, which
+    // read as the click doing nothing.
+    const snap = preview.snapPoint ? this.sketch.entity(preview.snapPoint) : null;
+    this.view.setSnapTarget(snap?.type === 'point' ? { x: snap.x, y: snap.y } : null);
     return preview.inference;
   }
 

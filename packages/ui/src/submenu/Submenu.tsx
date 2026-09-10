@@ -27,12 +27,21 @@ export interface SubmenuProps {
   readonly anchor: SubmenuAnchor;
   /** Shown above the items. Omit for an unlabelled flyout. */
   readonly title?: string;
+  /**
+   * Why the group that opened this is unavailable.
+   *
+   * Shown IN the flyout, because a group's tooltip is unreachable: hovering it opens the
+   * menu instead of the tooltip, so the reason it was greyed out could never be read.
+   */
+  readonly blocked?: string;
   readonly onRun: (id: string) => void;
   readonly onEnter?: () => void;
   readonly onLeave?: () => void;
 }
 
-export function Submenu({ items, anchor, title, onRun, onEnter, onLeave }: SubmenuProps) {
+export function Submenu({
+  items, anchor, title, blocked, onRun, onEnter, onLeave,
+}: SubmenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(anchor.top);
 
@@ -67,6 +76,7 @@ export function Submenu({ items, anchor, title, onRun, onEnter, onLeave }: Subme
       onPointerDown={(e) => e.stopPropagation()}
     >
       {title && <div className="submenu-title">{title}</div>}
+      {blocked && <div className="submenu-blocked">{blocked}</div>}
       {items.map(({ command, enabled }) => {
         const disabled = enabled !== true;
         return (

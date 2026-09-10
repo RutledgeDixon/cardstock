@@ -401,10 +401,20 @@ window.__smoke = async function smoke() {
   // There was no constraint UI at all: the sketcher supported them and nothing offered
   // them, so half of what a sketcher is for was unreachable.
   {
-    const buttons = [...document.querySelectorAll('.sketchbar-constraints button')];
-    check('constraintButtonsShown', buttons.length >= 8);
-    check('everyConstraintSaysWhatItWants',
-      buttons.every((b) => (b.title ?? '').length > 0));
+    const opener = document.querySelector('[data-command="sketch.constrain"]');
+    check('constrainButtonShown', !!opener);
+    opener?.click();
+    await sleep(350);
+    const menu = document.querySelector('.submenu');
+    const items = menu ? [...menu.querySelectorAll('button')] : [];
+    check('constraintSubmenuOpens', items.length >= 8);
+    // Every entry says what it wants, so a disabled one teaches instead of dead-ending.
+    check('everyConstraintSaysWhatItWants', items.every((b) => (b.title ?? '').length > 0));
+    // One level, never two: a child of the group may not itself open a menu.
+    check('constraintSubmenuIsOneLevel',
+      items.every((b) => b.getAttribute('aria-haspopup') === null));
+    opener?.click();
+    await sleep(250);
 
     if (session) {
       const line = session.sketch.geometry.find((e) => e.type === 'line');
@@ -426,6 +436,30 @@ window.__smoke = async function smoke() {
 
   // --- the active tool says what it is waiting for -------------------------------
   check('toolHintShown', !!document.querySelector('.sketchbar-hint')?.textContent);
+
+  // --- the snap target is DRAWN ---------------------------------------------------
+  // The tools always reported which vertex a click would join, and nothing drew it: a
+  // click that connected and one that missed looked identical, and the one that
+  // connected created no new geometry, so it read as doing nothing at all.
+  if (session) {
+    window.__host.setSketchTool('line');
+    await sleep(150);
+    const first = session.sketch.geometry.find((e) => e.type === 'point');
+    if (first) {
+      session.view.setSnapTarget({ x: first.x, y: first.y });
+      const ring = session.view.group.children.find(
+        (c) => c.type === 'Points' && c.material.size === 15,
+      );
+      check('snapTargetIsDrawn',
+        (ring?.geometry.attributes.position?.count ?? 0) > 0);
+      // Plain vertices are NOT the selection colour; only selected ones are.
+      const colours = session.view.group.children
+        .filter((c) => c.type === 'Points')
+        .map((c) => c.material.color.getHexString());
+      check('plainVerticesAreNotOrange', colours[0] !== colours[1]);
+      session.view.setSnapTarget(null);
+    }
+  }
 
   await window.__host.finishSketch();
   check('sketchCloses', !document.querySelector('.sketchbar'));

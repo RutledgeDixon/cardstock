@@ -26,6 +26,8 @@ const LINE_WIDTH = 3.4;
 const SELECTED_LINE_WIDTH = 5.5;
 const POINT_SIZE = 8;
 const SELECTED_POINT_SIZE = 12;
+/** Bigger than either, because it is a target you are aiming at. */
+const SNAP_POINT_SIZE = 15;
 
 export interface SketchViewColours {
   geometry: number;
@@ -34,16 +36,19 @@ export interface SketchViewColours {
   preview: number;
   fullyConstrained: number;
   selected: number;
+  snap: number;
 }
 
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   geometry: 0xe8ecf4,
   construction: 0x6a7180,
-  point: 0xffa03a,
+  point: 0x9aa6bb,
   preview: 0x7fb2ff,
   fullyConstrained: 0x6fd39a,
   // The same orange the 3D selection uses, so "selected" means one thing across the app.
   selected: 0xff9e38,
+  /** The vertex a click would connect to. Green reads as "go", and is not the selection. */
+  snap: 0x6fd39a,
 };
 
 export class SketchView {
@@ -55,6 +60,14 @@ export class SketchView {
   #preview = fatLine();
   #points = new Points(new BufferGeometry(), new PointsMaterial());
   #selectedPoints = new Points(new BufferGeometry(), new PointsMaterial());
+  /**
+   * The vertex the next click would connect to.
+   *
+   * The tools have always known this and nothing drew it, so a click that joined an
+   * existing point and one that made a new point on top of it looked identical — and
+   * the one that joined looked like it had done nothing at all.
+   */
+  #snapPoint = new Points(new BufferGeometry(), new PointsMaterial());
   #previewCircle = new Line(new BufferGeometry(), new LineBasicMaterial());
 
   /** Ids the user has selected. Drawn recoloured and thicker. */
@@ -90,6 +103,11 @@ export class SketchView {
     selectedPoints.size = SELECTED_POINT_SIZE;
     selectedPoints.sizeAttenuation = false;
 
+    const snap = this.#snapPoint.material;
+    snap.color = new Color(colours.snap);
+    snap.size = SNAP_POINT_SIZE;
+    snap.sizeAttenuation = false;
+
     (this.#previewCircle.material as LineBasicMaterial).color = new Color(colours.preview);
 
     // Draw over the solid: a sketch you cannot see through the body you are sketching on
@@ -102,13 +120,14 @@ export class SketchView {
     }
     this.#selectedLines.renderOrder = 11;
     this.#selectedPoints.renderOrder = 12;
+    this.#snapPoint.renderOrder = 13;
     this.#points.renderOrder = 11;
   }
 
   #all(): (LineSegments2 | Points | Line)[] {
     return [
       this.#solid, this.#construction, this.#selectedLines, this.#preview,
-      this.#points, this.#selectedPoints, this.#previewCircle,
+      this.#points, this.#selectedPoints, this.#snapPoint, this.#previewCircle,
     ];
   }
 
@@ -211,6 +230,13 @@ export class SketchView {
     setSegments(this.#selectedLines, selectedLines);
     setPositions(this.#points.geometry, points);
     setPositions(this.#selectedPoints.geometry, selectedPoints);
+  }
+
+  /** Mark the vertex a click would connect to, or clear it with null. */
+  setSnapTarget(at: Vec2 | null): void {
+    if (!at) { setPositions(this.#snapPoint.geometry, []); return; }
+    const world = this.toWorld(at);
+    setPositions(this.#snapPoint.geometry, [world.x, world.y, world.z]);
   }
 
   /** Rubber-band feedback while drawing. */

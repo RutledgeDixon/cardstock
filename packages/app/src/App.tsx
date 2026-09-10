@@ -13,7 +13,8 @@ import {
   type CommandContext, type CommandState,
 } from '@cardstock/commands';
 import {
-  AboutDialog, CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar, Toolbar,
+  AboutDialog, CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
+  Submenu, Toolbar,
   type AboutInfo,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
@@ -149,6 +150,8 @@ export function App() {
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  /** Where the sketch bar's constraint flyout sits, or null when closed. */
+  const [constraintsAt, setConstraintsAt] = useState<{ top: number; left: number } | null>(null);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [sketchInfo, setSketchInfo] = useState<{
     open: boolean; tool: string; dof: number | null; status: string;
@@ -709,6 +712,16 @@ export function App() {
         />
       )}
 
+      {constraintsAt && registry && (
+        <Submenu
+          items={registry.childrenOf('sketch.constrain', hostState())}
+          anchor={constraintsAt}
+          title="Constrain"
+          onRun={(id) => { run(id); setConstraintsAt(null); }}
+          onLeave={() => setConstraintsAt(null)}
+        />
+      )}
+
       {aboutOpen && (
         <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
       )}
@@ -802,29 +815,24 @@ export function App() {
             <span className="sketchbar-hint">{TOOL_HINTS[sketchInfo.tool]}</span>
           )}
 
-          {/* Constraints, always visible rather than hidden behind a right-click: they
-              are half of what a sketcher is for, and a menu you have to discover is a
-              menu most people never find. Each is disabled with the selection it wants
-              as its tooltip. */}
+          {/* Constraints, behind ONE level of submenu. Each entry carries the selection
+              it wants, so a disabled one teaches instead of dead-ending. */}
           <span className="sketchbar-constraints">
-            {CONSTRAINT_BUTTONS.map(({ id, icon, title }) => {
-              const command = registry?.get(id);
-              const state = command?.enabled(hostState());
-              const blocked = state !== true;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  disabled={blocked}
-                  title={blocked ? `${title} — ${String(state)}` : title}
-                  aria-label={title}
-                  data-command={id}
-                  onClick={() => run(id)}
-                >
-                  {icon}
-                </button>
-              );
-            })}
+            <button
+              type="button"
+              className={constraintsAt ? 'is-open' : ''}
+              data-command="sketch.constrain"
+              aria-haspopup="true"
+              aria-expanded={constraintsAt !== null}
+              title="Constrain the selected geometry"
+              onClick={(e) => {
+                if (constraintsAt) { setConstraintsAt(null); return; }
+                const box = e.currentTarget.getBoundingClientRect();
+                setConstraintsAt({ top: box.bottom + 6, left: box.left });
+              }}
+            >
+              ⌗ Constrain
+            </button>
           </span>
 
           {sketchInfo.selected > 0 && (
@@ -924,13 +932,6 @@ export function App() {
   function rebuildNow() { void runRebuild(); }
 }
 
-/**
- * The constraint buttons, in the order they sit in the sketch bar.
- *
- * Ordered by how often they are reached for rather than alphabetically, and kept next to
- * the bar rather than derived from the registry so the icons stay stable as commands are
- * added.
- */
 /** What each tool is waiting for. Shown in the sketch bar while that tool is active. */
 const TOOL_HINTS: Record<string, string> = {
   line: 'Click each point; click the first again to close',
@@ -939,20 +940,6 @@ const TOOL_HINTS: Record<string, string> = {
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
 };
-
-const CONSTRAINT_BUTTONS = [
-  { id: 'constrain.horizontal', icon: '\u2015', title: 'Horizontal' },
-  { id: 'constrain.vertical', icon: '\u2502', title: 'Vertical' },
-  { id: 'constrain.coincident', icon: '\u2316', title: 'Coincident' },
-  { id: 'constrain.parallel', icon: '\u2225', title: 'Parallel' },
-  { id: 'constrain.perpendicular', icon: '\u22a5', title: 'Perpendicular' },
-  { id: 'constrain.equal', icon: '=', title: 'Equal' },
-  { id: 'constrain.tangent', icon: '\u25df', title: 'Tangent' },
-  { id: 'constrain.concentric', icon: '\u25ce', title: 'Concentric' },
-  { id: 'constrain.pointOnLine', icon: '\u22c5', title: 'Point on line' },
-  { id: 'constrain.symmetric', icon: '\u21d4', title: 'Symmetric' },
-  { id: 'constrain.fix', icon: '\u2693', title: 'Fix in place' },
-] as const;
 
 /** Roll a rebuild up into the numbers the status bar shows. */
 function summarise(result: RebuildReport) {

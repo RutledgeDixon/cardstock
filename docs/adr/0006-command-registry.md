@@ -158,3 +158,21 @@ of a body — a face, an edge, a vertex — removes that body, because nobody se
 face in order to delete a face. `CommandState` gained `sketchSelectionCount`, since a
 sketch's selection is not the viewport's and Delete has to know which one it is about to
 act on.
+
+
+## Amendment — one level of submenu, allowed and bounded (post-review)
+
+The user's original rule was "no submenus, ever". It has moved twice, and now settles at
+**exactly one level, never deeper** — which is what the registry has enforced since the
+first amendment, and what the constraint menu now uses.
+
+Two things learned by putting constraints there:
+
+**A group's tooltip is unreachable.** Hovering a group opens its flyout, so the tooltip
+never appears — which meant a disabled group was greyed out with its reason written
+somewhere no one could read it. Combine looked broken for exactly this reason: greyed,
+silent, and nothing to indicate why. The reason is now rendered INSIDE the flyout, above
+the items, and a disabled group still opens.
+
+**A disabled entry should teach.** Every constraint carries the selection it wants —
+"Perpendicular — Select two lines" — so a greyed row says what to do instead of dead-ending.

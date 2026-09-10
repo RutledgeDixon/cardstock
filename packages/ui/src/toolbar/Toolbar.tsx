@@ -123,6 +123,7 @@ export function Toolbar({
               <Submenu
                 items={registry.childrenOf(command.id, state)}
                 anchor={{ top: openGroup!.top, right: openGroup!.right }}
+                {...(enabled !== true ? { blocked: String(enabled) } : {})}
                 onRun={(id) => { onRun(id); setOpenGroup(null); }}
                 onEnter={() => hold(command.id)}
                 onLeave={release}
