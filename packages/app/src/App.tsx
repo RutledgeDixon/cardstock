@@ -26,7 +26,7 @@ import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
 import { downloadStl } from './wiring/download.js';
 import { defaultStore } from './persistence/store.js';
-import { defaultFileAccess, type OpenedFile } from './persistence/files.js';
+import { defaultFileAccess, downloadFallback, type FileAccess, type FileLocation, type OpenedFile } from './persistence/files.js';
 import { captureThumbnail } from './persistence/thumbnail.js';
 import { listRecents, rememberRecent, forgetRecent, type RecentEntry } from './persistence/recents.js';
 import { clearAutosave, readAutosave, startAutosave } from './persistence/autosave.js';
@@ -162,7 +162,7 @@ export function App() {
    * Save behaves as Save As. `savedRevision` against `doc.revision` is what "unsaved
    * changes" means — a counter rather than a flag because autosave compares too.
    */
-  const fileRef = useRef<{ handle: FileSystemFileHandle | null; savedRevision: number }>({
+  const fileRef = useRef<{ handle: FileLocation | null; savedRevision: number }>({
     handle: null, savedRevision: 0,
   });
   const [fileState, setFileState] = useState<{ name: string; dirty: boolean }>({
@@ -255,7 +255,9 @@ export function App() {
     };
 
     const store = defaultStore();
-    const files = defaultFileAccess();
+    // Which backend depends on where we are running; it is resolved at boot, below.
+    // Until then nothing can save, and the fallback is the honest placeholder.
+    let files: FileAccess = downloadFallback;
 
     /** The file as it should be written: the model, plus where the camera is and what
      *  it sees. Rendered first so the thumbnail is of the current frame, not a stale one. */
@@ -286,7 +288,8 @@ export function App() {
     /** Ask before throwing away unsaved work. True means go ahead. */
     const confirmDiscard = async () => {
       if (doc.revision === fileRef.current.savedRevision) return true;
-      return window.confirm(`${doc.meta.name || 'This part'} has unsaved changes. Discard them?`);
+      const message = `${doc.meta.name || 'This part'} has unsaved changes. Discard them?`;
+      return files.confirm ? files.confirm(message) : window.confirm(message);
     };
 
     /** Put an opened file's contents in place: model, camera, recents, title. */
@@ -320,7 +323,7 @@ export function App() {
      * open that succeeded must not be reported as failed because a bookkeeping write
      * could not clone a handle.
      */
-    const remember = async (name: string, handle: FileSystemFileHandle | null) => {
+    const remember = async (name: string, handle: FileLocation | null) => {
       try {
         await rememberRecent(store, {
           name, opened: new Date().toISOString(),
@@ -592,15 +595,25 @@ export function App() {
 
     let stopAutosave: (() => void) | undefined;
     let stopDirtyWatch: (() => void) | undefined;
+    let stopOpenRequests: (() => void) | null = null;
     void (async () => {
       await kernel.whenReady();
       setReady(true);
+      files = await defaultFileAccess();
 
       // Unsaved work from last time comes back by itself; that is what an autosave is
       // for. `?fresh` skips it, for a clean slate and for the verification harness.
       const fresh = new URLSearchParams(window.location.search).has('fresh');
       const recovered = fresh ? null : await readAutosave(store).catch(() => null);
-      if (recovered && recovered.file.features.length > 0) {
+      // A file the desktop shell was launched with outranks both: the double-click IS
+      // the instruction. Requests that arrive while running go through the discard prompt.
+      const launched = await files.launchFile?.();
+      stopOpenRequests = files.onOpenRequest?.((opened) => {
+        void confirmDiscard().then((ok) => { if (ok) return takeFile(opened); });
+      }) ?? null;
+      if (launched) {
+        await takeFile(launched);
+      } else if (recovered && recovered.file.features.length > 0) {
         try {
           doc.load(recovered.file);
           notify(`Restored unsaved work from ${new Date(recovered.savedAt).toLocaleTimeString()}`);
@@ -610,22 +623,23 @@ export function App() {
       } else {
         loadStarter(doc);
       }
-      // Whatever we booted into is the baseline: it is not "unsaved" until it changes.
-      fileRef.current = { handle: null, savedRevision: doc.revision };
-      syncFileState();
-      setRecents(await listRecents(store).catch(() => []));
-
-      await doRebuild();
-      const saved = doc.meta.camera;
-      if (recovered && saved) {
-        Object.assign(viewer.controller.target, {
-          azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
-        });
-        Object.assign(viewer.controller.target.pivot, saved.pivot);
-      } else {
-        viewer.fitAll();
+      if (!launched) {
+        // Whatever we booted into is the baseline: it is not "unsaved" until it changes.
+        fileRef.current = { handle: null, savedRevision: doc.revision };
+        syncFileState();
+        await doRebuild();
+        const saved = doc.meta.camera;
+        if (recovered && saved) {
+          Object.assign(viewer.controller.target, {
+            azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
+          });
+          Object.assign(viewer.controller.target.pivot, saved.pivot);
+        } else {
+          viewer.fitAll();
+        }
+        viewer.controller.settle();
       }
-      viewer.controller.settle();
+      setRecents(await listRecents(store).catch(() => []));
 
       stopAutosave = startAutosave(doc, store, (message) => notify(message, 'error'), snapshotForSave);
       stopDirtyWatch = doc.subscribe(() => syncFileState());
@@ -645,6 +659,7 @@ export function App() {
     return () => {
       stopAutosave?.();
       stopDirtyWatch?.();
+      stopOpenRequests?.();
       teardown();
     };
   }, [repaint]);

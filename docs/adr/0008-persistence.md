@@ -68,6 +68,48 @@ the first browser test failed, on a stand-in handle made of plain functions.
 
 ## Not yet
 
-The desktop shell (Tauri) and its app directory; `.card` file association; the rollback
-of a bad autosave. New and Open ask before discarding via `window.confirm`, which is ugly
-and honest; a proper dialog can replace it without touching the logic.
+The rollback of a bad autosave. In the browser, New and Open ask before discarding via
+`window.confirm`, which is ugly and honest; the desktop shell uses a native dialog.
+
+## Amendment: the desktop shell
+
+The third `FileAccess` implementation is the Tauri shell, and it is deliberately thin.
+The application is the web build; the process exists to give it a window, a place on
+disk, and a file type. Four Rust commands are the whole surface: `parts_directory`,
+`read_card`, `write_card`, `launch_file`.
+
+**Files are referred to by path**, and a path is a plain string, so it structured-clones
+into IndexedDB without the handle fallback the browser needed. `FileLocation` is now a
+handle *or* a `{ path }`; each backend refuses the other's kind with a message that says
+what to do instead, rather than pretending.
+
+**The parts directory is `<Documents>/CARDstock`**, created on first use, where Open and
+Save As start. Visible on purpose: parts are things people share and back up, and an
+application-data folder is where files go to be lost. The application-data folder is
+still used, by WebKit, for IndexedDB — autosave and recents — which is exactly what it is
+for.
+
+**Reads and writes are `std::fs`, not the filesystem plugin.** A `.card` double-clicked
+anywhere on disk must open, and any plugin scope wide enough to allow that is no scope at
+all. Instead the two commands accept only `.card` paths, which is the one rule that keeps
+them from being a general filesystem API for the webview. Writes go to a sibling temp
+file and are renamed over the target, so a crash mid-write leaves the previous save
+rather than a truncated one.
+
+**File association** is declared in the bundle config. Linux and Windows pass the opened
+file as an argument; the shell stashes the first `.card` in argv and hands it over once,
+through `launch_file` — consumed, so a webview reload does not reopen it over whatever the
+user has since done. macOS delivers files as `RunEvent::Opened` instead. A second launch
+while the app is running goes through the single-instance plugin, which forwards its
+arguments to the running window as an `open-file` event; the frontend asks before
+discarding, as Open does. The launch file outranks the autosave at boot: the double-click
+*is* the instruction.
+
+The frontend half is written against injected bindings (`ShellBindings`) and tested
+against a fake shell; the only place the Tauri packages are imported is the production
+wiring at the bottom of `tauri-files.ts`, reached by a dynamic import that the browser
+build never follows. The Rust half carries its own unit tests for the two pure functions.
+
+This machine had no Rust toolchain or GTK development headers when the shell was written,
+so the Rust side was checked by eye, not by `cargo`. First build is on the developer's
+machine; the prerequisites are in the README.

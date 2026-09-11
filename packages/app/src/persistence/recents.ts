@@ -1,17 +1,18 @@
 import type { Store } from './store.js';
+import type { FileLocation } from './files.js';
 
 /**
  * The recent-files list.
  *
  * Most recent first, capped, deduplicated by name. Carries the thumbnail so the list can
- * show a picture without opening anything, and the handle so a click reopens the file
- * in place where the browser allows it.
+ * show a picture without opening anything, and the location so a click reopens the file
+ * in place where the platform allows it.
  */
 export interface RecentEntry {
   readonly name: string;
   readonly opened: string;
   readonly thumbnail?: string;
-  readonly handle?: FileSystemFileHandle;
+  readonly handle?: FileLocation;
 }
 
 const KEY = 'recents';

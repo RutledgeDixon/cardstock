@@ -53,6 +53,38 @@ npm run typecheck    # project-wide tsc
 npm run boundaries   # architectural layering check
 ```
 
+## Desktop app
+
+The desktop build wraps the same web app in a [Tauri](https://tauri.app) shell with its
+own parts directory (`~/Documents/CARDstock`) and a `.card` file association. It needs
+Rust and, on Linux, the WebKitGTK development headers:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then, from the repo root:
+
+```bash
+npm run desktop -w @cardstock/app
+```
+
+runs it against the dev server, and
+
+```bash
+npm run desktop:build -w @cardstock/app
+```
+
+produces installers under `packages/app/src-tauri/target/release/bundle/` — `.deb`,
+`.rpm` and `.AppImage` on Linux; `.msi`/`.exe` on Windows; `.dmg` on macOS. Each platform
+builds its own installer; there is no cross-compiling. Windows and macOS installers are
+unsigned until a code-signing certificate is configured, so those systems will warn on
+first run.
+
 ## Status
 
 **Phase 3 complete.** `npm run dev` gives a live parametric model: real OpenCascade

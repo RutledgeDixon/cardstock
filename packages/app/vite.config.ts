@@ -27,7 +27,11 @@ const kernel = JSON.parse(
 const strip = (v: string) => v.replace(/^[\^~]/, '');
 
 export default defineConfig({
+  // Tauri attaches to this port and expects it not to move; keep its own output quiet
+  // so the shell's logs stay readable.
   server: { port: 5173, strictPort: true },
+  clearScreen: false,
+  envPrefix: ['VITE_', 'TAURI_ENV_'],
   resolve: { preserveSymlinks: false },
   define: {
     __BUILD__: JSON.stringify({
