@@ -133,8 +133,10 @@ export class KeyboardCameraInput {
 
     c.orbitInput.azimuth = (held.has('ArrowRight') ? 1 : 0) - (held.has('ArrowLeft') ? 1 : 0);
     c.orbitInput.elevation = (held.has('ArrowUp') ? 1 : 0) - (held.has('ArrowDown') ? 1 : 0);
-    c.panInput.x = (held.has('KeyL') ? 1 : 0) - (held.has('KeyJ') ? 1 : 0);
-    c.panInput.y = (held.has('KeyI') ? 1 : 0) - (held.has('KeyK') ? 1 : 0);
+    // The pan input moves the PIVOT; the view goes the other way. L must move the view
+    // right and I must move it up, so the signs are the reverse of the key's direction.
+    c.panInput.x = (held.has('KeyJ') ? 1 : 0) - (held.has('KeyL') ? 1 : 0);
+    c.panInput.y = (held.has('KeyK') ? 1 : 0) - (held.has('KeyI') ? 1 : 0);
 
     c.zoomInput =
       (held.has('Equal') || held.has('NumpadAdd') ? 1 : 0) -

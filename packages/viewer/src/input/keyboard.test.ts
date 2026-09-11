@@ -86,12 +86,13 @@ describe('IJKL pans', () => {
   });
 
   it('stops on release and reads all four keys', () => {
+    // Pan input moves the pivot, so the view goes the other way: J (view left) is +x.
     down('KeyJ');
-    expect(controller.panInput.x).toBe(-1);
+    expect(controller.panInput.x).toBe(1);
     up('KeyJ');
     expect(controller.panInput.x).toBe(0);
     down('KeyK');
-    expect(controller.panInput.y).toBe(-1);
+    expect(controller.panInput.y).toBe(1);
     up('KeyK');
     expect(controller.panInput.y).toBe(0);
   });
