@@ -418,3 +418,18 @@ kbd {
   font: inherit; font-size: 10.5px;
 }
 @media (max-width: 640px) { .keys-columns { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- sketch constraints */
+.constraints { margin-top: 6px; }
+.constraint {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center;
+  padding: 2px 4px; border-radius: 4px; font-size: 11px;
+}
+.constraint:hover { background: #262c36; }
+.constraint-type { color: var(--ink); }
+.constraint-entities { color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.constraint-value { color: var(--dim); font-style: italic; }
+.constraint-value.is-driving { color: #6fd39a; font-style: normal; }
+.constraint-remove { color: var(--dim); padding: 0 5px; border-radius: 3px; }
+.constraint-remove:hover { color: var(--danger); background: #3a2a28; }
+.constraint-empty { font-size: 11px; padding: 2px 4px; }

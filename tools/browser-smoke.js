@@ -848,7 +848,8 @@ window.__smoke = async function smoke() {
     sk.refresh();
     window.__host.setSketchTool('select');
     await sleep(100);
-    const corner = sk.sketch.geometry.find((e) => e.type === 'point' && Math.abs(e.x - 40) < 1e-6);
+    // The corner a sketch line joins to the origin, so its dimension sits on the line.
+    const corner = sk.sketch.geometry.find((e) => e.type === 'point' && Math.abs(e.x - 40) < 1e-6 && Math.abs(e.y) < 1e-6);
     const screen = (p) => {
       const v = sk.view.toWorld({ x: p.x, y: p.y }).project(viewer.camera);
       const r = viewer.canvas.getBoundingClientRect();
@@ -894,8 +895,34 @@ window.__smoke = async function smoke() {
     }
     check('typedDimensionDrives', sk.sketch.constraint(placedDim.id)?.reference !== true && sk.sketch.dof === dofBefore - 1);
     check('drivingDimensionIsGreen', !!document.querySelector('.dimension.is-driving'));
+    // A dimension that is not along a sketch line gets drawn lines; one that is, does not.
+    const blueLines = () => sk.view.group.children
+      .filter((c) => c.material?.color?.getHexString?.() === '3b64b8')
+      .reduce((n, c) => n + (c.geometry.attributes.instanceStart?.count ?? 0), 0);
+    check('dimensionAlongALineHasNoExtraLines', blueLines() === 0);
+    // The corner diagonal from the origin: no sketch line joins them.
+    const joinedToOrigin = new Set(sk.sketch.geometry
+      .filter((e) => e.type === 'line' && (e.p1 === origin.id || e.p2 === origin.id))
+      .flatMap((l) => [l.p1, l.p2]));
+    const far = sk.sketch.geometry.find((e) => e.type === 'point' && e.id !== origin.id && !joinedToOrigin.has(e.id));
+    await press(origin);
+    await press(far);
+    await sleep(300);
+    document.querySelector('.dimension input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(200);
+    check('diagonalDimensionDrawsExtensionAndArrows', blueLines() >= 7);
     await window.__host.finishSketch();
     await sleep(300);
+
+    // The sketch's panel lists its constraints and can remove one.
+    const sketchRowNow = [...document.querySelectorAll('.tree-row')].find((r) => /Sketch 2/.test(r.textContent));
+    sketchRowNow?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    await sleep(300);
+    const listed = document.querySelectorAll('.constraint').length;
+    check('sketchPanelListsConstraints', listed > 0 && listed === sk.sketch.constraints.length);
+    document.querySelector('.constraint .constraint-remove')?.click();
+    await sleep(600);
+    check('sketchPanelRemovesAConstraint', sk.sketch.constraints.length === listed - 1);
 
     // IJKL pans; Ctrl+arrow is no longer the camera's.
     const pivot0 = viewer.controller.target.pivot.clone();

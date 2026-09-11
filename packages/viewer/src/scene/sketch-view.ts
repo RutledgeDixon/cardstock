@@ -24,6 +24,7 @@ const ARC_SEGMENTS = 64;
 const LINE_WIDTH = 3.4;
 /** Selected geometry is both recoloured and thickened: colour alone is easy to miss. */
 const SELECTED_LINE_WIDTH = 5.5;
+const DIMENSION_LINE_WIDTH = 1.3;
 const POINT_SIZE = 8;
 const SELECTED_POINT_SIZE = 12;
 /** Bigger than either, because it is a target you are aiming at. */
@@ -37,6 +38,8 @@ export interface SketchViewColours {
   fullyConstrained: number;
   selected: number;
   snap: number;
+  /** Dimension and extension lines: thin, dark blue, drawn under the geometry. */
+  dimension: number;
 }
 
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
@@ -52,6 +55,7 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   selected: 0xff9e38,
   /** The vertex a click would connect to. Green reads as "go", and is not the selection. */
   snap: 0x6fd39a,
+  dimension: 0x3b64b8,
 };
 
 export class SketchView {
@@ -61,6 +65,8 @@ export class SketchView {
   #selectedLines = fatLine();
   #construction = fatLine();
   #preview = fatLine();
+  /** Extension lines, dimension lines and arrowheads, in the engineering-drawing sense. */
+  #dimensionLines = fatLine();
   #points = new Points(new BufferGeometry(), new PointsMaterial());
   #selectedPoints = new Points(new BufferGeometry(), new PointsMaterial());
   /**
@@ -96,6 +102,9 @@ export class SketchView {
     this.#preview.material.color = new Color(colours.preview);
     this.#preview.material.linewidth = LINE_WIDTH;
 
+    this.#dimensionLines.material.color = new Color(colours.dimension);
+    this.#dimensionLines.material.linewidth = DIMENSION_LINE_WIDTH;
+
     const points = this.#points.material;
     points.color = new Color(colours.point);
     points.size = POINT_SIZE;
@@ -121,6 +130,7 @@ export class SketchView {
       (object.material as { depthTest: boolean }).depthTest = false;
       this.group.add(object);
     }
+    this.#dimensionLines.renderOrder = 9;
     this.#selectedLines.renderOrder = 11;
     this.#selectedPoints.renderOrder = 12;
     this.#snapPoint.renderOrder = 13;
@@ -129,7 +139,7 @@ export class SketchView {
 
   #all(): (LineSegments2 | Points | Line)[] {
     return [
-      this.#solid, this.#construction, this.#selectedLines, this.#preview,
+      this.#solid, this.#construction, this.#selectedLines, this.#preview, this.#dimensionLines,
       this.#points, this.#selectedPoints, this.#snapPoint, this.#previewCircle,
     ];
   }
@@ -141,7 +151,7 @@ export class SketchView {
    * the viewer calls it on every resize.
    */
   setResolution(width: number, height: number): void {
-    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview]) {
+    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview, this.#dimensionLines]) {
       line.material.resolution.set(width, height);
     }
   }
@@ -234,6 +244,22 @@ export class SketchView {
     setPositions(this.#points.geometry, points);
     setPositions(this.#selectedPoints.geometry, selectedPoints);
   }
+
+  /** The lines that go with the dimensions: extension lines, dimension lines, arrows. */
+  setDimensionLines(segments: readonly { from: Vec2; to: Vec2 }[]): void {
+    const flat: number[] = [];
+    for (const segment of segments) {
+      const from = this.toWorld(segment.from);
+      const to = this.toWorld(segment.to);
+      flat.push(from.x, from.y, from.z, to.x, to.y, to.z);
+    }
+    // Called per frame alongside label placement; only rebuild the geometry on change.
+    const previous = this.#lastDimensionLines;
+    if (previous.length === flat.length && previous.every((v, i) => v === flat[i])) return;
+    this.#lastDimensionLines = flat;
+    setSegments(this.#dimensionLines, flat);
+  }
+  #lastDimensionLines: number[] = [];
 
   /** Mark the vertex a click would connect to, or clear it with null. */
   setSnapTarget(at: Vec2 | null): void {

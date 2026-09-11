@@ -5,7 +5,7 @@ import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
   placementForFaceIndex, resolvePlacement, resolveTopoRef, bytesToBase64, IMPORT_EXTENSIONS,
   DEFAULT_PRINTER, normaliseProfile, profileEnvironment, fitsBed, printEstimates,
-  type ApplicableConstraint, type PrinterProfile,
+  type ApplicableConstraint, type PrinterProfile, type Sketch,
 } from '@cardstock/document';
 import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
 import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
@@ -1120,7 +1120,23 @@ export function App() {
                   ? `${focusedFeature.type} · ${focusedFeature.values.file}`
                   : focusedFeature.type }
               : { subtitle: fileState.dirty ? 'unsaved changes' : 'saved' })}
-            {...(!focusedFeature && recents.length > 0 ? {
+            {...(focusedFeature?.type === 'sketch' && doc ? {
+              footer: (
+                <SketchConstraints
+                  sketch={doc.sketchFor(focusedFeature.id) ?? null}
+                  revision={doc.revision + (sketchInfo?.dof ?? 0)}
+                  onRemove={(constraintId) => {
+                    const sketch = doc.sketchFor(focusedFeature.id);
+                    if (!sketch) return;
+                    sketch.removeConstraint(constraintId);
+                    doc.markSketchChanged(focusedFeature.id);
+                    sessionRef.current?.refresh();
+                    syncSketchFromApp();
+                    rebuildNow();
+                  }}
+                />
+              ),
+            } : !focusedFeature && recents.length > 0 ? {
               footer: (
                 <div className="recents">
                   <div className="panel-section-title">Recent</div>
@@ -1313,10 +1329,11 @@ export function App() {
                   autoFocus
                   defaultValue={dimension.expression}
                   spellCheck={false}
+                  onFocus={(e) => e.target.select()}
                   onKeyDown={(e) => {
                     e.stopPropagation();
                     if (e.key === 'Escape') { setEditingDimension(null); return; }
-                    if (e.key !== 'Enter') return;
+                    if (e.key !== 'Enter' && e.code !== 'Enter' && e.code !== 'NumpadEnter') return;
                     const error = sessionRef.current?.setDimension(
                       dimension.id, e.currentTarget.value);
                     if (error) { setNotice({ text: error, kind: 'error' }); return; }
@@ -1334,7 +1351,11 @@ export function App() {
               ) : (
                 <button
                   type="button"
-                  onPointerDown={(e) => { e.stopPropagation(); setEditingDimension(dimension.id); }}
+                  // Open on CLICK, not on pointer-down: swapping the button for an input
+                  // mid-press left the browser's default focus move landing on nothing,
+                  // which blurred the new input and closed it before it could be typed in.
+                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                  onClick={(e) => { e.stopPropagation(); setEditingDimension(dimension.id); }}
                 >
                   {dimension.text}
                 </button>
@@ -1551,6 +1572,61 @@ const TOOL_HINTS: Record<string, string> = {
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
 };
+
+/** Human names for constraint types, for the sketch's constraint list. */
+const CONSTRAINT_LABELS: Record<string, string> = {
+  coincident: 'coincident', horizontal: 'horizontal', vertical: 'vertical', parallel: 'parallel',
+  perpendicular: 'perpendicular', tangent: 'tangent', equal: 'equal', concentric: 'concentric',
+  pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
+  pointLineDistance: 'point to line', lineLineDistance: 'line to line',
+  circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
+  radius: 'radius', diameter: 'diameter', angle: 'angle', lockX: 'lock x', lockY: 'lock y',
+};
+
+/**
+ * Every constraint on a sketch, in the panel, with a way to remove each.
+ *
+ * The sketch feature had nothing to show — no dimensions of its own — and this is what
+ * it has: what pins the sketch down. A constraint you cannot see is one you cannot
+ * remove when it is the reason the sketch will not move.
+ */
+function SketchConstraints({ sketch, onRemove }: {
+  sketch: Sketch | null;
+  /** Any change to this re-renders; the sketch itself is mutable and not React state. */
+  revision: number;
+  onRemove: (constraintId: string) => void;
+}) {
+  if (!sketch) return null;
+  const constraints = sketch.constraints;
+  const entities = (c: Record<string, unknown>) =>
+    ['a', 'b', 'point', 'line', 'entity', 'circle']
+      .map((k) => c[k]).filter((v): v is string => typeof v === 'string').join(' · ');
+  return (
+    <div className="constraints">
+      <div className="panel-section-title">
+        Constraints <span className="about-dim">· {constraints.length}</span>
+      </div>
+      {constraints.length === 0 && <div className="about-dim constraint-empty">None yet — the sketch is free to move</div>}
+      {constraints.map((c) => {
+        const raw = c as unknown as Record<string, unknown>;
+        const value = raw.value;
+        const reference = raw.reference === true;
+        return (
+          <div key={c.id} className={`constraint${reference ? ' is-reference' : ''}`} data-constraint={c.id}>
+            <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
+            <span className="constraint-entities">{entities(raw)}</span>
+            {value !== undefined && (
+              <span className={`constraint-value${reference ? '' : ' is-driving'}`}>
+                {String(value)}{reference ? ' (ref)' : ''}
+              </span>
+            )}
+            <button type="button" className="constraint-remove" title="Remove this constraint" onClick={() => onRemove(c.id)}>×</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** The on-screen body a feature ends up in: itself if it is a leaf, else whatever
  *  consumed it, followed downstream. Null when nothing on screen carries it. */

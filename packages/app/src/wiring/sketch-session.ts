@@ -5,6 +5,7 @@ import {
 import { Vector3 } from 'three';
 import type { TopoRef } from '@cardstock/document';
 import { SketchView, type Viewer } from '@cardstock/viewer';
+import * as draw from './dimension-lines.js';
 
 /**
  * An open sketch: the model, the tools, and what is drawn on screen.
@@ -175,7 +176,16 @@ export class SketchSession {
     return null;
   }
 
-  /** Every dimension, with its measured text and where to draw it. */
+  /**
+   * Every dimension, with its measured text, where its value sits, and the lines that
+   * go with it.
+   *
+   * A distance between two points that a sketch line already joins needs no lines of
+   * its own — the value sits on the line. Everything else is drawn as an engineering
+   * drawing would: extension lines, a dimension line with arrowheads, a leader for a
+   * radius, an arc for an angle. The lines are pushed to the view here, so they are
+   * current whenever the labels are.
+   */
   dimensions(): { id: string; text: string; expression: string; world: Vector3; reference: boolean; error?: string }[] {
     const positionOf = (id: string) => {
       const entity = this.sketch.entity(id);
@@ -193,9 +203,18 @@ export class SketchSession {
       const centre = positionOf(e.centre);
       return centre ? { centre, radius: e.radius } : null;
     };
+    const joined = (a: string, b: string) => this.sketch.geometry.some((e) =>
+      e.type === 'line' && ((e.p1 === a && e.p2 === b) || (e.p1 === b && e.p2 === a)));
     const mid = (a: Vec2, b: Vec2) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    // The sketch's centre, so linear dimensions offset outward rather than across it.
+    const points = this.sketch.geometry.filter((e): e is Extract<SketchGeometry, { type: 'point' }> => e.type === 'point');
+    const centre = points.length > 0
+      ? { x: points.reduce((n, p) => n + p.x, 0) / points.length, y: points.reduce((n, p) => n + p.y, 0) / points.length }
+      : { x: 0, y: 0 };
+    const upp = this.unitsPerPixel();
 
     const out: { id: string; text: string; expression: string; world: Vector3; reference: boolean; error?: string }[] = [];
+    const segments: draw.Segment[] = [];
     for (const constraint of this.sketch.constraints) {
       const raw = (constraint as { value?: number | string }).value;
       if (raw === undefined) continue;
@@ -203,61 +222,84 @@ export class SketchSession {
       const reference = (constraint as { reference?: boolean }).reference === true;
       const error = this.sketch.expressionErrors.get(constraint.id);
 
-      let anchor: Vec2 | null = null;
+      let drawing: draw.DimensionDrawing | null = null;
       let text = expression;
       const c = constraint as never as Record<string, string>;
 
       switch (constraint.type) {
         case 'distance': {
           const a = positionOf(c.a!), b = positionOf(c.b!);
-          if (a && b) { anchor = mid(a, b); text = `${round(distance2(a, b))}`; }
+          if (a && b) {
+            text = `${round(distance2(a, b))}`;
+            drawing = joined(c.a!, c.b!)
+              ? { segments: [], anchor: mid(a, b) }
+              : draw.pointToPoint(a, b, centre, upp);
+          }
           break;
         }
         case 'pointLineDistance': {
           const p = positionOf(c.point!), l = lineOf(c.line!);
-          if (p && l) { anchor = mid(p, mid(l.a, l.b)); text = `${round(pointToLine(p, l.a, l.b))}`; }
+          if (p && l) { text = `${round(pointToLine(p, l.a, l.b))}`; drawing = draw.pointToLine(p, l.a, l.b, upp); }
           break;
         }
         case 'lineLineDistance': {
           const la = lineOf(c.a!), lb = lineOf(c.b!);
-          if (la && lb) { anchor = mid(mid(la.a, la.b), mid(lb.a, lb.b)); text = `${round(pointToLine(la.a, lb.a, lb.b))}`; }
+          if (la && lb) { text = `${round(pointToLine(la.a, lb.a, lb.b))}`; drawing = draw.lineToLine(la, lb, upp); }
           break;
         }
         case 'angle': {
           const la = lineOf(c.a!), lb = lineOf(c.b!);
-          if (la && lb) { anchor = mid(mid(la.a, la.b), mid(lb.a, lb.b)); text = `${round(angleBetween(la, lb))}°`; }
+          if (la && lb) { text = `${round(angleBetween(la, lb))}°`; drawing = draw.angle(la, lb, upp); }
           break;
         }
         case 'pointCircleDistance': {
           const p = positionOf(c.point!), k = circleOf(c.circle!);
-          if (p && k) { anchor = mid(p, k.centre); text = `${round(Math.abs(distance2(p, k.centre) - k.radius))}`; }
+          if (p && k) {
+            text = `${round(Math.abs(distance2(p, k.centre) - k.radius))}`;
+            drawing = draw.pointToCircle(p, k.centre, k.radius, upp);
+          }
           break;
         }
         case 'circleLineDistance': {
           const k = circleOf(c.circle!), l = lineOf(c.line!);
-          if (k && l) { anchor = mid(k.centre, mid(l.a, l.b)); text = `${round(Math.abs(pointToLine(k.centre, l.a, l.b) - k.radius))}`; }
+          if (k && l) {
+            text = `${round(Math.abs(pointToLine(k.centre, l.a, l.b) - k.radius))}`;
+            drawing = draw.circleToLine(k.centre, k.radius, l.a, l.b, upp);
+          }
           break;
         }
         case 'radius':
         case 'diameter': {
           const k = circleOf(c.entity!);
           if (k) {
-            anchor = { x: k.centre.x + k.radius * 0.7, y: k.centre.y + k.radius * 0.7 };
             const measured = constraint.type === 'radius' ? k.radius : k.radius * 2;
             text = `${constraint.type === 'radius' ? 'R' : '⌀'}${round(measured)}`;
+            drawing = constraint.type === 'radius'
+              ? draw.radius(k.centre, k.radius, upp)
+              : draw.diameter(k.centre, k.radius, upp);
           }
           break;
         }
         default:
           break;
       }
-      if (!anchor) continue;
+      if (!drawing) continue;
+      segments.push(...drawing.segments);
       out.push({
-        id: constraint.id, text, expression, world: this.view.toWorld(anchor), reference,
+        id: constraint.id, text, expression, world: this.view.toWorld(drawing.anchor), reference,
         ...(error ? { error } : {}),
       });
     }
+    this.view.setDimensionLines(segments);
     return out;
+  }
+
+  /** How big a pixel is in sketch units, at the current zoom. */
+  unitsPerPixel(): number {
+    const height = Math.max(1, this.viewer.viewport.height);
+    // An orthographic camera's zoom is its half-height in world units; two of those span
+    // the viewport.
+    return (this.viewer.controller.target.zoom * 2) / height;
   }
 
   /** @returns an error message, or null. */
@@ -274,7 +316,7 @@ export class SketchSession {
 
     // Typing a value is what makes a dimension drive: the reference flag comes off.
     this.sketch.removeConstraint(constraintId);
-    const driving = { ...existing, id: constraintId, value } as { reference?: boolean };
+    const driving = { ...existing, id: constraintId, value } as unknown as { reference?: boolean };
     delete driving.reference;
     this.sketch.addConstraint(driving as never);
     this.#afterEdit();
@@ -420,11 +462,7 @@ export class SketchSession {
    * a stale scale silently changes how forgiving snapping is.
    */
   #retune(): void {
-    const height = Math.max(1, this.viewer.viewport.height);
-    // An orthographic camera's zoom is its half-height in world units; two of those span
-    // the viewport.
-    const unitsPerPixel = (this.viewer.controller.target.zoom * 2) / height;
-    this.tools.setScale(unitsPerPixel);
+    this.tools.setScale(this.unitsPerPixel());
   }
 
   /** Update the rubber-band feedback. Returns what is about to be inferred, if anything. */
