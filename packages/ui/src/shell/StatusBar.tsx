@@ -4,8 +4,12 @@
  * appears in a corner is a message people stop reading.
  */
 export function StatusBar({
-  hover, filter, selectionCount, rebuildMs, meshMs, triangles, faces, cached, error, busy,
+  hover, filter, selectionCount, rebuildMs, meshMs, triangles, faces, cached, error, busy, print, warning,
 }: {
+  /** Volume, mass and filament as a solid; shown when known. */
+  print?: string;
+  /** Something the printer will object to — the part not fitting the bed. */
+  warning?: string;
   hover: string | null;
   filter: string;
   selectionCount: number;
@@ -31,6 +35,8 @@ export function StatusBar({
       </span>
 
       <span className="status-right">
+        {warning && <span className="status-print" title={warning}>{warning} · </span>}
+        {print && <span className="dim" title="As a solid: a real print with infill is less">{print} · </span>}
         {faces !== null && <span className="dim">{faces}f · {triangles} tris </span>}
         {rebuildMs !== null && (
           <span className="dim">

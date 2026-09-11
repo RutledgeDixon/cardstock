@@ -225,6 +225,8 @@ b { color: var(--accent); font-weight: 600; }
   color: var(--ink);
 }
 .submenu-item:hover:not(:disabled) { background: #2f3a4a; }
+.submenu-item.is-active { color: var(--accent); }
+.submenu-item.is-active .submenu-icon { color: var(--accent); }
 .submenu-item:disabled { color: #565d6a; }
 .submenu-icon { width: 18px; text-align: center; font-size: 15px; }
 .submenu-label { font-size: 11.5px; }
@@ -384,3 +386,20 @@ kbd {
 .export-go { background: #2f5aa3; }
 .export-go:hover { background: #3a6bbd; }
 .export-go:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------------------------------------------------------------- print */
+.printer { width: min(420px, 92vw); }
+.printer-grid { display: grid; gap: 10px; }
+.printer-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.printer-grid-2 { grid-template-columns: 1fr 1fr; }
+.printer-grid .field { min-width: 0; }
+.printer-grid input { width: 100%; min-width: 0; }
+.printer code { color: var(--accent); }
+.orient { width: min(560px, 94vw); }
+.orient-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 4px 0; }
+.orient-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--panel-edge); }
+.orient-table td { padding: 5px 6px; border-bottom: 1px solid #23282f; white-space: nowrap; }
+.orient-table tr.is-applied td { background: #1f2a3a; }
+.orient-table .about-close { padding: 3px 9px; margin: 0; }
+.status-print { color: var(--danger); }
+.export-link { background: none; color: var(--accent); font-size: 10px; margin-left: 8px; padding: 0; text-decoration: underline; }

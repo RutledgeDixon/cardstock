@@ -160,3 +160,20 @@ describe('import', () => {
     await expect(kernel.importStl(bytes)).rejects.toThrow(/60,000 triangles/);
   });
 });
+
+describe('orientation', () => {
+  it('lays a T-shaped part on its flat top rather than balancing it on the stem', async () => {
+    // A wide flat bar with a narrow stem standing on it: as modelled the stem is UP.
+    const bar = await kernel.makeBox({ dx: 60, dy: 20, dz: 4 });
+    const stem = await kernel.makeBox({ dx: 6, dy: 20, dz: 30, origin: { x: 27, y: 0, z: 4 } });
+    const tee = await kernel.boolean('union', bar.handle, stem.handle);
+    const [best] = await kernel.scoreOrientations(tee.handle, { maxOverhangDeg: 45, layer: 0.2 });
+    expect(best!.down[2]).toBeCloseTo(-1, 3);
+    expect(best!.overhangArea).toBe(0);
+    expect(best!.contactArea).toBeCloseTo(1200, 1);
+    // Upside down would be the worst of the axis candidates: the bar hangs off the stem.
+    const all = await kernel.scoreOrientations(tee.handle, { maxOverhangDeg: 45, layer: 0.2, limit: 20 });
+    const flipped = all.find((s) => s.down[2] > 0.999)!;
+    expect(flipped.supportVolume).toBeGreaterThan(30_000);
+  });
+});

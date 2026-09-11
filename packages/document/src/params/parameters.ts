@@ -41,6 +41,23 @@ export class ParameterTable {
   /** Map, never a plain object — see the prototype-leak test in expression.test.ts. */
   readonly #params = new Map<string, Parameter>();
   #cache: Map<string, ParameterValue> | null = null;
+  /**
+   * Names supplied from outside the document — the printer's `nozzle` and `layer` —
+   * so `wall = nozzle * 3` is a real expression. Also a Map, for the same reason.
+   * A parameter of the same name shadows the environment: the file wins over the
+   * machine, and a part can pin its own nozzle if it must.
+   */
+  readonly #environment = new Map<string, number>();
+
+  setEnvironment(values: Readonly<Record<string, number>>): void {
+    this.#environment.clear();
+    for (const [name, value] of Object.entries(values)) {
+      if (Number.isFinite(value)) this.#environment.set(name, value);
+    }
+    this.#cache = null;
+  }
+
+  environment(): ReadonlyMap<string, number> { return this.#environment; }
 
   get size(): number { return this.#params.size; }
   has(name: string): boolean { return this.#params.has(name); }
@@ -118,7 +135,8 @@ export class ParameterTable {
         out = {
           ok: true,
           value: evaluate(ast, (ref) => {
-            if (!this.#params.has(ref)) return undefined; // fall through to constants
+            // Not a parameter: the environment, then fall through to constants.
+            if (!this.#params.has(ref)) return this.#environment.get(ref);
             const r = resolve(ref);
             if (!r.ok) throw new ExpressionError(`"${ref}" is invalid: ${r.error}`);
             return r.value;
@@ -146,13 +164,15 @@ export class ParameterTable {
     const values = this.evaluateAll();
     return (name) => {
       const v = values.get(name);
-      return v?.ok ? v.value : undefined;
+      if (v) return v.ok ? v.value : undefined;
+      return this.#environment.get(name);
     };
   }
 
   value(name: string): number | undefined {
     const v = this.evaluateAll().get(name);
-    return v?.ok ? v.value : undefined;
+    if (v) return v.ok ? v.value : undefined;
+    return this.#environment.get(name);
   }
 
   /** Direct parameter-to-parameter references, for the dependency graph. */

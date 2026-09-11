@@ -7,6 +7,8 @@ import {
 export interface ResolvedCommand {
   readonly command: Command;
   readonly enabled: Enablement;
+  /** A toggle that is currently on. */
+  readonly active?: boolean;
   /** Radial position in this context, when it has one. */
   readonly sector?: number;
 }
@@ -113,7 +115,9 @@ export class CommandRegistry {
     return parent.children
       .map((childId) => this.#commands.get(childId))
       .filter((c): c is Command => c !== undefined)
-      .map((command) => ({ command, enabled: command.enabled(state) }));
+      .map((command) => ({
+        command, enabled: command.enabled(state), ...(command.active ? { active: command.active(state) } : {}),
+      }));
   }
 
   /** True when this command opens a flyout rather than doing something itself. */

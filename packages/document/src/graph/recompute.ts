@@ -147,6 +147,7 @@ export class RecomputeEngine {
     const scope = params.scope();
     // Snapshot parameter values once per run, for any sketch that names one.
     this.#parameterValues = {};
+    for (const [name, value] of params.environment()) this.#parameterValues[name] = value;
     for (const [name, value] of params.evaluateAll()) {
       if (value.ok) this.#parameterValues[name] = value.value;
     }

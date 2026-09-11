@@ -19,6 +19,7 @@ const state: CommandState = {
   selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: true,
   featureCount: 2, bodyCount: 2, canUndo: true, canRedo: true, busy: false,
   focusedFeature: null, sketching: false, sketchTool: null,
+  sketchSelectionCount: 0, analysis: 'none', buildVolume: false,
 };
 
 const build = () => {

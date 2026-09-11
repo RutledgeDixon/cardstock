@@ -81,3 +81,7 @@ export {
 } from './features/fasteners.js';
 export { importFeature, IMPORT_EXTENSIONS, type ImportFormat } from './features/import-feature.js';
 export { bytesToBase64, base64ToBytes } from './util/base64.js';
+export {
+  DEFAULT_PRINTER, profileEnvironment, normaliseProfile, fitsBed, printEstimates,
+  type PrinterProfile,
+} from './print/profile.js';

@@ -5,11 +5,12 @@ import {
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription, type ProfileSpec, type Vec3,
   type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
+  type OrientationOptions, type OrientationSuggestion,
   KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
 import {
   weld, triangleCount, isWatertight, encodeStlBinary, encodeStlAscii, encodeObj, encode3mf,
-  type ExportMesh,
+  scoreOrientations, type ExportMesh,
 } from '../export/index.js';
 import { ShapeRegistry } from './registry.js';
 import { asWire, subShapes } from './topology.js';
@@ -621,6 +622,12 @@ export class OcctKernel implements KernelPort {
       vertices: mesh.positions.length / 3,
       watertight: isWatertight(mesh),
     };
+  }
+
+  async scoreOrientations(shape: ShapeHandle, options: OrientationOptions): Promise<OrientationSuggestion[]> {
+    // Coarse on purpose: the ranking needs areas and heights, not a smooth surface.
+    const mesh = this.#exportMesh(this.registry.get(shape), { linearDeflection: 0.2, angularDeflection: 0.5 });
+    return scoreOrientations(mesh, options);
   }
 
   #writeStep(input: TopoDS_Shape): Uint8Array {

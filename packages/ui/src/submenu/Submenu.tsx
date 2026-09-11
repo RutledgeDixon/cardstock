@@ -77,13 +77,14 @@ export function Submenu({
     >
       {title && <div className="submenu-title">{title}</div>}
       {blocked && <div className="submenu-blocked">{blocked}</div>}
-      {items.map(({ command, enabled }) => {
+      {items.map(({ command, enabled, active }) => {
         const disabled = enabled !== true;
         return (
           <button
             key={command.id}
             type="button"
-            className="submenu-item"
+            className={`submenu-item${active ? ' is-active' : ''}`}
+            aria-pressed={active}
             disabled={disabled}
             title={disabled ? String(enabled) : (command.hint ?? command.title)}
             data-command={command.id}

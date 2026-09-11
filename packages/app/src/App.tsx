@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
-import { EXPORT_FORMATS, type ExportFormat, type FeatureId, type ShapeHandle } from '@cardstock/types';
+import { EXPORT_FORMATS, type ExportFormat, type FeatureId, type ShapeHandle, type OrientationSuggestion } from '@cardstock/types';
 import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
   placementForFaceIndex, resolvePlacement, resolveTopoRef, bytesToBase64, IMPORT_EXTENSIONS,
-  type ApplicableConstraint,
+  DEFAULT_PRINTER, normaliseProfile, profileEnvironment, fitsBed, printEstimates,
+  type ApplicableConstraint, type PrinterProfile,
 } from '@cardstock/document';
 import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
 import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
@@ -14,8 +15,8 @@ import {
 } from '@cardstock/commands';
 import {
   AboutDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
-  Submenu, Toolbar, QUALITY_PRESETS,
-  type AboutInfo, type ExportQuality, type ExportStats,
+  Submenu, Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown,
+  type AboutInfo, type ExportQuality, type ExportStats, type OrientationRow,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
@@ -154,12 +155,32 @@ export function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('stl');
   const [exportQuality, setExportQuality] = useState<ExportQuality>(QUALITY_PRESETS[1]!.quality);
   const [exportScope, setExportScope] = useState<'all' | 'selected'>('all');
+  /**
+   * The print side. The printer is app-wide, not part of the document: a part is
+   * designed against a nozzle and a bed, but it is the machine that has those.
+   */
+  const [printer, setPrinter] = useState<PrinterProfile>(DEFAULT_PRINTER);
+  const [printerOpen, setPrinterOpen] = useState(false);
+  const [orientOpen, setOrientOpen] = useState(false);
+  const [orientRows, setOrientRows] = useState<OrientationSuggestion[] | null>(null);
+  /** An orientation chosen for export: rotates the file, never the model. */
+  const [exportOrientation, setExportOrientation] = useState<{ index: number; suggestion: OrientationSuggestion } | null>(null);
+  const buildVolumeRef = useRef(false);
+  const [printFit, setPrintFit] = useState(true);
+  const [estimates, setEstimates] = useState<{ cm3: number; grams: number; metres: number } | null>(null);
+  const printerRef = useRef<{ profile: PrinterProfile; apply: (p: PrinterProfile, rebuild: boolean) => Promise<void> }>({
+    profile: DEFAULT_PRINTER, apply: async () => {},
+  });
   const [exportStats, setExportStats] = useState<ExportStats | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const exportRef = useRef<{
     stats: (quality: ExportQuality, scope: 'all' | 'selected') => Promise<ExportStats | null>;
-    write: (format: ExportFormat, quality: ExportQuality, scope: 'all' | 'selected') => Promise<void>;
-  }>({ stats: async () => null, write: async () => {} });
+    write: (
+      format: ExportFormat, quality: ExportQuality, scope: 'all' | 'selected',
+      orientation: OrientationSuggestion | null,
+    ) => Promise<void>;
+    orientations: () => Promise<OrientationSuggestion[]>;
+  }>({ stats: async () => null, write: async () => {}, orientations: async () => [] });
   /**
    * Where the document lives, and whether it has changed since.
    *
@@ -428,6 +449,34 @@ export function App() {
         setExportOpen(true);
       },
 
+      toggleAnalysis: (mode) => {
+        viewer.setAnalysis(viewer.analysis === mode ? 'none' : mode);
+        if (viewer.analysis === 'thickness') {
+          const thinnest = viewer.minThickness();
+          if (thinnest !== null) {
+            const limit = printerRef.current.profile.nozzle * 2;
+            notify(thinnest < limit
+              ? `Thinnest wall ${thinnest.toFixed(2)} mm — under two perimeters (${limit.toFixed(1)} mm)`
+              : `Thinnest wall ${thinnest.toFixed(2)} mm`);
+          }
+        }
+        repaint();
+      },
+      toggleBuildVolume: () => {
+        buildVolumeRef.current = !buildVolumeRef.current;
+        viewer.showBuildVolume(buildVolumeRef.current);
+        repaint();
+      },
+      openOrientations: () => {
+        setOrientRows(null);
+        setOrientOpen(true);
+        void exportRef.current.orientations().then(setOrientRows).catch((e: unknown) => {
+          setOrientRows([]);
+          notify(`Could not score orientations: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        });
+      },
+      openPrinterSettings: () => setPrinterOpen(true),
+
       importModel: async () => {
         let picked: Awaited<ReturnType<FileAccess['pickImport']>>;
         try {
@@ -581,6 +630,8 @@ export function App() {
       sketching: () => sessionRef.current !== null,
       sketchTool: () => sessionRef.current?.tools.kind ?? null,
       sketchSelectionCount: () => sessionRef.current?.selected.size ?? 0,
+      analysis: () => viewer.analysis,
+      buildVolume: () => buildVolumeRef.current,
 
       focused: () => focusedRef.current,
       setFocused: (id) => { focusedRef.current = id; setFocused(id); },
@@ -688,13 +739,18 @@ export function App() {
           return await kernel.meshStats(shape.handle, toKernelQuality(quality));
         } finally { shape.release(); }
       },
-      write: async (format, quality, scope) => {
+      write: async (format, quality, scope, orientation) => {
         const shape = await exportShape(scope);
         if (!shape) { notify('Nothing to export', 'error'); return; }
         const spec = EXPORT_FORMATS[format];
         const name = doc.meta.name || 'part';
+        let oriented: { handle: ShapeHandle; release: () => void } | null = null;
         try {
-          const result = await kernel.exportModel(shape.handle, format, {
+          if (orientation) {
+            const { handle } = await kernel.transform(shape.handle, orientation.matrix);
+            oriented = { handle, release: () => { void kernel.release(handle); } };
+          }
+          const result = await kernel.exportModel((oriented ?? shape).handle, format, {
             quality: toKernelQuality(quality), name,
           });
           const written = await files.exportBytes(`${name}${spec.extension}`, result.bytes, spec.mime);
@@ -708,9 +764,38 @@ export function App() {
           setExportOpen(false);
         } catch (e) {
           notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        } finally { oriented?.release(); shape.release(); }
+      },
+      orientations: async () => {
+        const shape = await exportShape('all');
+        if (!shape) return [];
+        try {
+          return await kernel.scoreOrientations(shape.handle, {
+            maxOverhangDeg: printerRef.current.profile.maxOverhang, layer: printerRef.current.profile.layer,
+          });
         } finally { shape.release(); }
       },
     };
+
+    // ---------------------------------------------------------------- printer
+    printerRef.current = {
+      profile: DEFAULT_PRINTER,
+      apply: async (profile, rebuildToo) => {
+        printerRef.current.profile = profile;
+        setPrinter(profile);
+        doc.parameters.setEnvironment(profileEnvironment(profile));
+        viewer.setPrintLimits({
+          maxOverhangDeg: profile.maxOverhang, layer: profile.layer, nozzle: profile.nozzle, bed: profile.bed,
+        });
+        if (rebuildToo) {
+          // `nozzle` may be in an expression somewhere; nothing tracks that, so everything
+          // is dirtied. Printer changes are rare and a full rebuild is cheap.
+          doc.invalidateAll();
+          await doRebuild();
+        }
+      },
+    };
+    void store.get<unknown>('printer').then((raw) => printerRef.current.apply(normaliseProfile(raw), false)).catch(() => {});
 
     // Handles for the verification harness. requestAnimationFrame does not run while a
     // browser pane is hidden, so tests must be able to step the viewer explicitly.
@@ -750,7 +835,7 @@ export function App() {
         selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: false,
         featureCount: 0, bodyCount: 0, canUndo: false, canRedo: false,
         busy: true, focusedFeature: null, sketching: false, sketchTool: null,
-        sketchSelectionCount: 0,
+        sketchSelectionCount: 0, analysis: 'none', buildVolume: false,
       };
     }
     return {
@@ -767,6 +852,8 @@ export function App() {
       sketching: sessionRef.current !== null,
       sketchTool: sessionRef.current?.tools.kind ?? null,
       sketchSelectionCount: sessionRef.current?.selected.size ?? 0,
+      analysis: c.viewer.analysis,
+      buildVolume: buildVolumeRef.current,
     };
   }, []);
 
@@ -1073,6 +1160,10 @@ export function App() {
         cached={report.cached}
         error={report.error}
         busy={!ready || state.busy}
+        {...(estimates ? {
+          print: `${estimates.cm3.toFixed(1)} cm³ · ${estimates.grams.toFixed(0)} g · ${estimates.metres.toFixed(1)} m solid`,
+        } : {})}
+        {...(!printFit ? { warning: `Does not fit the ${printer.bed.x}×${printer.bed.y}×${printer.bed.z} bed` } : {})}
       />
 
       {radial && registry && (
@@ -1117,6 +1208,33 @@ export function App() {
         <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
       )}
 
+      {printerOpen && (
+        <PrinterDialog
+          printer={printer}
+          onSave={(fields) => {
+            const profile = normaliseProfile(fields);
+            setPrinterOpen(false);
+            void printerRef.current.apply(profile, true);
+            void defaultStore().set('printer', profile).catch(() => {});
+            setExportOrientation(null);
+          }}
+          onClose={() => setPrinterOpen(false)}
+        />
+      )}
+
+      {orientOpen && (
+        <OrientationDialog
+          rows={orientRows as OrientationRow[] | null}
+          applied={exportOrientation?.index ?? null}
+          onApply={(index) => {
+            const suggestion = orientRows?.[index];
+            if (suggestion) setExportOrientation({ index, suggestion });
+          }}
+          onClear={() => setExportOrientation(null)}
+          onClose={() => setOrientOpen(false)}
+        />
+      )}
+
       {exportOpen && (
         <ExportDialog
           formats={Object.entries(EXPORT_FORMATS).map(([id, f]) => ({ id, label: f.label, mesh: f.mesh }))}
@@ -1133,9 +1251,11 @@ export function App() {
           stats={exportStats}
           fileName={`${fileState.name}${EXPORT_FORMATS[exportFormat].extension}`}
           busy={exportBusy}
+          orientation={exportOrientation ? describeDown(exportOrientation.suggestion.down) : null}
+          onClearOrientation={() => setExportOrientation(null)}
           onExport={() => {
             setExportBusy(true);
-            void exportRef.current.write(exportFormat, exportQuality, exportScope)
+            void exportRef.current.write(exportFormat, exportQuality, exportScope, exportOrientation?.suggestion ?? null)
               .finally(() => setExportBusy(false));
           }}
           onClose={() => setExportOpen(false)}
@@ -1326,6 +1446,7 @@ export function App() {
       c.handles.clear();
       for (const [id, st] of result.result.states) if (st.handle) c.handles.set(id, st.handle);
       setReport(summarise(result));
+      void reportPrintFacts(c, generation);
       // The rebuild re-solves the open sketch, so its DOF and dimensions are only
       // current once it has finished — reading them before would show the state from
       // before the edit that triggered this.
@@ -1346,6 +1467,34 @@ export function App() {
   }
 
   function rebuildNow() { void runRebuild(); }
+
+  /**
+   * What the printer will make of it: does it fit the bed, and what will it weigh.
+   *
+   * Runs after every rebuild, off the critical path; a superseded run's answer is
+   * dropped so a stale volume never lands on a newer model.
+   */
+  async function reportPrintFacts(c: NonNullable<typeof core.current>, generation: number): Promise<void> {
+    const bounds = c.viewer.bounds();
+    const profile = printerRef.current.profile;
+    const fits = bounds
+      ? fitsBed({
+          x: bounds.max.x - bounds.min.x, y: bounds.max.y - bounds.min.y, z: bounds.max.z - bounds.min.z,
+        }, profile)
+      : true;
+    c.viewer.setBuildVolumeFits(fits);
+    setPrintFit(fits);
+
+    let volume = 0;
+    try {
+      for (const id of bodyFeatures(c.doc)) {
+        const handle = c.handles.get(id);
+        if (handle) volume += (await c.kernel.massProperties(handle as ShapeHandle)).volume;
+      }
+    } catch { return; }
+    if (rebuildGeneration.current !== generation) return;
+    setEstimates(volume > 0 ? printEstimates(volume, profile) : null);
+  }
 }
 
 /**

@@ -40,8 +40,11 @@ export function ExportDialog({
   formats, format, onFormat,
   quality, onQuality,
   scope, onScope, bodyCount, selectedCount,
-  stats, fileName, busy, onExport, onClose,
+  stats, fileName, busy, onExport, onClose, orientation, onClearOrientation,
 }: {
+  /** An orientation applied to the file, described; null for as modelled. */
+  orientation?: string | null;
+  onClearOrientation?: () => void;
   formats: readonly ExportFormatOption[];
   format: string;
   onFormat: (id: string) => void;
@@ -173,6 +176,15 @@ export function ExportDialog({
         {!isMesh && (
           <div className="export-stats about-dim">
             Exact geometry, no triangles. Opens in any CAD program.
+          </div>
+        )}
+
+        {orientation && (
+          <div className="export-stats">
+            <span className="about-dim">Oriented: </span>{orientation}
+            {onClearOrientation && (
+              <button type="button" className="export-link" onClick={onClearOrientation}>as modelled instead</button>
+            )}
           </div>
         )}
 

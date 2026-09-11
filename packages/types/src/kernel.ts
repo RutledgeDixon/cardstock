@@ -262,6 +262,13 @@ export interface KernelPort {
   /** What a mesh export at this quality would contain, without writing it. */
   meshStats(shape: ShapeHandle, quality: TessellationQuality): Promise<MeshStats>;
 
+  /**
+   * Which way up to print it: the best few orientations, scored for an FDM printer.
+   *
+   * Runs on a coarse mesh; the numbers are estimates for ranking, not for quoting.
+   */
+  scoreOrientations(shape: ShapeHandle, options: OrientationOptions): Promise<OrientationSuggestion[]>;
+
   /** Read a STEP file's contents into a shape. Units are converted to millimetres. */
   importStep(text: string): Promise<GeometryResult>;
   /**
@@ -288,6 +295,27 @@ export interface ExportResult {
   readonly bytes: Uint8Array;
   /** Triangles written; 0 for STEP, which has none. */
   readonly triangles: number;
+}
+
+export interface OrientationOptions {
+  /** Degrees from vertical past which a surface needs support. */
+  readonly maxOverhangDeg: number;
+  /** Layer height, mm. */
+  readonly layer: number;
+  readonly limit?: number;
+}
+
+export interface OrientationSuggestion {
+  /** Unit vector in the part's own frame that ends up pointing down. */
+  readonly down: readonly [number, number, number];
+  /** Column-major 4x4 rotation taking the part into that orientation. */
+  readonly matrix: readonly number[];
+  readonly overhangArea: number;
+  readonly supportVolume: number;
+  readonly contactArea: number;
+  readonly height: number;
+  /** Lower is better; 0 is a part with nothing to complain about. */
+  readonly score: number;
 }
 
 export interface MeshStats {

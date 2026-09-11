@@ -33,7 +33,9 @@ export {
   type SelectionSnapshot,
 } from './picking/selection.js';
 
-export { SolidMaterial, type SolidMaterialOptions } from './materials/solid.js';
+export { SolidMaterial, type SolidMaterialOptions, type AnalysisMode } from './materials/solid.js';
+export { computeVertexThickness } from './analysis/thickness.js';
+export { BuildVolume } from './analysis/build-volume.js';
 export { WireMaterial } from './materials/wire.js';
 
 export { KeyboardCameraInput, VIEW_KEYS, type KeyboardOptions } from './input/keyboard.js';

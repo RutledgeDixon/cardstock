@@ -75,6 +75,14 @@ export interface CommandHost {
   /** Bring a STEP or STL in as a body to model against. */
   importModel(): Promise<void>;
 
+  // --- print
+  /** Switch a print analysis on, or off if it is already on. */
+  toggleAnalysis(mode: 'overhang' | 'thickness'): void;
+  toggleBuildVolume(): void;
+  /** Score orientations and show the best few. */
+  openOrientations(): void;
+  openPrinterSettings(): void;
+
   // --- files
   newDocument(): Promise<void>;
   openDocument(): Promise<void>;

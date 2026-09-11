@@ -53,6 +53,10 @@ export interface CommandState {
    * selection, and Delete needs to know which one it is about to act on.
    */
   readonly sketchSelectionCount: number;
+  /** Which print analysis is shading the model, if any. */
+  readonly analysis: 'none' | 'overhang' | 'thickness';
+  /** The printer's build volume is drawn. */
+  readonly buildVolume: boolean;
 }
 
 /** `true` to enable, or a sentence saying WHY not — shown in the tooltip. */
@@ -106,6 +110,8 @@ export interface Command {
    */
   readonly children?: readonly string[];
   enabled(state: CommandState): Enablement;
+  /** For toggles: whether the thing this switches is currently on. Drawn lit. */
+  active?(state: CommandState): boolean;
   run(): void | Promise<void>;
 }
 

@@ -6,6 +6,7 @@ const state: CommandState = {
   selectionKind: null, selectionCount: 0, hoverKind: null,
   hasModel: true, featureCount: 2, bodyCount: 2, canUndo: false, canRedo: false,
   busy: false, focusedFeature: null, sketching: false, sketchTool: null,
+  sketchSelectionCount: 0, analysis: 'none', buildVolume: false,
 };
 
 const cmd = (over: Partial<Command> & { id: string }): Command => ({

@@ -11,3 +11,5 @@ export {
   ExportDialog, QUALITY_PRESETS,
   type ExportFormatOption, type ExportQuality, type ExportStats,
 } from './export/ExportDialog.js';
+export { PrinterDialog, type PrinterFields } from './print/PrinterDialog.js';
+export { OrientationDialog, describeDown, type OrientationRow } from './print/OrientationDialog.js';

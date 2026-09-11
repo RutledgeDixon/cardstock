@@ -9,6 +9,8 @@ import { CameraController } from '../camera/controller.js';
 import { Picker, type PickResult } from '../picking/picker.js';
 import { SelectionManager } from '../picking/selection.js';
 import { BodyView } from './body-view.js';
+import { BuildVolume } from '../analysis/build-volume.js';
+import type { AnalysisMode } from '../materials/solid.js';
 import { Grid } from './grid.js';
 
 export interface ViewerOptions {
@@ -30,6 +32,9 @@ export class Viewer {
 
   readonly #bodies = new Map<string, BodyView>();
   readonly #grid: Grid | null;
+  readonly #buildVolume = new BuildVolume();
+  #analysis: AnalysisMode = 'none';
+  #printLimits = { maxOverhangDeg: 45, bedTolerance: 0.1, thinLimit: 0.8 };
   readonly #pointer = new Vector2(-2, -2);
   #pointerInside = false;
   #running = false;
@@ -56,6 +61,8 @@ export class Viewer {
 
     this.#grid = opts.grid === false ? null : new Grid({ minor: 1, majorEvery: 10, extent: 200 });
     if (this.#grid) this.scene.add(this.#grid);
+    this.#buildVolume.visible = false;
+    this.scene.add(this.#buildVolume);
 
     this.picker = new Picker(() => this.#bodies.values());
     this.selection.subscribe(() => this.#syncHighlights());
@@ -68,7 +75,51 @@ export class Viewer {
     const view = new BodyView(body);
     this.#bodies.set(body.bodyId, view);
     this.scene.add(view.group);
+    this.#applyAnalysis();
     return view;
+  }
+
+  // ------------------------------------------------------------------ print analysis
+  get analysis(): AnalysisMode { return this.#analysis; }
+
+  setAnalysis(mode: AnalysisMode): void {
+    this.#analysis = mode;
+    this.#applyAnalysis();
+  }
+
+  /** The printer's limits, as the shading needs them. */
+  setPrintLimits(limits: { maxOverhangDeg: number; layer: number; nozzle: number; bed: { x: number; y: number; z: number } }): void {
+    this.#printLimits = {
+      maxOverhangDeg: limits.maxOverhangDeg,
+      bedTolerance: limits.layer / 2,
+      // Two perimeters is the least a wall can be printed with.
+      thinLimit: limits.nozzle * 2,
+    };
+    this.#buildVolume.setSize(limits.bed);
+    this.#applyAnalysis();
+  }
+
+  showBuildVolume(visible: boolean): void { this.#buildVolume.visible = visible; }
+  setBuildVolumeFits(fits: boolean): void { this.#buildVolume.setFits(fits); }
+
+  /** Push the mode and limits to every body. The bed is wherever the model's lowest
+   *  point is: the part is assumed to be placed on the plate, not floating above it. */
+  #applyAnalysis(): void {
+    const bedZ = this.bounds()?.min.z ?? 0;
+    for (const view of this.#bodies.values()) {
+      view.solidMaterial.setPrintLimits({ ...this.#printLimits, bedZ });
+      view.setAnalysis(this.#analysis);
+    }
+  }
+
+  /** The thinnest wall across every body, once thickness analysis has run. */
+  minThickness(): number | null {
+    let min: number | null = null;
+    for (const view of this.#bodies.values()) {
+      const t = view.minThickness();
+      if (t !== null && (min === null || t < min)) min = t;
+    }
+    return min;
   }
 
   removeBody(bodyId: string): void {

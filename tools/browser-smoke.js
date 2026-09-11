@@ -686,11 +686,143 @@ window.__smoke = async function smoke() {
     window.showSaveFilePicker = realSave; window.showOpenFilePicker = realOpen; window.confirm = realConfirm;
   }
 
+  // --- print-aware suite -----------------------------------------------------------
+  // A mushroom: a plate on a narrower stem below it, so the plate's underside
+  // overhangs. Overhang shading must paint it, the bed contact must read green, the
+  // orientation scorer must want it upside down, and an applied orientation must
+  // rotate the exported file and nothing else.
+  {
+    await window.__host.newDocument();
+    await sleep(600);
+    const plate = doc.features[0].id;
+    doc.addFeature({ id: doc.newFeatureId('box'), type: 'box', name: 'Stem',
+      values: { dx: '10', dy: '10', dz: '30', x: '25', y: '15', z: '-30' }, inputs: {} });
+    const stem = doc.features.at(-1).id;
+    doc.addFeature({ id: doc.newFeatureId('union'), type: 'union', name: 'Union', values: {},
+      inputs: { base: plate, tool: stem } });
+    await window.__rebuild();
+    await sleep(1200);
+    check('estimatesInStatusBar', /cm³ · \d+ g · [\d.]+ m solid/.test(
+      document.querySelector('.status-right')?.textContent ?? ''));
+
+    await registry.get('print.overhang').run();
+    check('overhangToggleIsActive',
+      registry.childrenOf('print.menu', window.__host.state()).find((c) => c.command.id === 'print.overhang')?.active === true);
+    // Look from below, where the overhanging underside and the first layer are.
+    viewer.clearPointer();
+    viewer.controller.target.elevation = -0.5;
+    viewer.controller.settle();
+    window.__step(30);
+    const readback = () => {
+      viewer.renderer.render(viewer.scene, viewer.camera);
+      const gl = viewer.renderer.getContext();
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let warm = 0, green = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        const r = px[i], g = px[i + 1], b = px[i + 2];
+        if (r > 60 && r > g * 1.8 && r > b * 1.8) warm++;
+        if (g > 50 && g > r * 1.5 && g > b * 1.4) green++;
+      }
+      return { warm, green };
+    };
+    const shaded = readback();
+    check('overhangIsPainted', shaded.warm > 500);
+    check('firstLayerIsGreen', shaded.green > 50);
+    await registry.get('print.overhang').run();
+    const plain = readback();
+    check('overhangShadingSwitchesOff', plain.warm < shaded.warm / 10);
+
+    await registry.get('print.thickness').run();
+    check('thicknessIsMeasured', Math.abs((viewer.minThickness() ?? 0) - 10) < 0.05);
+    await registry.get('print.thickness').run();
+
+    await registry.get('print.volume').run();
+    const box = viewer.scene.children.find((c) => c.name === 'build-volume');
+    check('buildVolumeDrawn', !!box && box.visible);
+    doc.setParameter({ name: 'width', expression: '300', unit: 'mm' });
+    await window.__rebuild();
+    await sleep(1000);
+    check('tooBigForBedWarns', /Does not fit/.test(document.querySelector('.status-print')?.textContent ?? ''));
+    check('buildVolumeGoesRed', box.material.color.getHexString() === 'e0483a');
+    doc.setParameter({ name: 'width', expression: '60', unit: 'mm' });
+    await window.__rebuild();
+    await sleep(1000);
+    check('fitsAgain', !document.querySelector('.status-print'));
+    await registry.get('print.volume').run();
+
+    await registry.get('print.orient').run();
+    for (let i = 0; i < 40 && !document.querySelector('.orient-table'); i++) await sleep(150);
+    const firstRow = document.querySelector('.orient-table tbody tr');
+    check('orientationPrefersPlateDown', /upside down/.test(firstRow?.textContent ?? ''));
+    firstRow?.querySelector('button')?.click();
+    await sleep(100);
+    check('orientationApplies', !!document.querySelector('.orient-table tr.is-applied'));
+    document.querySelector('.orient .export-actions button')?.click();
+
+    let oriented = null;
+    const realSavePicker = window.showSaveFilePicker;
+    window.showSaveFilePicker = async (o) => ({
+      kind: 'file', name: o?.suggestedName ?? 'part.stl',
+      async createWritable() {
+        return { async write(chunk) { oriented = new Uint8Array(chunk); }, async close() {} };
+      },
+    });
+    document.querySelector('[data-command="file.export"]')?.click();
+    await waitFor('.export');
+    check('exportShowsOrientation', /Oriented/.test(document.querySelector('.export')?.textContent ?? ''));
+    document.querySelector('.export-go')?.click();
+    for (let i = 0; i < 40 && !oriented; i++) await sleep(200);
+    window.showSaveFilePicker = realSavePicker;
+    if (oriented) {
+      const view = new DataView(oriented.buffer);
+      const n = view.getUint32(80, true);
+      let zmin = Infinity;
+      for (let t = 0; t < n; t++) for (let c = 0; c < 3; c++) {
+        zmin = Math.min(zmin, view.getFloat32(84 + t * 50 + 12 + c * 12 + 8, true));
+      }
+      // Flipped: the 18 mm plate is now the bottom, so the lowest point is −18, not −30.
+      check('exportIsRotated', Math.abs(zmin + 18) < 0.01);
+    } else {
+      check('exportIsRotated', false);
+    }
+    // The model itself is untouched by the orientation.
+    check('modelNotRotated', Math.abs(viewer.bounds().min.z + 30) < 0.01);
+
+    // The printer's nozzle is an expression name; changing the printer rebuilds.
+    // Set through the real dialog, so the check does not depend on what a previous
+    // run left stored.
+    const setNozzle = async (value) => {
+      await registry.get('print.printer').run();
+      await sleep(150);
+      const field = document.querySelector('#printer-Nozzle');
+      if (!field) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(50);
+      document.querySelector('.printer .export-go')?.click();
+      await sleep(1200);
+      return true;
+    };
+    check('printerDialogOpens', await setNozzle('0.4'));
+    doc.setParameter({ name: 'width', expression: 'nozzle * 100', unit: 'mm' });
+    await window.__rebuild();
+    await sleep(800);
+    check('nozzleIsAnExpressionName', Math.abs(doc.parameters.value('width') - 40) < 1e-9);
+    await setNozzle('0.6');
+    check('printerChangeRebuilds', Math.abs(doc.parameters.value('width') - 60) < 1e-9);
+    await setNozzle('0.4');
+    viewer.controller.target.elevation = 0.6;
+    viewer.controller.settle();
+  }
+
   check('paletteFindsEveryCommand',
     registry.search('', registry.all()[0] && {
       selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: true,
       featureCount: 1, bodyCount: 1, canUndo: true, canRedo: false, busy: false,
       focusedFeature: null, sketching: false, sketchTool: null,
+      sketchSelectionCount: 0, analysis: 'none', buildVolume: false,
     }).length === registry.size);
 
   const failed = Object.entries(results)

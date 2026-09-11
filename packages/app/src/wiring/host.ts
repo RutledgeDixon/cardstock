@@ -30,6 +30,10 @@ export interface HostDeps {
   rebuild: () => Promise<void>;
   openExport: () => void;
   importModel: () => Promise<void>;
+  toggleAnalysis: (mode: 'overhang' | 'thickness') => void;
+  toggleBuildVolume: () => void;
+  openOrientations: () => void;
+  openPrinterSettings: () => void;
   newDocument: () => Promise<void>;
   openDocument: () => Promise<void>;
   saveDocument: () => Promise<void>;
@@ -54,6 +58,8 @@ export interface HostDeps {
   sketching: () => boolean;
   sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | null;
   sketchSelectionCount: () => number;
+  analysis: () => 'none' | 'overhang' | 'thickness';
+  buildVolume: () => boolean;
 }
 
 export function createHost(deps: HostDeps): CommandHost {
@@ -115,6 +121,8 @@ export function createHost(deps: HostDeps): CommandHost {
       sketching: deps.sketching(),
       sketchTool: deps.sketchTool(),
       sketchSelectionCount: deps.sketchSelectionCount(),
+      analysis: deps.analysis(),
+      buildVolume: deps.buildVolume(),
     }),
 
     selection: (): readonly EntityRef[] => viewer.selection.selected,
@@ -415,6 +423,10 @@ export function createHost(deps: HostDeps): CommandHost {
 
     openExport: () => deps.openExport(),
     importModel: () => deps.importModel(),
+    toggleAnalysis: (mode) => deps.toggleAnalysis(mode),
+    toggleBuildVolume: () => deps.toggleBuildVolume(),
+    openOrientations: () => deps.openOrientations(),
+    openPrinterSettings: () => deps.openPrinterSettings(),
     newDocument: () => deps.newDocument(),
     openDocument: () => deps.openDocument(),
     saveDocument: () => deps.saveDocument(),

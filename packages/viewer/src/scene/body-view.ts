@@ -9,8 +9,9 @@ import {
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 import type { BodyId, TessellatedBody } from '@cardstock/types';
-import { SolidMaterial } from '../materials/solid.js';
+import { SolidMaterial, type AnalysisMode } from '../materials/solid.js';
 import { WireMaterial } from '../materials/wire.js';
+import { computeVertexThickness } from '../analysis/thickness.js';
 
 /**
  * The three.js representation of one tessellated body: surface, edges, vertices.
@@ -42,6 +43,11 @@ export class BodyView {
     geom.setAttribute('position', new Float32BufferAttribute(body.positions, 3));
     geom.setAttribute('normal', new Float32BufferAttribute(body.normals, 3));
     geom.setAttribute('faceId', new Float32BufferAttribute(body.vertexFaceId, 1));
+    // Thickness is filled in on demand, when the analysis is switched on; until then
+    // everything reads as infinitely thick and the shader flags nothing.
+    geom.setAttribute('thickness', new Float32BufferAttribute(
+      new Float32Array(body.positions.length / 3).fill(Number.MAX_VALUE), 1,
+    ));
     geom.setIndex(new BufferAttribute(body.indices, 1));
     geom.computeBoundsTree({ indirect: true });
 
@@ -81,6 +87,27 @@ export class BodyView {
     this.vertices.visible = false; // only shown when the vertex filter is active
 
     this.group.add(this.solid, this.edges, this.vertices);
+  }
+
+  #thicknessComputed = false;
+
+  setAnalysis(mode: AnalysisMode): void {
+    if (mode === 'thickness' && !this.#thicknessComputed) {
+      const attribute = this.solid.geometry.getAttribute('thickness') as Float32BufferAttribute;
+      attribute.array.set(computeVertexThickness(this.solid));
+      attribute.needsUpdate = true;
+      this.#thicknessComputed = true;
+    }
+    this.solidMaterial.setAnalysis(mode);
+  }
+
+  /** The thinnest wall measured, or null when thickness has not been computed. */
+  minThickness(): number | null {
+    if (!this.#thicknessComputed) return null;
+    const array = this.solid.geometry.getAttribute('thickness').array as Float32Array;
+    let min = Number.MAX_VALUE;
+    for (let i = 0; i < array.length; i++) if (array[i]! < min) min = array[i]!;
+    return min === Number.MAX_VALUE ? null : min;
   }
 
   dispose(): void {

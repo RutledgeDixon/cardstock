@@ -16,5 +16,5 @@ export {
 } from './rpc/protocol.js';
 export {
   weld, triangleCount, signedVolume, isWatertight, encodeStlBinary, encodeStlAscii, encodeObj,
-  encode3mf, zipStore, zipEntryNames, type ExportMesh,
+  encode3mf, zipStore, zipEntryNames, scoreOrientations, rotationTaking, type ExportMesh,
 } from './export/index.js';

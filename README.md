@@ -87,18 +87,20 @@ first run.
 
 ## Status
 
-**Phases 0–8 complete.** `npm run dev` gives a working parametric modeller: sketches
+**Phases 0–9 complete.** `npm run dev` gives a working parametric modeller: sketches
 with a constraint solver, extrude / revolve / sweep / loft, fillet / chamfer / shell /
 draft, holes from a fastener table, patterns, booleans across separate bodies, undo,
 `.card` files with autosave and recents, and export to STL, 3MF, OBJ and STEP with a
 live triangle count and watertight check. STEP and STL can be imported to model
-against. A Tauri desktop shell with its own parts directory and `.card` association is
+against. The print suite shades overhangs and thin walls live, draws the build volume,
+scores orientations and applies one to the export, and estimates mass and filament; the
+printer's `nozzle` and `layer` are usable in any dimension. A Tauri desktop shell with its own parts directory and `.card` association is
 written and awaits its first build (see *Desktop app* above).
 
 See `docs/adr/` for the decisions, `tools/browser-smoke.js` for the in-browser checks,
 and `tools/bench.ts` for the measurements.
 
-Next is Phase 9, the print-aware suite: printer profiles, live overhang shading,
-thickness analysis, orientation scoring.
+Next is Phase 10: performance, polish, a tutorial for the keyboard navigation, and the
+first desktop build.
 
 Part files are `.card`.
