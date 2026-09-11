@@ -95,3 +95,51 @@ describe('migration harness', () => {
     }
   });
 });
+
+describe('schema version 2', () => {
+  it('migrates a version-1 file by adding an empty sketch table', () => {
+    const v1 = {
+      schemaVersion: 1,
+      meta: { name: 'old', created: 'x', modified: 'y', units: 'mm', application: 'CARDstock' },
+      parameters: [],
+      features: [{ id: 'f1', type: 'box', name: 'B', values: {}, inputs: {} }],
+    };
+    const file = migrate(v1);
+    expect(file.schemaVersion).toBe(2);
+    expect(file.sketches).toEqual({});
+  });
+
+  it('refuses a feature that names a sketch the file does not carry', () => {
+    // Otherwise every rebuild fails with "this sketch feature has no sketch", which
+    // blames the feature for a hole in the file.
+    expect(() => migrate({
+      schemaVersion: 2,
+      meta: {},
+      parameters: [],
+      features: [{ id: 'f1', type: 'sketch', name: 'S', values: {}, inputs: {}, sketchId: 'sk9' }],
+      sketches: {},
+    })).toThrow(/refers to sketch "sk9"/);
+  });
+
+  it('drops a malformed camera or thumbnail rather than carrying it', () => {
+    // A bad camera is a NaN projection and a viewport that silently stops picking.
+    const file = migrate({
+      schemaVersion: 2, parameters: [], features: [], sketches: {},
+      meta: { camera: { azimuth: 'north' }, thumbnail: 'not-a-data-url' },
+    });
+    expect(file.meta.camera).toBeUndefined();
+    expect(file.meta.thumbnail).toBeUndefined();
+  });
+
+  it('keeps a well-formed camera and thumbnail', () => {
+    const file = migrate({
+      schemaVersion: 2, parameters: [], features: [], sketches: {},
+      meta: {
+        camera: { azimuth: 0.7, elevation: 0.4, zoom: 50, pivot: { x: 0, y: 0, z: 0 } },
+        thumbnail: 'data:image/jpeg;base64,AAAA',
+      },
+    });
+    expect(file.meta.camera?.zoom).toBe(50);
+    expect(file.meta.thumbnail).toMatch(/^data:image/);
+  });
+});

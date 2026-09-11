@@ -13,6 +13,9 @@
  *   - a sketch feature never rebuilding because the graph never learned it changed
  *
  * Returns { passed, failed, results }. Anything false is a regression.
+ *
+ * Run against `/?fresh=1`. Without it the app restores whatever the LAST run autosaved,
+ * and every check that assumes the starter plate is then checking a different model.
  */
 window.__smoke = async function smoke() {
   const host_beginSketch = () => window.__host.beginSketch('xy');
@@ -575,6 +578,91 @@ window.__smoke = async function smoke() {
     await sleep(1400);
     check('unrelatedParametersAreHidden', labels().length === 0);
     if (drilled) { doc.removeFeature(drilled); await window.__rebuild?.(); }
+  }
+
+  // --- files ----------------------------------------------------------------------
+  {
+    check('bootedFresh', new URLSearchParams(location.search).has('fresh'));
+    check('titleNamesTheDocument', /CARDstock$/.test(document.title));
+
+    // Autosave lands shortly after an edit. (Whether the edit marks the title dirty is
+    // checked below, after a save has made it clean — earlier sections have already
+    // edited this document, so it is dirty by now for good reason.)
+    await window.__host.addPrimitive('box');
+    await sleep(1900);
+    const stored = await new Promise((resolve) => {
+      const open = indexedDB.open('cardstock');
+      open.onsuccess = () => {
+        const db = open.result;
+        const get = db.transaction('kv').objectStore('kv').get('autosave');
+        get.onsuccess = () => { db.close(); resolve(get.result ?? null); };
+        get.onerror = () => { db.close(); resolve(null); };
+      };
+      open.onerror = () => resolve(null);
+    });
+    check('autosaveWrittenAfterEdit',
+      !!stored && Array.isArray(stored.file?.features) && stored.file.features.length > 0);
+    check('autosaveCarriesSketches', !!stored && typeof stored.file?.sketches === 'object');
+
+    // Save As, Open and plain Save, through stand-in handles that behave like the File
+    // System Access API. The dialogs are the only part not exercised.
+    const disk = new Map();
+    const handleFor = (name) => ({
+      kind: 'file', name,
+      async getFile() { return new File([disk.get(name) ?? ''], name, { type: 'application/json' }); },
+      async createWritable() {
+        let buffer = '';
+        return { async write(chunk) { buffer += chunk; }, async close() { disk.set(name, buffer); } };
+      },
+      async queryPermission() { return 'granted'; },
+      async requestPermission() { return 'granted'; },
+    });
+    const realSave = window.showSaveFilePicker, realOpen = window.showOpenFilePicker, realConfirm = window.confirm;
+    window.showSaveFilePicker = async (o) => handleFor(o?.suggestedName ?? 'part.card');
+    window.showOpenFilePicker = async () => [handleFor('reopened.card')];
+    window.confirm = () => true;
+
+    await window.__host.saveDocumentAs();
+    await sleep(400);
+    const written = [...disk.values()][0] ? JSON.parse([...disk.values()][0]) : null;
+    check('saveAsWritesAVersionedFile', written?.schemaVersion >= 2);
+    check('savedFileCarriesSketches', !!written && typeof written.sketches === 'object');
+    check('savedFileHasThumbnail',
+      typeof written?.meta?.thumbnail === 'string' && written.meta.thumbnail.startsWith('data:image/jpeg'));
+    check('savedFileHasCamera', typeof written?.meta?.camera?.zoom === 'number');
+    check('saveClearsTheDirtyMarker', !document.title.startsWith('•'));
+    await window.__host.addPrimitive('sphere');
+    await sleep(300);
+    check('editMarksTheTitleDirty', document.title.startsWith('•'));
+
+    // Open a different file: contents, name and camera all come from it.
+    disk.set('reopened.card', JSON.stringify({
+      schemaVersion: 2, parameters: [], sketches: {},
+      meta: { name: 'reopened', camera: { azimuth: 0.5, elevation: 0.3, zoom: 80, pivot: { x: 1, y: 2, z: 3 } } },
+      features: [{ id: 'base', type: 'box', name: 'Base', values: { dx: '25', dy: '25', dz: '5' }, inputs: {} }],
+    }));
+    await window.__host.openDocument();
+    await sleep(1200);
+    check('openReplacesTheDocument', doc.features.map((f) => f.id).join() === 'base');
+    check('openRestoresTheCamera',
+      Math.abs(viewer.controller.target.zoom - 80) < 1e-6 && viewer.controller.target.pivot.x === 1);
+    check('openNamesTheTitle', document.title.startsWith('reopened'));
+
+    // A version-1 file migrates on open.
+    disk.set('reopened.card', JSON.stringify({
+      schemaVersion: 1, meta: { name: 'old' }, parameters: [],
+      features: [{ id: 'b', type: 'box', name: 'B', values: { dx: '10', dy: '10', dz: '10' }, inputs: {} }],
+    }));
+    await window.__host.openDocument();
+    await sleep(1000);
+    check('versionOneFileOpens', doc.meta.name === 'old' && doc.features.length === 1);
+
+    // Back to a starter for the checks that follow.
+    await window.__host.newDocument();
+    await sleep(1000);
+    check('newGivesTheStarter', doc.features.map((f) => f.id).join() === 'plate');
+
+    window.showSaveFilePicker = realSave; window.showOpenFilePicker = realOpen; window.confirm = realConfirm;
   }
 
   check('paletteFindsEveryCommand',

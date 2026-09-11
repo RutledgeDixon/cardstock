@@ -1,5 +1,7 @@
+import type { Vec3 } from '@cardstock/types';
 import type { Feature } from '../features/feature.js';
 import type { Parameter } from '../params/parameters.js';
+import type { SketchData } from '../sketch/sketch.js';
 
 /**
  * The `.card` file format.
@@ -9,13 +11,30 @@ import type { Parameter } from '../params/parameters.js';
  * from day one with a migration harness, because it will change.
  */
 
-export const CURRENT_SCHEMA_VERSION = 1;
+/**
+ * Version history:
+ *   1 — parameters, features, meta.
+ *   2 — sketches. Version 1 never wrote them, so a sketched part could not be rebuilt
+ *       from its own file; the migration adds an empty table, which is honest about
+ *       what those files contain. Also the optional thumbnail and camera on meta.
+ */
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface DocumentFile {
   readonly schemaVersion: number;
   readonly meta: DocumentMeta;
   readonly parameters: readonly Parameter[];
   readonly features: readonly Feature[];
+  /** Sketch geometry and constraints, by the id a feature's `sketchId` names. */
+  readonly sketches: Readonly<Record<string, SketchData>>;
+}
+
+/** Where the camera was when the file was saved, so reopening picks up where you left. */
+export interface SavedCamera {
+  readonly azimuth: number;
+  readonly elevation: number;
+  readonly zoom: number;
+  readonly pivot: Vec3;
 }
 
 export interface DocumentMeta {
@@ -26,6 +45,14 @@ export interface DocumentMeta {
   /** Documents are millimetres. Recorded explicitly so a future unit switch is detectable. */
   readonly units: 'mm';
   readonly application: string;
+  /**
+   * A small JPEG data URL of the model as last saved.
+   *
+   * Cached in the file so a recent-files list can show it without rebuilding the part.
+   * Never authoritative: it is whatever the viewer showed at save time.
+   */
+  readonly thumbnail?: string;
+  readonly camera?: SavedCamera;
 }
 
 export type Migration = (doc: Record<string, unknown>) => Record<string, unknown>;
@@ -37,7 +64,8 @@ export type Migration = (doc: Record<string, unknown>) => Record<string, unknown
  * already exist that depend on it behaving exactly as it did.
  */
 export const MIGRATIONS = new Map<number, Migration>([
-  // [1, (doc) => ({ ...doc, schemaVersion: 2, /* ... */ })],
+  // 1 -> 2: sketches were never written, so there are none to recover.
+  [1, (doc) => ({ ...doc, schemaVersion: 2, sketches: {} })],
 ]);
 
 export class DocumentFormatError extends Error {
@@ -102,7 +130,32 @@ export function validate(doc: Record<string, unknown>): DocumentFile {
     ids.add(f.id);
   }
 
+  const sketches = doc.sketches ?? {};
+  if (typeof sketches !== 'object' || sketches === null || Array.isArray(sketches)) {
+    throw new DocumentFormatError('sketches must be a table keyed by sketch id');
+  }
+  for (const [id, sketch] of Object.entries(sketches as Record<string, unknown>)) {
+    const data = sketch as Partial<SketchData> | null;
+    if (!data || !Array.isArray(data.geometry) || !Array.isArray(data.constraints) || !data.plane) {
+      throw new DocumentFormatError(`sketch "${id}" needs a plane, geometry and constraints`);
+    }
+  }
+  // A feature that names a sketch the file does not carry would fail on every rebuild
+  // with a message about a missing sketch; better to refuse the file with a reason.
+  for (const f of features) {
+    if (typeof f.sketchId === 'string' && !(f.sketchId in (sketches as object))) {
+      throw new DocumentFormatError(
+        `feature "${f.id}" refers to sketch "${f.sketchId}", which is not in the file`,
+      );
+    }
+  }
+
   const meta = (doc.meta ?? {}) as Partial<DocumentMeta>;
+  const camera = meta.camera;
+  const cameraOk = camera
+    && ['azimuth', 'elevation', 'zoom'].every(
+      (k) => typeof (camera as unknown as Record<string, unknown>)[k] === 'number')
+    && typeof camera.pivot === 'object';
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: {
@@ -111,8 +164,14 @@ export function validate(doc: Record<string, unknown>): DocumentFile {
       modified: meta.modified ?? new Date(0).toISOString(),
       units: 'mm',
       application: meta.application ?? 'CARDstock',
+      // Only carried when well-formed: a bad thumbnail is a broken image, a bad camera
+      // is a NaN projection and a viewport that silently stops picking (ADR-0002).
+      ...(typeof meta.thumbnail === 'string' && meta.thumbnail.startsWith('data:image/')
+        ? { thumbnail: meta.thumbnail } : {}),
+      ...(cameraOk ? { camera } : {}),
     },
     parameters: parameters as Parameter[],
     features: features as Feature[],
+    sketches: sketches as Record<string, SketchData>,
   };
 }

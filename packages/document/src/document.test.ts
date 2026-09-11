@@ -339,3 +339,60 @@ describe('cache eviction', () => {
     }
   });
 });
+
+describe('files carry sketches', () => {
+  it('round-trips a sketch through toJSON and load', () => {
+    const doc = new Document(new MockKernel());
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const b = sketch.addPoint(20, 0);
+    const line = sketch.addLine('origin', b);
+    sketch.addConstraint({ type: 'horizontal', line });
+
+    const json = JSON.parse(JSON.stringify(doc.toJSON()));
+    expect(Object.keys(json.sketches)).toHaveLength(1);
+
+    const reopened = new Document(new MockKernel());
+    reopened.load(json);
+    const restored = reopened.sketchFor(id);
+    expect(restored).not.toBeNull();
+    expect(restored!.geometry.filter((e) => e.type === 'line')).toHaveLength(1);
+    expect(restored!.constraints).toHaveLength(1);
+  });
+
+  it('loads in place, so a held reference sees the new contents', () => {
+    const doc = new Document(new MockKernel());
+    doc.addFeature({ id: 'a' as FeatureId, type: 'box', name: 'A', values: {}, inputs: {} });
+    const held = doc;
+    doc.load({
+      schemaVersion: 2, meta: { name: 'Loaded' }, parameters: [], sketches: {},
+      features: [{ id: 'z', type: 'box', name: 'Z', values: {}, inputs: {} }],
+    });
+    expect(held.features.map((f) => f.id)).toEqual(['z']);
+    expect(held.meta.name).toBe('Loaded');
+    expect(held.canUndo).toBe(false);
+  });
+
+  it('keeps new ids clear of a loaded file, sketches included', () => {
+    const doc = new Document(new MockKernel());
+    doc.load({
+      schemaVersion: 2, meta: {}, parameters: [],
+      features: [{ id: 'sketch7', type: 'sketch', name: 'S', values: {}, inputs: {}, sketchId: 'sk7' }],
+      sketches: { sk7: { plane: { kind: 'origin', plane: 'xy' }, geometry: [], constraints: [] } },
+    });
+    const { id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    expect(id).not.toBe('sketch7');
+    expect(doc.feature(id)?.sketchId).not.toBe('sk7');
+  });
+
+  it('reports every edit through subscribe, after the edit has landed', async () => {
+    const doc = new Document(new MockKernel());
+    const seen: number[] = [];
+    doc.subscribe((revision) => seen.push(revision));
+    const before = doc.revision;
+    doc.setParameter({ name: 'w', expression: '1', unit: 'mm' });
+    doc.addFeature({ id: 'a' as FeatureId, type: 'box', name: 'A', values: {}, inputs: {} });
+    await Promise.resolve();
+    expect(seen.length).toBe(2);
+    expect(doc.revision).toBe(before + 2);
+  });
+});

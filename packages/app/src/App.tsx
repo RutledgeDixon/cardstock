@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
-import { asFeatureId, type FeatureId } from '@cardstock/types';
+import type { FeatureId } from '@cardstock/types';
 import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
   placementForFaceIndex, resolvePlacement, resolveTopoRef,
@@ -25,6 +25,11 @@ import {
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
 import { downloadStl } from './wiring/download.js';
+import { defaultStore } from './persistence/store.js';
+import { defaultFileAccess, type OpenedFile } from './persistence/files.js';
+import { captureThumbnail } from './persistence/thumbnail.js';
+import { listRecents, rememberRecent, forgetRecent, type RecentEntry } from './persistence/recents.js';
+import { clearAutosave, readAutosave, startAutosave } from './persistence/autosave.js';
 
 /**
  * Build identity, injected by Vite at build time — see vite.config.ts.
@@ -151,6 +156,21 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   /**
+   * Where the document lives, and whether it has changed since.
+   *
+   * `handle` is the file it came from, when the browser can hand one over; without it
+   * Save behaves as Save As. `savedRevision` against `doc.revision` is what "unsaved
+   * changes" means — a counter rather than a flag because autosave compares too.
+   */
+  const fileRef = useRef<{ handle: FileSystemFileHandle | null; savedRevision: number }>({
+    handle: null, savedRevision: 0,
+  });
+  const [fileState, setFileState] = useState<{ name: string; dirty: boolean }>({
+    name: 'Untitled', dirty: false,
+  });
+  const [recents, setRecents] = useState<RecentEntry[]>([]);
+  const openRecentRef = useRef<(entry: RecentEntry) => Promise<void>>(async () => {});
+  /**
    * The feature tree's context menu: a plain flyout, not the radial.
    *
    * The radial is for things in 3D space, where there is room in every direction. A row
@@ -234,12 +254,166 @@ export function App() {
       } : null);
     };
 
+    const store = defaultStore();
+    const files = defaultFileAccess();
+
+    /** The file as it should be written: the model, plus where the camera is and what
+     *  it sees. Rendered first so the thumbnail is of the current frame, not a stale one. */
+    const snapshotForSave = () => {
+      viewer.renderer.render(viewer.scene, viewer.camera);
+      const thumbnail = captureThumbnail(viewer.canvas);
+      const c = viewer.controller.target;
+      doc.setSavedView({
+        camera: { azimuth: c.azimuth, elevation: c.elevation, zoom: c.zoom, pivot: { ...c.pivot } },
+        ...(thumbnail ? { thumbnail } : {}),
+      });
+      return doc.toJSON();
+    };
+
+    const syncFileState = () => setFileState({
+      name: doc.meta.name || 'Untitled',
+      dirty: doc.revision !== fileRef.current.savedRevision,
+    });
+
+    const markSaved = (name: string) => {
+      fileRef.current.savedRevision = doc.revision;
+      // A saved file supersedes the autosave; keeping both means the next boot offers
+      // to "restore" work that is already safely in the file.
+      void clearAutosave(store);
+      setFileState({ name, dirty: false });
+    };
+
+    /** Ask before throwing away unsaved work. True means go ahead. */
+    const confirmDiscard = async () => {
+      if (doc.revision === fileRef.current.savedRevision) return true;
+      return window.confirm(`${doc.meta.name || 'This part'} has unsaved changes. Discard them?`);
+    };
+
+    /** Put an opened file's contents in place: model, camera, recents, title. */
+    const takeFile = async (opened: OpenedFile) => {
+      try {
+        doc.load(opened.contents);
+      } catch (e) {
+        notify(`Could not open ${opened.name}: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        return;
+      }
+      fileRef.current = { handle: opened.handle, savedRevision: doc.revision };
+      setFocused(null);
+      syncFileState();
+      await doRebuild();
+      const saved = doc.meta.camera;
+      if (saved) {
+        Object.assign(viewer.controller.target, {
+          azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
+        });
+        Object.assign(viewer.controller.target.pivot, saved.pivot);
+        viewer.controller.settle();
+      } else {
+        viewer.fitAll();
+      }
+      await remember(opened.name, opened.handle);
+      notify(`Opened ${opened.name}`);
+    };
+
+    /**
+     * Note a file in the recent list. Never fatal: the list is a convenience, and an
+     * open that succeeded must not be reported as failed because a bookkeeping write
+     * could not clone a handle.
+     */
+    const remember = async (name: string, handle: FileSystemFileHandle | null) => {
+      try {
+        await rememberRecent(store, {
+          name, opened: new Date().toISOString(),
+          ...(doc.meta.thumbnail ? { thumbnail: doc.meta.thumbnail } : {}),
+          ...(handle ? { handle } : {}),
+        });
+        setRecents(await listRecents(store));
+      } catch {
+        // Fall back to an entry without the handle; the name and picture still help.
+        try {
+          await rememberRecent(store, {
+            name, opened: new Date().toISOString(),
+            ...(doc.meta.thumbnail ? { thumbnail: doc.meta.thumbnail } : {}),
+          });
+          setRecents(await listRecents(store));
+        } catch { /* storage itself is unavailable; nothing to record */ }
+      }
+    };
+
+    /** Reopen something from the recent list, by handle where we have one. */
+    const openRecent = async (entry: RecentEntry) => {
+      if (!(await confirmDiscard())) return;
+      if (!entry.handle) {
+        notify(`${entry.name} was downloaded, not saved in place — use Open to find it`, 'error');
+        return;
+      }
+      try {
+        const opened = await files.reopen(entry.handle);
+        if (!opened) { notify('Permission to read the file was not granted', 'error'); return; }
+        await takeFile(opened);
+      } catch (e) {
+        // The file has moved or gone; the entry is now a lie, so drop it.
+        await forgetRecent(store, entry.name);
+        setRecents(await listRecents(store));
+        notify(`Could not reopen ${entry.name}: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      }
+    };
+    openRecentRef.current = openRecent;
+
     const host = createHost({
       doc, viewer,
       terminalFeature: () => terminalFeature(doc),
       captureRefs: (feature, kind, indices) =>
         captureRefs(kernel, feature, kind, indices, (id) => handles.get(id) ?? null),
       rebuild: doRebuild,
+      // ---------------------------------------------------------------- files
+      newDocument: async () => {
+        if (!(await confirmDiscard())) return;
+        loadStarter(doc);
+        fileRef.current = { handle: null, savedRevision: doc.revision };
+        syncFileState();
+        await doRebuild();
+        viewer.fitAll();
+      },
+
+      openDocument: async () => {
+        if (!(await confirmDiscard())) return;
+        let opened: OpenedFile | null;
+        try {
+          opened = await files.open();
+        } catch (e) {
+          notify(e instanceof Error ? e.message : String(e), 'error');
+          return;
+        }
+        if (opened) await takeFile(opened);
+      },
+
+      saveDocument: async () => {
+        const { handle } = fileRef.current;
+        if (!handle || !files.canOverwrite) { await host.saveDocumentAs(); return; }
+        try {
+          await files.save(handle, snapshotForSave());
+          markSaved(doc.meta.name);
+          notify(`Saved ${doc.meta.name}`);
+        } catch (e) {
+          notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        }
+      },
+
+      saveDocumentAs: async () => {
+        try {
+          const saved = await files.saveAs(doc.meta.name || 'part', snapshotForSave());
+          if (!saved) return;
+          doc.rename(saved.name);
+          fileRef.current.handle = saved.handle;
+          markSaved(saved.name);
+          await remember(saved.name, saved.handle);
+          notify(files.canOverwrite ? `Saved ${saved.name}` : `Downloaded ${saved.name}.card`);
+        } catch (e) {
+          notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        }
+      },
+
       exportStl: async () => {
         // Every body on screen, not just the last one. A part built from several
         // sketches is several leaves, and exporting only the terminal feature writes a
@@ -416,18 +590,45 @@ export function App() {
 
     const teardown = activate(viewer, canvas);
 
+    let stopAutosave: (() => void) | undefined;
+    let stopDirtyWatch: (() => void) | undefined;
     void (async () => {
       await kernel.whenReady();
       setReady(true);
-      // Start with something on screen; an empty viewport teaches nothing.
-      doc.setParameter({ name: 'width', expression: '60', unit: 'mm' });
-      doc.addFeature({
-        id: asFeatureId('plate'), type: 'box', name: 'Plate',
-        values: { dx: 'width', dy: '40', dz: '18' }, inputs: {},
-      });
+
+      // Unsaved work from last time comes back by itself; that is what an autosave is
+      // for. `?fresh` skips it, for a clean slate and for the verification harness.
+      const fresh = new URLSearchParams(window.location.search).has('fresh');
+      const recovered = fresh ? null : await readAutosave(store).catch(() => null);
+      if (recovered && recovered.file.features.length > 0) {
+        try {
+          doc.load(recovered.file);
+          notify(`Restored unsaved work from ${new Date(recovered.savedAt).toLocaleTimeString()}`);
+        } catch {
+          loadStarter(doc);
+        }
+      } else {
+        loadStarter(doc);
+      }
+      // Whatever we booted into is the baseline: it is not "unsaved" until it changes.
+      fileRef.current = { handle: null, savedRevision: doc.revision };
+      syncFileState();
+      setRecents(await listRecents(store).catch(() => []));
+
       await doRebuild();
-      viewer.fitAll();
+      const saved = doc.meta.camera;
+      if (recovered && saved) {
+        Object.assign(viewer.controller.target, {
+          azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
+        });
+        Object.assign(viewer.controller.target.pivot, saved.pivot);
+      } else {
+        viewer.fitAll();
+      }
       viewer.controller.settle();
+
+      stopAutosave = startAutosave(doc, store, (message) => notify(message, 'error'), snapshotForSave);
+      stopDirtyWatch = doc.subscribe(() => syncFileState());
     })();
 
     // Handles for the verification harness. requestAnimationFrame does not run while a
@@ -441,7 +642,11 @@ export function App() {
       __rebuild: () => doRebuild(),
     });
 
-    return teardown;
+    return () => {
+      stopAutosave?.();
+      stopDirtyWatch?.();
+      teardown();
+    };
   }, [repaint]);
 
   const focusedRef = useRef<FeatureId | null>(null);
@@ -530,6 +735,10 @@ export function App() {
   }, [doc, report]);
 
   const focusedFeature = focused && doc ? doc.feature(focused) : null;
+
+  useEffect(() => {
+    document.title = `${fileState.dirty ? '• ' : ''}${fileState.name} — CARDstock`;
+  }, [fileState]);
   const focusedDefinition = focusedFeature ? doc?.registry.get(focusedFeature.type) : undefined;
   const unitFor = (type: string, key: string) => {
     const unit = FIELD_UNITS[`${type}.${key}`] ?? FIELD_UNITS[key];
@@ -693,8 +902,33 @@ export function App() {
             }}
           />
           <ParameterPanel
-            title={focusedFeature?.name || 'Document'}
-            {...(focusedFeature ? { subtitle: focusedFeature.type } : {})}
+            title={focusedFeature?.name || `${fileState.name}${fileState.dirty ? ' •' : ''}`}
+            {...(focusedFeature
+              ? { subtitle: focusedFeature.type }
+              : { subtitle: fileState.dirty ? 'unsaved changes' : 'saved' })}
+            {...(!focusedFeature && recents.length > 0 ? {
+              footer: (
+                <div className="recents">
+                  <div className="panel-section-title">Recent</div>
+                  {recents.map((entry) => (
+                    <button
+                      key={entry.name}
+                      type="button"
+                      className="recent"
+                      title={entry.handle
+                        ? `Reopen ${entry.name}`
+                        : `${entry.name} was downloaded; use Open to find it`}
+                      onClick={() => { void openRecentRef.current(entry); }}
+                    >
+                      {entry.thumbnail
+                        ? <img className="recent-thumb" src={entry.thumbnail} alt="" />
+                        : <span className="recent-thumb recent-thumb-empty" />}
+                      <span className="recent-name">{entry.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ),
+            } : {})}
             fields={fields}
             parameters={parameters}
             evaluate={evaluate}
@@ -972,6 +1206,28 @@ export function App() {
   }
 
   function rebuildNow() { void runRebuild(); }
+}
+
+/**
+ * The starter part: a plate to build from.
+ *
+ * What a fresh boot and New both give you. An empty viewport teaches nothing, and a plate
+ * is the first thing most printed parts begin as anyway.
+ */
+function loadStarter(doc: Document): void {
+  doc.load({
+    schemaVersion: 2,
+    meta: {
+      name: 'Untitled', units: 'mm', application: 'CARDstock',
+      created: new Date().toISOString(), modified: new Date().toISOString(),
+    },
+    parameters: [{ name: 'width', expression: '60', unit: 'mm' }],
+    features: [{
+      id: 'plate', type: 'box', name: 'Plate',
+      values: { dx: 'width', dy: '40', dz: '18' }, inputs: {},
+    }],
+    sketches: {},
+  });
 }
 
 /** What each tool is waiting for. Shown in the sketch bar while that tool is active. */

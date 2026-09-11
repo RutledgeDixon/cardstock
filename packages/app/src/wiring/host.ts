@@ -29,6 +29,10 @@ export interface HostDeps {
   ) => Promise<TopoRef[]>;
   rebuild: () => Promise<void>;
   exportStl: () => Promise<void>;
+  newDocument: () => Promise<void>;
+  openDocument: () => Promise<void>;
+  saveDocument: () => Promise<void>;
+  saveDocumentAs: () => Promise<void>;
   openPalette: () => void;
   openAbout: () => void;
   openPanel: (id: FeatureId) => void;
@@ -409,6 +413,10 @@ export function createHost(deps: HostDeps): CommandHost {
     },
 
     exportStl: () => deps.exportStl(),
+    newDocument: () => deps.newDocument(),
+    openDocument: () => deps.openDocument(),
+    saveDocument: () => deps.saveDocument(),
+    saveDocumentAs: () => deps.saveDocumentAs(),
     applySketchConstraint: (type) => deps.applySketchConstraint(type),
     sketchConstraintBlocker: (type) => deps.sketchConstraintBlocker(type),
     openPalette: () => deps.openPalette(),

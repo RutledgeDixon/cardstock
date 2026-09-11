@@ -72,6 +72,13 @@ export interface CommandHost {
   // --- output
   exportStl(): Promise<void>;
 
+  // --- files
+  newDocument(): Promise<void>;
+  openDocument(): Promise<void>;
+  /** Save to the file this document came from, or ask where when there is none. */
+  saveDocument(): Promise<void>;
+  saveDocumentAs(): Promise<void>;
+
   // --- ui affordances the command layer may ask for
   openPalette(): void;
   /** Show the about dialog: what the name means, and which build this is. */

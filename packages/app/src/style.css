@@ -354,3 +354,16 @@ kbd {
   background: #2a303b; color: var(--ink);
 }
 .about-close:hover { background: #333b48; }
+
+/* ---------------------------------------------------------------- recent files */
+.recents { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.recent {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 5px; border-radius: 5px; color: var(--ink); text-align: left;
+}
+.recent:hover { background: #2a303b; }
+.recent-thumb {
+  width: 44px; height: 28px; object-fit: cover; border-radius: 3px;
+  background: #0d1117; border: 1px solid var(--panel-edge); flex: 0 0 auto;
+}
+.recent-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

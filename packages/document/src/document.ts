@@ -118,6 +118,7 @@ export class Document {
   #beginEdit(opts: EditOptions, defaultLabel: string): void {
     this.#history.record(this.snapshot(), opts.label ?? defaultLabel, opts.coalesceKey ?? null);
     this.#meta = { ...this.#meta, modified: new Date().toISOString() };
+    this.#touch();
   }
 
   #markDirty(node: NodeId): void { this.#dirty.add(node); }
@@ -472,7 +473,49 @@ export class Document {
       meta: this.#meta,
       parameters: this.parameters.all(),
       features: this.#features.map((f) => structuredClone(f)),
+      sketches: Object.fromEntries(
+        [...this.sketches].map(([id, sketch]) => [id, sketch.toJSON()]),
+      ),
     };
+  }
+
+  /**
+   * Replace this document's contents with a file's.
+   *
+   * IN PLACE, on purpose. The app, the host and the harness all hold a reference to one
+   * Document; opening a file by constructing a new one would leave every one of them
+   * pointing at the old model. Undo history is cleared — there is nothing before the
+   * file — and the whole graph is marked dirty so the next rebuild computes everything.
+   */
+  load(raw: unknown): void {
+    const file = migrate(raw);
+
+    this.#features = [];
+    this.sketches.clear();
+    this.parameters.clear();
+
+    for (const p of file.parameters) this.parameters.set(p);
+    this.#features = file.features.map((f) => structuredClone(f));
+    for (const [id, data] of Object.entries(file.sketches)) {
+      this.sketches.set(id, Sketch.fromJSON(data));
+    }
+    this.#meta = { ...file.meta };
+
+    // Keep generated ids clear of anything already in the file.
+    this.#idCounter = 0;
+    this.#nextSketchId = 0;
+    for (const f of this.#features) {
+      const m = /^[a-zA-Z]+(\d+)$/.exec(f.id);
+      if (m) this.#idCounter = Math.max(this.#idCounter, Number(m[1]));
+    }
+    for (const id of this.sketches.keys()) {
+      const m = /^sk(\d+)$/.exec(id);
+      if (m) this.#nextSketchId = Math.max(this.#nextSketchId, Number(m[1]));
+    }
+
+    this.clearHistory();
+    this.invalidateAll();
+    this.#touch();
   }
 
   static fromJSON(
@@ -480,19 +523,44 @@ export class Document {
     kernel: KernelPort,
     registry: FeatureRegistry = createBuiltinRegistry(),
   ): Document {
-    const file = migrate(raw);
     const doc = new Document(kernel, registry);
-    for (const p of file.parameters) doc.parameters.set(p);
-    doc.#features = file.features.map((f) => structuredClone(f));
-    doc.#meta = file.meta;
-    // Keep generated ids clear of anything already in the file.
-    for (const f of doc.#features) {
-      const m = /^f(\d+)$/.exec(f.id);
-      if (m) doc.#idCounter = Math.max(doc.#idCounter, Number(m[1]));
-    }
-    doc.clearHistory();
-    doc.invalidateAll();
+    doc.load(raw);
     return doc;
+  }
+
+  /** Attach a camera and thumbnail to the metadata, for the next save. */
+  setSavedView(view: { camera?: DocumentMeta['camera']; thumbnail?: string }): void {
+    this.#meta = {
+      ...this.#meta,
+      ...(view.camera ? { camera: view.camera } : {}),
+      ...(view.thumbnail ? { thumbnail: view.thumbnail } : {}),
+    };
+  }
+
+  // ------------------------------------------------------------------ change tracking
+  /**
+   * Bumped on every edit. `revision !== savedRevision` is what "unsaved changes" means.
+   *
+   * A counter rather than a boolean because several things want to compare against a
+   * moment — the last save, the last autosave — and a flag can only answer one of them.
+   */
+  #revision = 0;
+  get revision(): number { return this.#revision; }
+
+  readonly #changeListeners = new Set<(revision: number) => void>();
+
+  /** Called after each edit. Autosave and the title bar's dirty marker hang off this. */
+  subscribe(listener: (revision: number) => void): () => void {
+    this.#changeListeners.add(listener);
+    return () => this.#changeListeners.delete(listener);
+  }
+
+  #touch(): void {
+    this.#revision++;
+    const revision = this.#revision;
+    // After the edit, not during it: an edit begins by recording history and ends by
+    // mutating, and a listener that ran in between would see the model mid-change.
+    queueMicrotask(() => { for (const fn of this.#changeListeners) fn(revision); });
   }
 
   /**
@@ -537,6 +605,7 @@ export class Document {
   markSketchChanged(featureId: FeatureId): void {
     this.#markDirty(featureNode(featureId));
     this.#meta = { ...this.#meta, modified: new Date().toISOString() };
+    this.#touch();
   }
 
   sketchFor(featureId: FeatureId): Sketch | null {
