@@ -83,61 +83,139 @@ export function buildProfile(geometry: readonly SketchGeometry[]): ProfileResult
     }
   }
 
-  // --- walk chains of segments that share endpoints
-  const remaining = new Set(chainable.map((_, i) => i));
-  const byPoint = new Map<string, number[]>();
-  chainable.forEach((segment, index) => {
-    if (segment.kind === 'circle') return;
-    for (const end of [segment.from, segment.to]) {
-      const k = key(end);
-      byPoint.set(k, [...(byPoint.get(k) ?? []), index]);
-    }
+  // --- trace faces of the planar graph the segments form
+  //
+  // Every segment is a pair of half-edges, one each way. Starting from each unused
+  // half-edge, walk: at each vertex take the outgoing half-edge that turns LEFT the
+  // least sharply from the one we arrived on — the standard face-tracing rule, which
+  // makes every bounded region come out as its own counter-clockwise loop, and the
+  // unbounded outside of each connected piece as one clockwise loop. That is what
+  // makes a junction unambiguous: two triangles sharing a corner are two faces, not
+  // a puzzle about which way round to go.
+  type Directed = Extract<ProfileSegment, { from: Vec2 }>;
+  const directed: Directed[] = [];
+  for (const segment of chainable) {
+    if (segment.kind === 'circle') continue;
+    directed.push(segment, reverse(segment) as Directed);
+  }
+  const outgoing = new Map<string, number[]>();
+  directed.forEach((segment, index) => {
+    const k = key(segment.from);
+    outgoing.set(k, [...(outgoing.get(k) ?? []), index]);
   });
+  // Segments with a dangling end can never close; peel them off (repeatedly, since
+  // removing one can strand its neighbour) and report them as the gap.
+  const dangling = new Set<number>();
+  const alive = (k: string) => (outgoing.get(k) ?? []).filter((i) => !dangling.has(i)).length;
+  for (let changed = true; changed;) {
+    changed = false;
+    directed.forEach((segment, index) => {
+      if (dangling.has(index)) return;
+      if (alive(key(segment.from)) < 2 || alive(key(segment.to)) < 2) {
+        dangling.add(index).add(index ^ 1);
+        changed = true;
+      }
+    });
+  }
 
   const openChains: { segments: ProfileSegment[]; reason: string }[] = [];
+  const loose = directed.filter((_, i) => i % 2 === 0 && dangling.has(i));
+  if (loose.length > 0) {
+    // Loose segments become a path only if they form a simple chain. Three meeting at
+    // a point is neither a loop nor a path, and naming that beats sweeping along a Y.
+    const ends = new Map<string, number>();
+    for (const segment of loose) {
+      for (const end of [segment.from, segment.to]) ends.set(key(end), (ends.get(key(end)) ?? 0) + 1);
+    }
+    const branched = [...ends.values()].some((n) => n > 2);
+    openChains.push({
+      segments: chainSegments(loose),
+      reason: branched
+        ? 'more than two segments meet at a point, so the profile is ambiguous'
+        : 'the profile does not close',
+    });
+  }
 
-  while (remaining.size > 0) {
-    const startIndex = remaining.values().next().value as number;
-    remaining.delete(startIndex);
-    const first = chainable[startIndex]! as Extract<ProfileSegment, { from: Vec2 }>;
-
-    const chain: ProfileSegment[] = [first];
-    const startKey = key(first.from);
-    let endKey = key(first.to);
+  const used = new Set<number>(dangling);
+  for (let start = 0; start < directed.length; start++) {
+    if (used.has(start)) continue;
+    const chain: ProfileSegment[] = [];
+    let current = start;
     let closed = false;
-
-    for (;;) {
-      if (endKey === startKey) { closed = true; break; }
-      const candidates = (byPoint.get(endKey) ?? []).filter((i) => remaining.has(i));
-      if (candidates.length === 0) break;
-      if (candidates.length > 1) {
-        // A junction: three or more segments meet, so which way round is ambiguous.
-        // Better to report the gap than to guess and silently make the wrong face.
-        openChains.push({
-          segments: chain,
-          reason: 'more than two segments meet at a point, so the profile is ambiguous',
-        });
-        chain.length = 0;
-        break;
+    for (let guard = 0; guard <= directed.length; guard++) {
+      used.add(current);
+      const segment = directed[current]!;
+      chain.push(segment);
+      const arriving = endDirection(segment);
+      const back = { x: -arriving.x, y: -arriving.y };
+      // Leftmost turn: the largest counter-clockwise angle from the way we came.
+      let next = -1, bestAngle = -Infinity;
+      for (const i of outgoing.get(key(segment.to)) ?? []) {
+        if (i === (current ^ 1) || dangling.has(i)) continue;
+        const dir = startDirection(directed[i]!);
+        let angle = Math.atan2(back.x * dir.y - back.y * dir.x, back.x * dir.x + back.y * dir.y);
+        if (angle <= 1e-9) angle += Math.PI * 2;
+        if (angle > bestAngle) { bestAngle = angle; next = i; }
       }
-      const nextIndex = candidates[0]!;
-      remaining.delete(nextIndex);
-      const next = chainable[nextIndex]! as Extract<ProfileSegment, { from: Vec2 }>;
-      // Segments may be drawn in either direction; follow whichever end connects.
-      const flipped = key(next.from) !== endKey;
-      chain.push(flipped ? reverse(next) : next);
-      endKey = flipped ? key(next.from) : key(next.to);
+      if (next === start) { closed = true; break; }
+      if (next < 0 || used.has(next)) break;
+      current = next;
     }
-
-    if (chain.length === 0) continue;
-    if (closed) {
-      loops.push({ segments: chain, closed: true, signedArea: signedArea(chain) });
-    } else {
-      openChains.push({ segments: chain, reason: 'the profile does not close' });
-    }
+    if (!closed) continue;
+    const area = signedArea(chain);
+    // Clockwise loops are the outside of a connected piece, not a region.
+    if (area > TOLERANCE) loops.push({ segments: chain, closed: true, signedArea: area });
   }
 
   return { loops, openChains };
+}
+
+/** Direction a segment leaves its start point in. */
+function startDirection(segment: Extract<ProfileSegment, { from: Vec2 }>): Vec2 {
+  if (segment.kind === 'line') return normalise({ x: segment.to.x - segment.from.x, y: segment.to.y - segment.from.y });
+  return arcTangent(segment, segment.from, arcTurnsLeft(segment));
+}
+
+/** Direction a segment arrives at its end point in. */
+function endDirection(segment: Extract<ProfileSegment, { from: Vec2 }>): Vec2 {
+  if (segment.kind === 'line') return normalise({ x: segment.to.x - segment.from.x, y: segment.to.y - segment.from.y });
+  return arcTangent(segment, segment.to, arcTurnsLeft(segment));
+}
+
+/** True when the arc sweeps counter-clockwise from its start to its end. */
+function arcTurnsLeft(segment: Extract<ProfileSegment, { kind: 'arc' }>): boolean {
+  let sweep = segment.endAngle - segment.startAngle;
+  while (sweep <= -Math.PI) sweep += Math.PI * 2;
+  while (sweep > Math.PI) sweep -= Math.PI * 2;
+  return sweep > 0;
+}
+
+function arcTangent(segment: Extract<ProfileSegment, { kind: 'arc' }>, at: Vec2, ccw: boolean): Vec2 {
+  const radial = { x: at.x - segment.centre.x, y: at.y - segment.centre.y };
+  return normalise(ccw ? { x: -radial.y, y: radial.x } : { x: radial.y, y: -radial.x });
+}
+
+const normalise = (v: Vec2): Vec2 => {
+  const l = Math.hypot(v.x, v.y) || 1;
+  return { x: v.x / l, y: v.y / l };
+};
+
+/** Order loose segments end to end where they connect, for a readable gap report. */
+function chainSegments(segments: Extract<ProfileSegment, { from: Vec2 }>[]): ProfileSegment[] {
+  const remaining = [...segments];
+  const out: ProfileSegment[] = [];
+  while (remaining.length > 0) {
+    let current = remaining.shift()!;
+    out.push(current);
+    for (;;) {
+      const next = remaining.findIndex((s) => key(s.from) === key(current.to) || key(s.to) === key(current.to));
+      if (next < 0) break;
+      const [taken] = remaining.splice(next, 1);
+      current = (key(taken!.from) === key(current.to) ? taken : reverse(taken!)) as Extract<ProfileSegment, { from: Vec2 }>;
+      out.push(current);
+    }
+  }
+  return out;
 }
 
 function reverse(segment: Extract<ProfileSegment, { from: Vec2 }>): ProfileSegment {
@@ -161,4 +239,53 @@ export function outerLoop(loops: readonly ProfileLoop[]): ProfileLoop | null {
   if (loops.length === 0) return null;
   return loops.reduce((largest, loop) =>
     Math.abs(loop.signedArea) > Math.abs(largest.signedArea) ? loop : largest);
+}
+
+/**
+ * Group loops into regions: each loop nobody contains is a face, and a loop inside
+ * exactly one other is that face's hole. Two triangles sharing a corner are two
+ * regions; a circle inside a rectangle is one region with a hole. Deeper nesting (an
+ * island inside a hole) is not supported and the island is ignored.
+ */
+export function profileRegions(loops: readonly ProfileLoop[]): ProfileLoop[][] {
+  const contains = (outer: ProfileLoop, inner: ProfileLoop) =>
+    outer !== inner && pointInLoop(samplePoint(inner), outer);
+  const parents = loops.map((loop) => loops.filter((other) => contains(other, loop)));
+  const regions: ProfileLoop[][] = [];
+  loops.forEach((loop, i) => { if (parents[i]!.length === 0) regions.push([loop]); });
+  loops.forEach((loop, i) => {
+    if (parents[i]!.length !== 1) return;
+    const region = regions.find((r) => r[0] === parents[i]![0]);
+    region?.push(loop);
+  });
+  return regions;
+}
+
+/** A point strictly inside the loop: just left of its first edge's midpoint — loops
+ *  are counter-clockwise, so the interior is on the left. A vertex would not do: two
+ *  loops sharing a corner would each test as inside the other. */
+function samplePoint(loop: ProfileLoop): Vec2 {
+  const first = loop.segments[0]!;
+  if (first.kind === 'circle') return first.centre;
+  const mid = { x: (first.from.x + first.to.x) / 2, y: (first.from.y + first.to.y) / 2 };
+  const d = normalise({ x: first.to.x - first.from.x, y: first.to.y - first.from.y });
+  const inset = 1e-4;
+  return { x: mid.x - d.y * inset, y: mid.y + d.x * inset };
+}
+
+/** Even-odd ray test against a loop's polyline; arcs are treated by their chord, and a
+ *  circle by its radius. Good enough to decide containment of one loop by another. */
+function pointInLoop(p: Vec2, loop: ProfileLoop): boolean {
+  const first = loop.segments[0]!;
+  if (first.kind === 'circle') return Math.hypot(p.x - first.centre.x, p.y - first.centre.y) < first.radius;
+  let inside = false;
+  for (const segment of loop.segments) {
+    if (segment.kind === 'circle') continue;
+    const a = segment.from, b = segment.to;
+    if ((a.y > p.y) !== (b.y > p.y)) {
+      const x = a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y);
+      if (x > p.x) inside = !inside;
+    }
+  }
+  return inside;
 }

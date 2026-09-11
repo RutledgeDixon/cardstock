@@ -44,7 +44,8 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   construction: 0x6a7180,
   // Red, and deliberately not a colour the model uses: a neutral vertex disappeared
   // against the grey of the face being sketched on.
-  point: 0xff4d4d,
+  // Darker than a plain red so it cannot be mistaken for the selection orange.
+  point: 0xd42a2a,
   preview: 0x7fb2ff,
   fullyConstrained: 0x6fd39a,
   // The same orange the 3D selection uses, so "selected" means one thing across the app.

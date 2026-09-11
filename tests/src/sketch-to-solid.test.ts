@@ -183,3 +183,23 @@ describe('persistence', () => {
     expect(json.sketches.sk1.constraints).toHaveLength(6);
   });
 });
+
+describe('several regions in one sketch', () => {
+  it('two triangles sharing a corner extrude to two solids', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const v = 'origin';
+    const a = sketch.addPoint(-20, 10), b = sketch.addPoint(-20, -10);
+    const c = sketch.addPoint(20, 10), d = sketch.addPoint(20, -10);
+    sketch.addLine(v, a); sketch.addLine(a, b); sketch.addLine(b, v);
+    sketch.addLine(v, c); sketch.addLine(c, d); sketch.addLine(d, v);
+    const extrude = asFeatureId('bow');
+    doc.addFeature({ id: extrude, type: 'extrude', name: 'Bow', values: { distance: '5' }, inputs: { profile: id } });
+    const result = await doc.recompute();
+    expect(result.states.get(extrude)?.status).toBe('ok');
+    const handle = result.states.get(extrude)!.handle!;
+    // Two triangles of 200 mm² each, 5 deep.
+    expect((await kernel.massProperties(handle)).volume).toBeCloseTo(2000, 3);
+    expect((await kernel.topologyCounts(handle)).faces).toBe(10);
+  });
+});

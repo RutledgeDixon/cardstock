@@ -1,5 +1,5 @@
 import type { FeatureDefinition } from './feature.js';
-import { buildProfile, outerLoop } from '../sketch/profile.js';
+import { buildProfile, profileRegions } from '../sketch/profile.js';
 import { resolvePlacement } from '../sketch/placement.js';
 import { placementForFaceIndex } from '../sketch/face-plane.js';
 import { resolveTopoRef } from '../toporef/resolver.js';
@@ -56,8 +56,7 @@ export const sketchFeature: FeatureDefinition = {
 
     const { loops, openChains } = buildProfile(sketch.geometry);
     if (loops.length === 0) {
-      // An ambiguous junction is a mistake to fix; the walk could not decide which way
-      // round the profile goes, so guessing would silently make the wrong shape.
+      // A branching set of open segments is neither a loop nor a path.
       const ambiguous = openChains.find((c) => c.reason.includes('ambiguous'));
       if (ambiguous) throw new Error(ambiguous.reason);
 
@@ -77,15 +76,13 @@ export const sketchFeature: FeatureDefinition = {
       });
     }
 
-    // Largest loop is the boundary; the rest are holes.
-    const outer = outerLoop(loops)!;
-    const holes = loops.filter((loop) => loop !== outer);
-    return kernel.makeFace({
-      placement,
-      loops: [outer, ...holes].map((loop) => ({
-        segments: loop.segments, signedArea: loop.signedArea,
-      })),
-    });
+    // Each region is a face: its outer loop, then the loops it contains as holes.
+    // Several regions — two triangles sharing a corner — become several faces.
+    const regions = profileRegions(loops).map((region) =>
+      region.map((loop) => ({ segments: loop.segments, signedArea: loop.signedArea })));
+    const [first, ...rest] = regions;
+    if (!first) throw new Error('the sketch encloses no region');
+    return kernel.makeFace({ placement, loops: first, ...(rest.length > 0 ? { regions: rest } : {}) });
   },
 };
 

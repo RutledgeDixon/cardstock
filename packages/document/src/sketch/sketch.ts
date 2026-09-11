@@ -205,9 +205,10 @@ export class Sketch {
     // A dimension whose expression is broken is dropped from the solve rather than
     // passed through as a string the solver would read as a parameter name. The sketch
     // then solves as if that dimension were absent, and the error is reported against it.
+    // A reference dimension only reports; it never reaches the solver.
     const usable = resolved.filter((c) => {
       const value = (c as { value?: unknown }).value;
-      return typeof value !== 'string';
+      return typeof value !== 'string' && !(c as { reference?: boolean }).reference;
     });
 
     const result = await solver.solve({
@@ -259,7 +260,7 @@ export class Sketch {
 /** Every entity id a constraint refers to. */
 export function referencedIds(constraint: SketchConstraint): SketchEntityId[] {
   const c = constraint as Record<string, unknown>;
-  return ['a', 'b', 'line', 'point', 'entity']
+  return ['a', 'b', 'line', 'point', 'entity', 'circle']
     .map((key) => c[key])
     .filter((value): value is string => typeof value === 'string');
 }

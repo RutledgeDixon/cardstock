@@ -69,3 +69,28 @@ so the solver will not be the bottleneck in sketch-driven editing.
   dependency loaded at runtime; worth a second look before any redistribution.
 - The solver prints diagnostics to stdout (`Sketcher::RedundantSolving-DogLeg-`).
   Set `debug_mode = DebugMode.NoDebug` in the real integration.
+
+## Amendment: reference dimensions, more distance kinds, and faces from a graph
+
+**A new dimension is a reference.** Placing one shows the value as drawn and pins
+nothing — it is dropped from the solve, so it takes no freedom away. Typing into it
+makes it drive: the `reference` flag comes off, the label turns green, and the DOF
+count goes down by one. Placing a dimension to *see* a length must never move the
+sketch or lock it by accident.
+
+**Two picks make a dimension, and the pair decides its kind.** Point–point is a
+distance; point–line the gap; two parallel lines their spacing (with parallelism pinned
+alongside, so the number keeps meaning something when driven) and two others their
+angle; a circle against a line or a point measures from the rim, via PlaneGCS's
+`c2ldistance` and `p2cdistance`. A circle picked twice, or once and then empty space,
+is its radius.
+
+**Profiles are faces of a planar graph**, not chains. Every segment is two half-edges;
+from each unused one, walk by taking the leftmost turn at every vertex. Bounded regions
+come out counter-clockwise, the outside of each connected piece clockwise and is
+dropped. A junction is no longer "ambiguous": two triangles sharing a corner are two
+regions, each its own face, and the kernel extrudes the compound into two solids.
+Regions nest one level — a loop inside another is its hole — and the containment
+sample is taken just inside an edge, because a shared vertex would test as inside both.
+Loose segments still report as a gap, and three meeting at a point with nothing closed
+is still refused rather than swept along a Y.

@@ -101,7 +101,8 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '╱',
       contexts: ['sketch'],
       sector: { sketch: 0 },
-      keys: ['l'],
+      // P for polyline: L went to the camera when IJKL became pan.
+      keys: ['p'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('line'),
     },

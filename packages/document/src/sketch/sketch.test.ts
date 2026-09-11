@@ -167,3 +167,25 @@ describe('persistence', () => {
     expect(existing.has(reloaded.newId('p'))).toBe(false);
   });
 });
+
+describe('reference dimensions', () => {
+  it('take no freedom away until they are made to drive', async () => {
+    const { Sketch } = await import('./sketch.js');
+    const { MockSolver } = await import('./mock-solver.js');
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'o' });
+    const a = sketch.addPoint(10, 0);
+    const solver = new MockSolver();
+    await sketch.solve(solver, {});
+    const free = sketch.dof;
+
+    const id = sketch.addConstraint({ type: 'distance', a: 'o', b: a, value: 10, reference: true } as never);
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBe(free);
+
+    sketch.removeConstraint(id);
+    sketch.addConstraint({ type: 'distance', a: 'o', b: a, value: 10 });
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBe(free! - 1);
+  });
+});

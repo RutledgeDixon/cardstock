@@ -18,7 +18,7 @@ export const CAMERA_KEYS: readonly KeyBinding[] = [
   { keys: ['← →', 'A D'], title: 'Orbit around', hint: 'hold to keep turning; eases in and out' },
   { keys: ['↑ ↓', 'W S'], title: 'Orbit up and down', hint: 'clamped, so the model never rolls' },
   { keys: ['Shift + arrows'], title: 'Snap-orbit 15°' },
-  { keys: ['Ctrl + arrows'], title: 'Pan' },
+  { keys: ['I J K L'], title: 'Pan', hint: 'up, left, down, right' },
   { keys: ['+', '−'], title: 'Zoom in and out', hint: 'scroll wheel works too' },
   { keys: ['1 … 6'], title: 'Front · back · left · right · top · bottom' },
   { keys: ['7', '0'], title: 'Isometric' },

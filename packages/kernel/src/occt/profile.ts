@@ -57,17 +57,27 @@ export function makeFace(oc: OpenCascadeInstance, profile: ProfileSpec): TopoDS_
   }
 
   const { plane, to3d } = placementOf(oc, profile);
-  const wires = profile.loops.map((loop) => makeWire(oc, loop, plane, to3d, 'makeFace'));
+  const regions = [profile.loops, ...(profile.regions ?? [])];
+  const faces = regions.map((loops) => {
+    const wires = loops.map((loop) => makeWire(oc, loop, plane, to3d, 'makeFace'));
+    const builder = new oc.BRepBuilderAPI_MakeFace(wires[0]!, false);
+    // Later loops are holes. They must run opposite to the outer boundary, or OCCT adds
+    // them as separate regions instead of subtracting them.
+    // Reversed() hands back a TopoDS_Shape; embind needs a real TopoDS_Wire, and a
+    // TypeScript cast does nothing at runtime.
+    for (const wire of wires.slice(1)) builder.Add(oc.TopoDS.Wire(wire.Reversed()));
+    if (!builder.IsDone()) throw new KernelError('could not build a face from the profile', 'makeFace');
+    return builder.Shape();
+  });
+  if (faces.length === 1) return faces[0]!;
 
-  const builder = new oc.BRepBuilderAPI_MakeFace(wires[0]!, false);
-  // Later loops are holes. They must run opposite to the outer boundary, or OCCT adds
-  // them as separate regions instead of subtracting them.
-  // Reversed() hands back a TopoDS_Shape; embind needs a real TopoDS_Wire, and a
-  // TypeScript cast does nothing at runtime.
-  for (const wire of wires.slice(1)) builder.Add(oc.TopoDS.Wire(wire.Reversed()));
-
-  if (!builder.IsDone()) throw new KernelError('could not build a face from the profile', 'makeFace');
-  return builder.Shape();
+  // Several regions: one face each, gathered without fusing. Extruding the compound
+  // gives one solid per region.
+  const builder = new oc.TopoDS_Builder();
+  const compound = new oc.TopoDS_Compound();
+  builder.MakeCompound(compound);
+  for (const face of faces) builder.Add(compound, face);
+  return compound;
 }
 
 function makeWire(

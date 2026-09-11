@@ -214,7 +214,7 @@ export function App() {
   } | null>(null);
   const sessionRef = useRef<SketchSession | null>(null);
   const [dimensions, setDimensions] = useState<
-    { id: string; text: string; expression: string; error?: string }[]>([]);
+    { id: string; text: string; expression: string; reference: boolean; error?: string }[]>([]);
   const [editingDimension, setEditingDimension] = useState<string | null>(null);
   const dimensionLayer = useRef<HTMLDivElement>(null);
   const [report, setReport] = useState<{
@@ -267,8 +267,8 @@ export function App() {
     const syncSketch = (inference: string | null = null) => {
       const session = sessionRef.current;
       setDimensions(session
-        ? session.dimensions().map(({ id, text, expression, error }) => ({
-            id, text, expression, ...(error ? { error } : {}),
+        ? session.dimensions().map(({ id, text, expression, reference, error }) => ({
+            id, text, expression, reference, ...(error ? { error } : {}),
           }))
         : []);
       setSketchInfo(session ? {
@@ -1046,15 +1046,15 @@ export function App() {
               return;
             }
             if (session.tools.kind === 'select') {
-              // Pressing on a point starts a drag; pressing elsewhere selects.
-              if (session.beginDrag()) {
-                canvasRef.current?.setPointerCapture(e.pointerId);
-                return;
-              }
-              session.toggleSelection(session.pick(), e.shiftKey);
+              // Pressing selects what is under the pointer; on a point it ALSO starts a
+              // drag. It used to be one or the other, so a vertex could be dragged but
+              // never selected — it never turned orange, and Delete had nothing to act on.
+              const picked = session.pick();
+              session.toggleSelection(picked, e.shiftKey);
               setSketchInfo((current) => (current
                 ? { ...current, selected: session.selected.size }
                 : current));
+              if (picked && session.beginDrag()) canvasRef.current?.setPointerCapture(e.pointerId);
               return;
             }
             // Otherwise a click draws.
@@ -1095,7 +1095,17 @@ export function App() {
           <FeatureTree
             rows={rows}
             focused={focused}
-            onFocus={setFocused}
+            onFocus={(id) => {
+              setFocused(id);
+              // Show it on the model too. A feature that was consumed — a fillet feeding
+              // a union — lives on in the leaf body downstream, so that is what lights up.
+              const c = core.current;
+              if (!c || sessionRef.current) return;
+              const body = bodyShowing(c.doc, id);
+              if (body && c.viewer.bodies.has(body)) {
+                c.viewer.selection.click({ bodyId: body as never, kind: 'body', index: 0 });
+              }
+            }}
             onContextMenu={(id, at) => { setFocused(id); setTreeMenuAt({ top: at.y, left: at.x }); }}
             onReorder={(id, toIndex) => {
               const result = doc.moveFeature(id, toIndex);
@@ -1292,8 +1302,11 @@ export function App() {
             <div
               key={dimension.id}
               data-dimension={dimension.id}
-              className={`dimension${dimension.error ? ' is-invalid' : ''}`}
-              title={dimension.error ?? dimension.expression}
+              className={`dimension${dimension.error ? ' is-invalid' : ''}${dimension.reference ? ' is-reference' : ' is-driving'}`}
+              title={dimension.error
+                ?? (dimension.reference
+                  ? 'Reference: shows the value as drawn. Click and type to make it drive.'
+                  : `Driving: ${dimension.expression}`)}
             >
               {editingDimension === dimension.id ? (
                 <input
@@ -1340,6 +1353,7 @@ export function App() {
                 key={tool}
                 type="button"
                 className={sketchInfo.tool === tool ? 'is-active' : ''}
+                title={TOOL_HINTS[tool]}
                 onClick={() => run(`sketch.${tool}`)}
               >
                 {tool}
@@ -1347,23 +1361,18 @@ export function App() {
             ))}
           </span>
 
-          {/* The number you are always asking about while sketching. */}
-          <span className={`sketchbar-dof status-${sketchInfo.status}`}>
-            {sketchInfo.dof === null ? '—'
-              : sketchInfo.dof === 0 ? 'fully constrained'
-              : `${sketchInfo.dof} DOF`}
-          </span>
-
           {/* Say what is about to be assumed, before the click lands. */}
           {sketchInfo.inference && (
             <span className="sketchbar-inference">{sketchInfo.inference}</span>
           )}
 
-          {/* What the active tool wants next. The dimension tool in particular gives no
-              clue on its own — the button turns on and nothing appears to happen. */}
-          {TOOL_HINTS[sketchInfo.tool] && (
-            <span className="sketchbar-hint">{TOOL_HINTS[sketchInfo.tool]}</span>
-          )}
+          {/* The right-hand side, in a fixed order: the number you are always asking
+              about, a divider, then the actions. */}
+          <span className={`sketchbar-dof status-${sketchInfo.status}`}>
+            {sketchInfo.dof === null ? '—'
+              : sketchInfo.dof === 0 ? 'fully constrained'
+              : `${sketchInfo.dof} DOF`}
+          </span>
 
           {/* Constraints, behind ONE level of submenu. Each entry carries the selection
               it wants, so a disabled one teaches instead of dead-ending. */}
@@ -1417,8 +1426,8 @@ export function App() {
   function syncSketchFromApp(): void {
     const session = sessionRef.current;
     setDimensions(session
-      ? session.dimensions().map(({ id, text, expression, error }) => ({
-          id, text, expression, ...(error ? { error } : {}),
+      ? session.dimensions().map(({ id, text, expression, reference, error }) => ({
+          id, text, expression, reference, ...(error ? { error } : {}),
         }))
       : []);
     setSketchInfo((current) => (current && session ? {
@@ -1534,13 +1543,32 @@ function loadStarter(doc: Document): void {
 }
 
 /** What each tool is waiting for. Shown in the sketch bar while that tool is active. */
+/** What each tool wants, as its button's tooltip. */
 const TOOL_HINTS: Record<string, string> = {
-  line: 'Click each point; click the first again to close',
+  line: 'Connected lines: click each point; click the first again to close',
   rectangle: 'Click two opposite corners',
   circle: 'Click the centre, then the rim',
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
 };
+
+/** The on-screen body a feature ends up in: itself if it is a leaf, else whatever
+ *  consumed it, followed downstream. Null when nothing on screen carries it. */
+function bodyShowing(doc: Document, id: FeatureId): FeatureId | null {
+  const leaves = new Set(bodyFeatures(doc));
+  let current: FeatureId | null = id;
+  for (let hops = 0; current && hops < doc.features.length; hops++) {
+    if (leaves.has(current)) return current;
+    const target: FeatureId = current;
+    const consumer = doc.features.find((f) => {
+      const definition = doc.registry.get(f.type);
+      const optional = new Set(definition?.optionalShapeInputs ?? []);
+      return Object.entries(f.inputs).some(([role, input]) => input === target && !optional.has(role));
+    });
+    current = consumer?.id ?? null;
+  }
+  return null;
+}
 
 /** Roll a rebuild up into the numbers the status bar shows. */
 function summarise(result: RebuildReport) {

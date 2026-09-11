@@ -491,7 +491,7 @@ window.__smoke = async function smoke() {
   }
 
   // --- the active tool says what it is waiting for -------------------------------
-  check('toolHintShown', !!document.querySelector('.sketchbar-hint')?.textContent);
+  check('toolHintInTooltip', !!document.querySelector('.sketchbar-tools button')?.title);
 
   // --- every sketch line is actually PAINTED, not just built ----------------------
   // Three caches `_maxInstanceCount` when it first binds a geometry's vertex attributes,
@@ -815,6 +815,107 @@ window.__smoke = async function smoke() {
     await setNozzle('0.4');
     viewer.controller.target.elevation = 0.6;
     viewer.controller.settle();
+  }
+
+  // --- sketch fixes from the second test round ---------------------------------
+  {
+    // Two triangles sharing a corner extrude to two solids, not one.
+    await window.__host.newDocument();
+    await sleep(500);
+    await window.__host.beginSketch('xy');
+    await sleep(300);
+    const bow = window.__session();
+    bow.tools.setTool('line');
+    for (const p of [[0, 0], [-20, 10], [-20, -10], [0, 0]]) bow.tools.click({ x: p[0], y: p[1] });
+    bow.tools.setTool('line');
+    for (const p of [[0, 0], [20, 10], [20, -10], [0, 0]]) bow.tools.click({ x: p[0], y: p[1] });
+    bow.refresh();
+    await window.__host.finishSketch();
+    await sleep(400);
+    await window.__host.addSolidFeature('extrude');
+    await sleep(1500);
+    const bowState = doc.engine.lastStates.get(doc.features.at(-1).id);
+    const bowVolume = bowState?.handle ? (await window.__kernel.massProperties(bowState.handle)).volume : 0;
+    check('bowTieExtrudesBothTriangles', Math.abs(bowVolume - 4000) < 1e-3);
+
+    // A vertex pressed with the select tool is selected (orange), not only dragged.
+    await window.__host.beginSketch('xy');
+    await sleep(300);
+    const sk = window.__session();
+    sk.tools.setTool('rectangle');
+    sk.tools.click({ x: 0, y: 0 });
+    sk.tools.click({ x: 40, y: 25 });
+    sk.refresh();
+    window.__host.setSketchTool('select');
+    await sleep(100);
+    const corner = sk.sketch.geometry.find((e) => e.type === 'point' && Math.abs(e.x - 40) < 1e-6);
+    const screen = (p) => {
+      const v = sk.view.toWorld({ x: p.x, y: p.y }).project(viewer.camera);
+      const r = viewer.canvas.getBoundingClientRect();
+      return { clientX: r.left + ((v.x + 1) / 2) * r.width, clientY: r.top + ((1 - v.y) / 2) * r.height };
+    };
+    const press = async (p) => {
+      viewer.canvas.dispatchEvent(new PointerEvent('pointerdown', { ...screen(p), button: 0, pointerId: 1, bubbles: true }));
+      await sleep(30);
+      viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...screen(p), button: 0, pointerId: 1, bubbles: true }));
+      await sleep(200);
+    };
+    await press(corner);
+    check('vertexPressSelectsIt', sk.selected.size === 1 && sk.selected.has(corner.id));
+    const orange = sk.view.group.children.find((c) => c.type === 'Points' && c.material.color.getHexString() === 'ff9e38');
+    check('selectedVertexDrawnOrange', (orange?.geometry.attributes.position?.count ?? 0) === 1);
+
+    // The sketch bar's right-hand side: DOF, then Constrain, then Finish.
+    const barClasses = [...document.querySelector('.sketchbar').children].map((c) => c.className.split(' ')[0]);
+    const at = (name) => barClasses.indexOf(name);
+    check('sketchBarOrder', at('sketchbar-tools') < at('sketchbar-dof')
+      && at('sketchbar-dof') < at('sketchbar-constraints')
+      && at('sketchbar-constraints') < at('sketchbar-finish')
+      && at('sketchbar-finish') === barClasses.length - 1);
+    check('noInlineToolHint', !document.querySelector('.sketchbar-hint'));
+
+    // A placed dimension is a reference until typed into; then it drives.
+    window.__host.setSketchTool('dimension');
+    await sleep(100);
+    const origin = sk.sketch.geometry.find((e) => e.type === 'point' && e.x === 0 && e.y === 0);
+    const dofBefore = sk.sketch.dof;
+    await press(origin);
+    await press(corner);
+    await sleep(400);
+    const placedDim = sk.sketch.constraints.find((c) => c.type === 'distance');
+    check('dimensionStartsAsReference', placedDim?.reference === true && sk.sketch.dof === dofBefore);
+    check('referenceDimensionLooksLikeOne', !!document.querySelector('.dimension.is-reference'));
+    const dimInput = document.querySelector('.dimension input');
+    if (dimInput) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(dimInput, '60');
+      dimInput.dispatchEvent(new Event('input', { bubbles: true }));
+      dimInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await sleep(1000);
+    }
+    check('typedDimensionDrives', sk.sketch.constraint(placedDim.id)?.reference !== true && sk.sketch.dof === dofBefore - 1);
+    check('drivingDimensionIsGreen', !!document.querySelector('.dimension.is-driving'));
+    await window.__host.finishSketch();
+    await sleep(300);
+
+    // IJKL pans; Ctrl+arrow is no longer the camera's.
+    const pivot0 = viewer.controller.target.pivot.clone();
+    document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyL', key: 'l', bubbles: true }));
+    window.__step(20);
+    document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyL', key: 'l', bubbles: true }));
+    check('ijklPans', viewer.controller.target.pivot.distanceTo(pivot0) > 1);
+    const az0 = viewer.controller.target.azimuth;
+    document.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', ctrlKey: true, bubbles: true }));
+    window.__step(10);
+    document.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', key: 'ArrowRight', ctrlKey: true, bubbles: true }));
+    check('ctrlArrowLeavesCameraAlone', Math.abs(viewer.controller.target.azimuth - az0) < 1e-9);
+
+    // Clicking a feature in the tree highlights the body it lives in.
+    viewer.selection.clear();
+    const sketchRow = [...document.querySelectorAll('.tree-row')].find((r) => /Sketch 1/.test(r.textContent));
+    sketchRow?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    await sleep(200);
+    check('treeClickHighlightsBody', viewer.selection.selected.some((r) => r.kind === 'body'));
+    viewer.selection.clear();
   }
 
   check('paletteFindsEveryCommand',

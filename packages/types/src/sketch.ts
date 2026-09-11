@@ -79,13 +79,32 @@ export type SketchConstraint =
   | { readonly id: string; readonly type: 'pointOnLine'; readonly point: SketchEntityId; readonly line: SketchEntityId }
   | { readonly id: string; readonly type: 'symmetric'; readonly a: SketchEntityId; readonly b: SketchEntityId; readonly line: SketchEntityId }
   // --- dimensional
-  | { readonly id: string; readonly type: 'distance'; readonly a: SketchEntityId; readonly b: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'pointLineDistance'; readonly point: SketchEntityId; readonly line: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'radius'; readonly entity: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'diameter'; readonly entity: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'angle'; readonly a: SketchEntityId; readonly b: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'lockX'; readonly point: SketchEntityId; readonly value: Dimension }
-  | { readonly id: string; readonly type: 'lockY'; readonly point: SketchEntityId; readonly value: Dimension };
+  | ({ readonly type: 'distance'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'pointLineDistance'; readonly point: SketchEntityId; readonly line: SketchEntityId } & DimensionalBase)
+  /** Between two parallel lines: the gap, measured from `a`'s start to `b`. */
+  | ({ readonly type: 'lineLineDistance'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)
+  /** From a circle's rim to a line. */
+  | ({ readonly type: 'circleLineDistance'; readonly circle: SketchEntityId; readonly line: SketchEntityId } & DimensionalBase)
+  /** From a point to a circle's rim. */
+  | ({ readonly type: 'pointCircleDistance'; readonly point: SketchEntityId; readonly circle: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'radius'; readonly entity: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'diameter'; readonly entity: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'angle'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'lockX'; readonly point: SketchEntityId } & DimensionalBase)
+  | ({ readonly type: 'lockY'; readonly point: SketchEntityId } & DimensionalBase);
+
+/**
+ * What every dimension carries.
+ *
+ * A `reference` dimension only reports: it is drawn, it follows the geometry, and it
+ * takes no freedom away. Typing a value into it makes it driving. That is how a
+ * dimension can be placed to SEE a length without pinning the sketch down by accident.
+ */
+export interface DimensionalBase {
+  readonly id: string;
+  readonly value: Dimension;
+  readonly reference?: boolean;
+}
 
 export type SketchConstraintType = SketchConstraint['type'];
 
@@ -102,7 +121,8 @@ export type NewSketchConstraint =
 
 /** Constraints carrying a numeric value, which the UI shows as an editable dimension. */
 export const DIMENSIONAL_CONSTRAINTS: readonly SketchConstraintType[] = [
-  'distance', 'pointLineDistance', 'radius', 'diameter', 'angle', 'lockX', 'lockY',
+  'distance', 'pointLineDistance', 'lineLineDistance', 'circleLineDistance', 'pointCircleDistance',
+  'radius', 'diameter', 'angle', 'lockX', 'lockY',
 ];
 
 export const isDimensional = (type: SketchConstraintType): boolean =>
@@ -143,6 +163,14 @@ export interface ProfileLoopSpec {
 export interface ProfileSpec {
   readonly placement: PlanePlacement;
   readonly loops: readonly ProfileLoopSpec[];
+  /**
+   * Further faces on the same plane, each given as outer loop then holes.
+   *
+   * A sketch may enclose several separate regions — two triangles sharing a corner —
+   * and each becomes its own face; the result is a compound, and extruding it makes
+   * one body per region.
+   */
+  readonly regions?: readonly (readonly ProfileLoopSpec[])[];
 }
 
 // ---------------------------------------------------------------- solving

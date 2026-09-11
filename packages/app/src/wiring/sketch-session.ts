@@ -1,4 +1,4 @@
-import type { FeatureId, PlanePlacement, SolverPort, Vec2 } from '@cardstock/types';
+import type { FeatureId, PlanePlacement, SketchGeometry, SolverPort, Vec2 } from '@cardstock/types';
 import {
   ORIGIN_PLANES, type Document, type Sketch, SketchTools, type ToolKind,
 } from '@cardstock/document';
@@ -64,82 +64,196 @@ export class SketchSession {
   /**
    * Place a dimension on whatever is under the cursor.
    *
-   * A circle or arc dimensions immediately as a radius; a point waits for a second point
-   * and becomes a distance. The value is seeded from the geometry as drawn, so placing a
-   * dimension never moves anything — it just pins down what is already there.
+   * Two picks make a dimension, and the pair decides its kind: two points are a
+   * distance, a point and a line the gap between them, two parallel lines their
+   * spacing (two others, the angle), a circle and a line or point the distance from
+   * the rim. A circle picked twice — or once, then empty space — is its radius.
+   *
+   * A new dimension is a REFERENCE: it shows the value as drawn and pins nothing, so
+   * placing one never moves the sketch or takes a freedom away. Typing into it makes
+   * it drive.
    */
   placeDimension(): { placed: string | null; awaiting: boolean } {
     const id = this.pick();
-    if (!id) return { placed: null, awaiting: this.#dimensionAnchor !== null };
+    const anchor = this.#dimensionAnchor;
+
+    if (!id) {
+      // Empty space after a circle: that circle's radius.
+      const circle = anchor ? this.sketch.entity(anchor) : null;
+      if (circle && (circle.type === 'circle' || circle.type === 'arc')) {
+        this.#dimensionAnchor = null;
+        return { placed: this.#addDimension({ type: 'radius', entity: circle.id, value: round(circle.radius) }), awaiting: false };
+      }
+      return { placed: null, awaiting: anchor !== null };
+    }
     const entity = this.sketch.entity(id);
     if (!entity) return { placed: null, awaiting: false };
 
-    if (entity.type === 'circle' || entity.type === 'arc') {
-      const constraint = this.sketch.addConstraint({
-        type: 'radius', entity: id, value: round(entity.radius),
-      });
-      this.#afterEdit();
-      return { placed: constraint, awaiting: false };
-    }
-
-    if (entity.type !== 'point') return { placed: null, awaiting: false };
-
-    if (this.#dimensionAnchor === null || this.#dimensionAnchor === id) {
+    if (anchor === null) {
       this.#dimensionAnchor = id;
       return { placed: null, awaiting: true };
     }
-
-    const a = this.sketch.entity(this.#dimensionAnchor);
-    const b = entity;
-    if (a?.type !== 'point') { this.#dimensionAnchor = null; return { placed: null, awaiting: false }; }
-
-    const constraint = this.sketch.addConstraint({
-      type: 'distance', a: a.id, b: b.id,
-      value: round(Math.hypot(b.x - a.x, b.y - a.y)),
-    });
+    const first = this.sketch.entity(anchor);
     this.#dimensionAnchor = null;
-    this.#afterEdit();
-    return { placed: constraint, awaiting: false };
+    if (!first) return { placed: null, awaiting: false };
+
+    const placed = this.#dimensionBetween(first, entity);
+    return { placed, awaiting: false };
   }
 
-  /** Dimensions with where to draw their labels, in world space. */
-  dimensions(): { id: string; text: string; expression: string; world: Vector3; error?: string }[] {
+  #addDimension(constraint: Parameters<Sketch['addConstraint']>[0]): string {
+    const id = this.sketch.addConstraint({ ...constraint, reference: true } as never);
+    this.#afterEdit();
+    return id;
+  }
+
+  /** The dimension a pair of entities makes, or null when the pair means nothing. */
+  #dimensionBetween(first: SketchGeometry, second: SketchGeometry): string | null {
+    const isCircle = (e: SketchGeometry) => e.type === 'circle' || e.type === 'arc';
+    const positionOf = (pid: string) => {
+      const e = this.sketch.entity(pid);
+      return e?.type === 'point' ? { x: e.x, y: e.y } : null;
+    };
+    const lineOf = (e: SketchGeometry) => {
+      if (e.type !== 'line') return null;
+      const a = positionOf(e.p1), b = positionOf(e.p2);
+      return a && b ? { a, b } : null;
+    };
+    const centreOf = (e: SketchGeometry) => (isCircle(e) ? positionOf((e as { centre: string }).centre) : null);
+
+    if (first.id === second.id) {
+      if (isCircle(first)) {
+        return this.#addDimension({ type: 'radius', entity: first.id, value: round((first as { radius: number }).radius) });
+      }
+      return null;
+    }
+
+    // Order the pair so each case is written once.
+    const rank = (e: SketchGeometry) => (e.type === 'point' ? 0 : e.type === 'line' ? 1 : 2);
+    const [p, q] = rank(first) <= rank(second) ? [first, second] : [second, first];
+
+    if (p.type === 'point' && q.type === 'point') {
+      return this.#addDimension({ type: 'distance', a: p.id, b: q.id, value: round(distance2(p, q)) });
+    }
+    if (p.type === 'point' && q.type === 'line') {
+      const line = lineOf(q);
+      if (!line) return null;
+      return this.#addDimension({
+        type: 'pointLineDistance', point: p.id, line: q.id, value: round(pointToLine(p, line.a, line.b)),
+      });
+    }
+    if (p.type === 'line' && q.type === 'line') {
+      const la = lineOf(p), lb = lineOf(q);
+      if (!la || !lb) return null;
+      if (areParallel(la, lb)) {
+        // Parallel lines: their spacing. Parallelism is pinned alongside so the
+        // dimension keeps meaning something if the value is later driven.
+        if (!this.sketch.constraints.some((c) => c.type === 'parallel'
+          && ((c.a === p.id && c.b === q.id) || (c.a === q.id && c.b === p.id)))) {
+          this.sketch.addConstraint({ type: 'parallel', a: p.id, b: q.id });
+        }
+        return this.#addDimension({
+          type: 'lineLineDistance', a: p.id, b: q.id, value: round(pointToLine(la.a, lb.a, lb.b)),
+        });
+      }
+      return this.#addDimension({
+        type: 'angle', a: p.id, b: q.id, value: round(angleBetween(la, lb)),
+      });
+    }
+    if (p.type === 'point' && isCircle(q)) {
+      const centre = centreOf(q);
+      if (!centre) return null;
+      const gap = Math.abs(distance2(p, centre) - (q as { radius: number }).radius);
+      return this.#addDimension({ type: 'pointCircleDistance', point: p.id, circle: q.id, value: round(gap) });
+    }
+    if (p.type === 'line' && isCircle(q)) {
+      const line = lineOf(p), centre = centreOf(q);
+      if (!line || !centre) return null;
+      const gap = Math.abs(pointToLine(centre, line.a, line.b) - (q as { radius: number }).radius);
+      return this.#addDimension({ type: 'circleLineDistance', circle: q.id, line: p.id, value: round(gap) });
+    }
+    return null;
+  }
+
+  /** Every dimension, with its measured text and where to draw it. */
+  dimensions(): { id: string; text: string; expression: string; world: Vector3; reference: boolean; error?: string }[] {
     const positionOf = (id: string) => {
       const entity = this.sketch.entity(id);
       return entity?.type === 'point' ? { x: entity.x, y: entity.y } : null;
     };
+    const lineOf = (id: string) => {
+      const e = this.sketch.entity(id);
+      if (e?.type !== 'line') return null;
+      const a = positionOf(e.p1), b = positionOf(e.p2);
+      return a && b ? { a, b } : null;
+    };
+    const circleOf = (id: string) => {
+      const e = this.sketch.entity(id);
+      if (!e || (e.type !== 'circle' && e.type !== 'arc')) return null;
+      const centre = positionOf(e.centre);
+      return centre ? { centre, radius: e.radius } : null;
+    };
+    const mid = (a: Vec2, b: Vec2) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
-    const out: { id: string; text: string; expression: string; world: Vector3; error?: string }[] = [];
+    const out: { id: string; text: string; expression: string; world: Vector3; reference: boolean; error?: string }[] = [];
     for (const constraint of this.sketch.constraints) {
       const raw = (constraint as { value?: number | string }).value;
       if (raw === undefined) continue;
       const expression = String(raw);
+      const reference = (constraint as { reference?: boolean }).reference === true;
       const error = this.sketch.expressionErrors.get(constraint.id);
 
-      let anchor: { x: number; y: number } | null = null;
+      let anchor: Vec2 | null = null;
       let text = expression;
+      const c = constraint as never as Record<string, string>;
 
-      if (constraint.type === 'distance') {
-        const a = positionOf(constraint.a);
-        const b = positionOf(constraint.b);
-        if (a && b) {
-          anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-          text = `${round(Math.hypot(b.x - a.x, b.y - a.y))}`;
+      switch (constraint.type) {
+        case 'distance': {
+          const a = positionOf(c.a!), b = positionOf(c.b!);
+          if (a && b) { anchor = mid(a, b); text = `${round(distance2(a, b))}`; }
+          break;
         }
-      } else if (constraint.type === 'radius' || constraint.type === 'diameter') {
-        const entity = this.sketch.entity(constraint.entity);
-        if (entity && (entity.type === 'circle' || entity.type === 'arc')) {
-          const centre = positionOf(entity.centre);
-          if (centre) {
-            anchor = { x: centre.x + entity.radius * 0.7, y: centre.y + entity.radius * 0.7 };
-            const measured = constraint.type === 'radius' ? entity.radius : entity.radius * 2;
+        case 'pointLineDistance': {
+          const p = positionOf(c.point!), l = lineOf(c.line!);
+          if (p && l) { anchor = mid(p, mid(l.a, l.b)); text = `${round(pointToLine(p, l.a, l.b))}`; }
+          break;
+        }
+        case 'lineLineDistance': {
+          const la = lineOf(c.a!), lb = lineOf(c.b!);
+          if (la && lb) { anchor = mid(mid(la.a, la.b), mid(lb.a, lb.b)); text = `${round(pointToLine(la.a, lb.a, lb.b))}`; }
+          break;
+        }
+        case 'angle': {
+          const la = lineOf(c.a!), lb = lineOf(c.b!);
+          if (la && lb) { anchor = mid(mid(la.a, la.b), mid(lb.a, lb.b)); text = `${round(angleBetween(la, lb))}°`; }
+          break;
+        }
+        case 'pointCircleDistance': {
+          const p = positionOf(c.point!), k = circleOf(c.circle!);
+          if (p && k) { anchor = mid(p, k.centre); text = `${round(Math.abs(distance2(p, k.centre) - k.radius))}`; }
+          break;
+        }
+        case 'circleLineDistance': {
+          const k = circleOf(c.circle!), l = lineOf(c.line!);
+          if (k && l) { anchor = mid(k.centre, mid(l.a, l.b)); text = `${round(Math.abs(pointToLine(k.centre, l.a, l.b) - k.radius))}`; }
+          break;
+        }
+        case 'radius':
+        case 'diameter': {
+          const k = circleOf(c.entity!);
+          if (k) {
+            anchor = { x: k.centre.x + k.radius * 0.7, y: k.centre.y + k.radius * 0.7 };
+            const measured = constraint.type === 'radius' ? k.radius : k.radius * 2;
             text = `${constraint.type === 'radius' ? 'R' : '⌀'}${round(measured)}`;
           }
+          break;
         }
+        default:
+          break;
       }
       if (!anchor) continue;
       out.push({
-        id: constraint.id, text, expression, world: this.view.toWorld(anchor),
+        id: constraint.id, text, expression, world: this.view.toWorld(anchor), reference,
         ...(error ? { error } : {}),
       });
     }
@@ -158,8 +272,11 @@ export class SketchSession {
     const asNumber = Number(trimmed);
     const value = Number.isFinite(asNumber) ? asNumber : trimmed;
 
+    // Typing a value is what makes a dimension drive: the reference flag comes off.
     this.sketch.removeConstraint(constraintId);
-    this.sketch.addConstraint({ ...existing, id: constraintId, value } as never);
+    const driving = { ...existing, id: constraintId, value } as { reference?: boolean };
+    delete driving.reference;
+    this.sketch.addConstraint(driving as never);
     this.#afterEdit();
     return null;
   }
@@ -375,3 +492,23 @@ function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
 
 /** Dimensions are shown to a tenth of a millimetre; more digits are noise on a label. */
 const round = (value: number): number => Math.round(value * 10) / 10;
+const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+/** Perpendicular distance from a point to the infinite line through a and b. */
+const pointToLine = (p: Vec2, a: Vec2, b: Vec2) => {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return Math.abs(dx * (a.y - p.y) - dy * (a.x - p.x)) / len;
+};
+const areParallel = (l: { a: Vec2; b: Vec2 }, m: { a: Vec2; b: Vec2 }) => {
+  const ux = l.b.x - l.a.x, uy = l.b.y - l.a.y, vx = m.b.x - m.a.x, vy = m.b.y - m.a.y;
+  const cross = Math.abs(ux * vy - uy * vx);
+  return cross <= 1e-3 * (Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1);
+};
+/** Acute angle between two lines, degrees. */
+const angleBetween = (l: { a: Vec2; b: Vec2 }, m: { a: Vec2; b: Vec2 }) => {
+  const a1 = Math.atan2(l.b.y - l.a.y, l.b.x - l.a.x);
+  const a2 = Math.atan2(m.b.y - m.a.y, m.b.x - m.a.x);
+  let d = Math.abs(a1 - a2) % Math.PI;
+  if (d > Math.PI / 2) d = Math.PI - d;
+  return (d * 180) / Math.PI;
+};

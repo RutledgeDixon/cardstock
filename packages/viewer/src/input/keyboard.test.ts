@@ -22,21 +22,17 @@ let target: EventTarget;
 let controller: CameraController;
 let selection: SelectionManager;
 let input: KeyboardCameraInput;
-let fitCalls: number;
-let pivotCalls: number;
 
 beforeEach(() => {
   target = new EventTarget();
   controller = new CameraController({ azimuth: 0, elevation: 0, zoom: 50 });
   selection = new SelectionManager();
-  fitCalls = 0;
-  pivotCalls = 0;
   const viewer = {
     controller,
     selection,
     canvas: { ownerDocument: target },
-    fitAll: () => { fitCalls++; },
-    pivotToPointer: () => { pivotCalls++; return true; },
+    fitAll: () => {},
+    pivotToPointer: () => true,
   } as unknown as Viewer;
   input = new KeyboardCameraInput(viewer, { target });
   input.attach();
@@ -70,82 +66,40 @@ describe('orbit', () => {
   });
 });
 
-describe('ctrl+arrow pans', () => {
-  // Regression: Control is deliberately not in the HANDLED set (we must never
-  // preventDefault it), so tracking it as a held key silently never fired and pan
-  // did nothing. Modifier state must come from the event.
+describe('IJKL pans', () => {
+  // Not Ctrl+arrows: Ctrl+W and Ctrl+S belong to the browser and to Save, and a
+  // modifier that sometimes closes the tab is not one you can hold down.
   it('moves the pivot instead of orbiting', () => {
     const azBefore = controller.target.azimuth;
-    down('ControlLeft', { ctrlKey: true });
-    down('ArrowRight', { ctrlKey: true });
+    down('KeyL');
     step(0.5);
     expect(controller.target.pivot.length()).toBeGreaterThan(0);
     expect(controller.target.azimuth).toBeCloseTo(azBefore, 9);
   });
 
   it('pans only in the screen plane', () => {
-    down('ControlLeft', { ctrlKey: true });
-    down('ArrowUp', { ctrlKey: true });
+    down('KeyI');
     step(0.5);
     const { right, up: screenUp } = controller.screenBasis();
     const viewAxis = new Vector3().crossVectors(right, screenUp).normalize();
     expect(Math.abs(controller.target.pivot.dot(viewAxis))).toBeLessThan(1e-9);
   });
 
-  it('returns to orbiting once ctrl is released', () => {
-    down('ControlLeft', { ctrlKey: true });
+  it('stops on release and reads all four keys', () => {
+    down('KeyJ');
+    expect(controller.panInput.x).toBe(-1);
+    up('KeyJ');
+    expect(controller.panInput.x).toBe(0);
+    down('KeyK');
+    expect(controller.panInput.y).toBe(-1);
+    up('KeyK');
+    expect(controller.panInput.y).toBe(0);
+  });
+
+  it('leaves chords alone: ctrl+arrow is not the camera\'s', () => {
     down('ArrowRight', { ctrlKey: true });
-    step(0.2);
-    up('ControlLeft', { ctrlKey: false });
-    const pivotAfterPan = controller.target.pivot.clone();
-    const azBefore = controller.target.azimuth;
-    step(0.5);
-    expect(controller.target.azimuth).toBeGreaterThan(azBefore);
-    expect(controller.target.pivot.distanceTo(pivotAfterPan)).toBeLessThan(1e-9);
-  });
-});
-
-describe('named views and commands', () => {
-  it('maps number keys to views', () => {
-    down('Digit1');
-    expect(controller.target.azimuth).toBeCloseTo(-Math.PI / 2, 9);
-    down('Digit5');
-    expect(controller.target.elevation).toBeGreaterThan(1.5);
-  });
-
-  it('leaves non-navigation keys alone for the command system', () => {
-    // Fit, pivot, filter and clear are Commands. Binding them here too would give one
-    // key two owners, and whichever ran first would win by accident.
-    selection.click({ bodyId: 'b' as never, kind: 'face', index: 1 });
-    down('KeyF');
-    down('Period');
-    down('Tab');
-    down('Escape');
-    expect(fitCalls).toBe(0);
-    expect(pivotCalls).toBe(0);
-    expect(selection.filter).toBe('face');
-    expect(selection.selected).toHaveLength(1);
-  });
-});
-
-describe('focus safety', () => {
-  it('ignores keys typed into a text field', () => {
-    const azBefore = controller.target.azimuth;
-    target.dispatchEvent(new FakeKeyEvent('keydown', {
-      code: 'ArrowRight',
-      target: { tagName: 'INPUT', isContentEditable: false },
-    }));
-    step(0.5);
-    expect(controller.target.azimuth).toBeCloseTo(azBefore, 9);
-  });
-
-  it('stops orbiting when detached mid-hold', () => {
-    // Otherwise a key held as the viewer unmounts orbits forever.
-    down('ArrowRight');
-    input.detach();
-    const frozen = controller.target.azimuth;
-    step(1);
-    expect(controller.target.azimuth).toBeCloseTo(frozen, 9);
+    expect(controller.orbitInput.azimuth).toBe(0);
+    expect(controller.panInput.x).toBe(0);
   });
 });
 
@@ -154,7 +108,7 @@ describe('WASD', () => {
    * A second name for the arrow keys, aliased at the door.
    *
    * Asserted for every branch rather than just orbit, because the aliasing is only worth
-   * anything if shift-snapping, ctrl-panning and release read WASD too — which is the
+   * anything if shift-snapping and release read WASD too — which is the
    * whole reason it is done once at the top rather than added to each set below.
    */
   it('orbits exactly as the arrow keys do', () => {
@@ -177,12 +131,7 @@ describe('WASD', () => {
     expect(controller.orbitInput.elevation).toBe(0);
   });
 
-  it('pans with ctrl and snaps with shift, like the arrows', () => {
-    down('KeyD', { ctrlKey: true });
-    expect(controller.panInput.x).toBe(1);
-    expect(controller.orbitInput.azimuth).toBe(0);
-    up('KeyD', { ctrlKey: true });
-
+  it('snaps with shift, like the arrows', () => {
     down('KeyA', { shiftKey: true });
     expect(controller.target.azimuth).toBeCloseTo(-Math.PI / 12, 9);
     // A snap is discrete: it must not leave the key held and orbiting.

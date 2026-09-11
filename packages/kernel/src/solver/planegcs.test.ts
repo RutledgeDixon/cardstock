@@ -200,3 +200,49 @@ describe('robustness', () => {
     expect(result.points).toEqual({});
   });
 });
+
+describe('distance dimensions between kinds', () => {
+  const base = (): SketchGeometry[] => [
+    { id: 'o', type: 'point', x: 0, y: 0, fixed: true },
+    { id: 'a', type: 'point', x: 30, y: 0 },
+    { id: 'b', type: 'point', x: 1, y: 10 },
+    { id: 'c', type: 'point', x: 29, y: 11 },
+    { id: 'base', type: 'line', p1: 'o', p2: 'a' },
+    { id: 'upper', type: 'line', p1: 'b', p2: 'c' },
+    { id: 'k', type: 'point', x: 15, y: 30 },
+    { id: 'ring', type: 'circle', centre: 'k', radius: 5 },
+  ];
+
+  it('two parallel lines sit at the given gap', async () => {
+    const result = await solver.solve({
+      geometry: base(), parameters: {},
+      constraints: [
+        { id: 'h', type: 'horizontal', line: 'base' },
+        { id: 'par', type: 'parallel', a: 'upper', b: 'base' },
+        { id: 'gap', type: 'lineLineDistance', a: 'upper', b: 'base', value: 12 },
+      ],
+    });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.points.b!.y).toBeCloseTo(12, 5);
+    expect(result.points.c!.y).toBeCloseTo(12, 5);
+  });
+
+  it('a circle rim sits at the given distance from a line and from a point', async () => {
+    const result = await solver.solve({
+      geometry: base(), parameters: {},
+      constraints: [
+        { id: 'h', type: 'horizontal', line: 'base' },
+        { id: 'r', type: 'radius', entity: 'ring', value: 5 },
+        { id: 'kx', type: 'lockX', point: 'k', value: 15 },
+        { id: 'cl', type: 'circleLineDistance', circle: 'ring', line: 'base', value: 20 },
+        // 25 from the rim, so 30 from the centre: reachable from y = 0 with the
+        // centre 25 up. (4 would not be, and the solver rightly fails on it.)
+        { id: 'pc', type: 'pointCircleDistance', point: 'a', circle: 'ring', value: 25 },
+      ],
+    });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.points.k!.y).toBeCloseTo(25, 4); // 20 to the line plus the radius
+    const gap = Math.hypot(result.points.a!.x - 15, result.points.a!.y - 25) - 5;
+    expect(gap).toBeCloseTo(25, 4);
+  });
+});

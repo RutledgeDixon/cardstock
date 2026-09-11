@@ -60,8 +60,12 @@ export class PlaneGcsSolver implements SolverPort {
       primitives.push(...toPrimitives(seeded));
     }
 
+    const lineStart = (lineId: string) => {
+      const line = request.geometry.find((e) => e.id === lineId);
+      return line?.type === 'line' ? line.p1 : lineId;
+    };
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint));
+      primitives.push(...toGcsConstraints(constraint, lineStart));
     }
 
     try {
@@ -144,7 +148,7 @@ function toPrimitives(entity: SketchGeometry): unknown[] {
 /** A dimension is passed straight through: a number is a literal, a string a parameter. */
 const dim = (value: Dimension): number | string => value;
 
-function toGcsConstraints(c: SketchConstraint): unknown[] {
+function toGcsConstraints(c: SketchConstraint, lineStart: (lineId: string) => string): unknown[] {
   switch (c.type) {
     case 'coincident':
       return [{ id: c.id, type: 'p2p_coincident', p1_id: c.a, p2_id: c.b }];
@@ -170,6 +174,14 @@ function toGcsConstraints(c: SketchConstraint): unknown[] {
       return [{ id: c.id, type: 'p2p_distance', p1_id: c.a, p2_id: c.b, distance: dim(c.value) }];
     case 'pointLineDistance':
       return [{ id: c.id, type: 'p2l_distance', p_id: c.point, l_id: c.line, distance: dim(c.value) }];
+    case 'lineLineDistance':
+      // The gap between parallel lines is the distance from either end of one to the
+      // other; parallelism itself is a separate constraint, added alongside.
+      return [{ id: c.id, type: 'p2l_distance', p_id: lineStart(c.a), l_id: c.b, distance: dim(c.value) }];
+    case 'circleLineDistance':
+      return [{ id: c.id, type: 'c2ldistance', c_id: c.circle, l_id: c.line, dist: dim(c.value) }];
+    case 'pointCircleDistance':
+      return [{ id: c.id, type: 'p2cdistance', p_id: c.point, c_id: c.circle, distance: dim(c.value) }];
     case 'radius':
       return [{ id: c.id, type: 'circle_radius', c_id: c.entity, radius: dim(c.value) }];
     case 'diameter':

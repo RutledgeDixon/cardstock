@@ -21,6 +21,11 @@ export const VIEW_KEYS: Record<string, NamedView> = {
 };
 
 const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+/**
+ * IJKL pans. Not Ctrl+arrows: Ctrl+W and Ctrl+S belong to the browser and to Save,
+ * and a modifier that sometimes closes the tab is not a modifier you can hold down.
+ */
+const PAN_KEYS = new Set(['KeyI', 'KeyJ', 'KeyK', 'KeyL']);
 
 /**
  * WASD, as a second name for the arrow keys.
@@ -45,7 +50,7 @@ const codeOf = (e: KeyboardEvent): string => KEY_ALIASES[e.code] ?? e.code;
  * pivot, selection filter, clearing — is a Command, so there is exactly one place a key
  * is bound and the two systems cannot fight over one. Phase 5.
  */
-const HANDLED = new Set([...ORBIT_KEYS, 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
+const HANDLED = new Set([...ORBIT_KEYS, ...PAN_KEYS, 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
   ...Object.keys(VIEW_KEYS)]);
 
 export interface KeyboardOptions {
@@ -55,9 +60,6 @@ export interface KeyboardOptions {
 
 export class KeyboardCameraInput {
   #held = new Set<string>();
-  /** Modifier state is read from the event, not tracked as a held key: Control is not
-   *  in HANDLED (we must never preventDefault it), so it would never enter #held. */
-  #ctrl = false;
   #target: EventTarget;
   #bound = false;
 
@@ -86,7 +88,6 @@ export class KeyboardCameraInput {
   /** Releasing focus must clear held keys, or the model orbits forever. */
   #onBlur = (): void => {
     this.#held.clear();
-    this.#ctrl = false;
     this.#applyHeld();
   };
 
@@ -95,7 +96,8 @@ export class KeyboardCameraInput {
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
 
-    if (this.#ctrl !== e.ctrlKey) { this.#ctrl = e.ctrlKey; this.#applyHeld(); }
+    // Chords belong to commands (Ctrl+S is Save); the camera only takes bare keys.
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
 
     const { viewer } = this;
     const code = codeOf(e);
@@ -122,30 +124,17 @@ export class KeyboardCameraInput {
   };
 
   #onKeyUp = (e: KeyboardEvent): void => {
-    const modifierChanged = this.#ctrl !== e.ctrlKey;
-    this.#ctrl = e.ctrlKey;
-    if (this.#held.delete(codeOf(e)) || modifierChanged) this.#applyHeld();
+    if (this.#held.delete(codeOf(e))) this.#applyHeld();
   };
 
   #applyHeld(): void {
     const c = this.viewer.controller;
     const held = this.#held;
-    const ctrl = this.#ctrl;
 
-    const h = (held.has('ArrowRight') ? 1 : 0) - (held.has('ArrowLeft') ? 1 : 0);
-    const v = (held.has('ArrowUp') ? 1 : 0) - (held.has('ArrowDown') ? 1 : 0);
-
-    if (ctrl) {
-      c.orbitInput.azimuth = 0;
-      c.orbitInput.elevation = 0;
-      c.panInput.x = h;
-      c.panInput.y = v;
-    } else {
-      c.orbitInput.azimuth = h;
-      c.orbitInput.elevation = v;
-      c.panInput.x = 0;
-      c.panInput.y = 0;
-    }
+    c.orbitInput.azimuth = (held.has('ArrowRight') ? 1 : 0) - (held.has('ArrowLeft') ? 1 : 0);
+    c.orbitInput.elevation = (held.has('ArrowUp') ? 1 : 0) - (held.has('ArrowDown') ? 1 : 0);
+    c.panInput.x = (held.has('KeyL') ? 1 : 0) - (held.has('KeyJ') ? 1 : 0);
+    c.panInput.y = (held.has('KeyI') ? 1 : 0) - (held.has('KeyK') ? 1 : 0);
 
     c.zoomInput =
       (held.has('Equal') || held.has('NumpadAdd') ? 1 : 0) -

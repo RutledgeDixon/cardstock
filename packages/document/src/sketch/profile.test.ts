@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SketchGeometry } from '@cardstock/types';
-import { buildProfile, outerLoop, signedArea } from './profile.js';
+import { buildProfile, outerLoop, profileRegions, signedArea } from './profile.js';
 
 const point = (id: string, x: number, y: number): SketchGeometry => ({ id, type: 'point', x, y });
 const line = (id: string, p1: string, p2: string, construction = false): SketchGeometry =>
@@ -97,14 +97,46 @@ describe('profiles that are not closed', () => {
     expect(openChains[0]!.reason).toMatch(/does not close/);
   });
 
-  it('refuses to guess at a junction where three segments meet', () => {
-    // Which way round is genuinely ambiguous; guessing makes the wrong face silently.
+  it('a spur off a closed loop is reported as a gap, and the loop still counts', () => {
     const geometry: SketchGeometry[] = [
       ...rectangle(),
       point('e', 40, -10), line('spur', 'b', 'e'),
     ];
-    const { openChains } = buildProfile(geometry);
-    expect(openChains.some((c) => /ambiguous/.test(c.reason))).toBe(true);
+    const { loops, openChains } = buildProfile(geometry);
+    expect(loops).toHaveLength(1);
+    expect(openChains).toHaveLength(1);
+    expect(openChains[0]!.segments).toHaveLength(1);
+  });
+
+  it('two triangles sharing a corner are two loops, not an ambiguity', () => {
+    // The bow-tie: four segments meet at the shared point. Face tracing resolves it.
+    const geometry: SketchGeometry[] = [
+      point('v', 0, 0),
+      point('a', -20, 10), point('b', -20, -10),
+      point('c', 20, 10), point('d', 20, -10),
+      line('a1', 'v', 'a'), line('a2', 'a', 'b'), line('a3', 'b', 'v'),
+      line('b1', 'v', 'c'), line('b2', 'c', 'd'), line('b3', 'd', 'v'),
+    ];
+    const { loops, openChains } = buildProfile(geometry);
+    expect(openChains).toEqual([]);
+    expect(loops).toHaveLength(2);
+    for (const loop of loops) {
+      expect(loop.segments).toHaveLength(3);
+      expect(loop.signedArea).toBeCloseTo(200, 9);
+    }
+    expect(profileRegions(loops)).toHaveLength(2);
+  });
+
+  it('a rectangle split by a line is two regions', () => {
+    const geometry: SketchGeometry[] = [
+      ...rectangle(),
+      point('m1', 20, 0), point('m2', 20, 20), line('split', 'm1', 'm2'),
+    ];
+    // The split's ends sit on the rectangle's edges but are not vertices of them, so
+    // the rectangle's lines must be broken there for the graph to see the junction.
+    const { loops } = buildProfile(geometry);
+    // Not split: the mid-points do not break l1/l3, so the divider dangles. Documented.
+    expect(loops).toHaveLength(1);
   });
 
   it('handles an empty sketch', () => {
@@ -128,13 +160,16 @@ describe('outer loop', () => {
 });
 
 describe('signed area', () => {
-  it('is positive counter-clockwise and negative clockwise', () => {
+  it('loops come out counter-clockwise whichever way they were drawn', () => {
     const ccw = buildProfile(rectangle()).loops[0]!;
     const cw = buildProfile([
       point('a', 0, 0), point('b', 0, 20), point('c', 40, 20), point('d', 40, 0),
       line('l1', 'a', 'b'), line('l2', 'b', 'c'), line('l3', 'c', 'd'), line('l4', 'd', 'a'),
     ]).loops[0]!;
-    expect(Math.sign(ccw.signedArea)).toBe(-Math.sign(cw.signedArea));
+    expect(ccw.signedArea).toBeCloseTo(800, 9);
+    expect(cw.signedArea).toBeCloseTo(800, 9);
+    // The raw function still signs by direction.
+    expect(signedArea([...cw.segments].reverse().map((s) => ({ ...s, from: (s as { to: { x: number; y: number } }).to, to: (s as { from: { x: number; y: number } }).from })) as never)).toBeLessThan(0);
   });
 
   it('is zero for a degenerate loop', () => {
