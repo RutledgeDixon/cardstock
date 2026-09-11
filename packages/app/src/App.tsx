@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
-import type { FeatureId } from '@cardstock/types';
+import { EXPORT_FORMATS, type ExportFormat, type FeatureId, type ShapeHandle } from '@cardstock/types';
 import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
-  placementForFaceIndex, resolvePlacement, resolveTopoRef,
+  placementForFaceIndex, resolvePlacement, resolveTopoRef, bytesToBase64, IMPORT_EXTENSIONS,
   type ApplicableConstraint,
 } from '@cardstock/document';
 import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
@@ -13,9 +13,9 @@ import {
   type CommandContext, type CommandState,
 } from '@cardstock/commands';
 import {
-  AboutDialog, CommandPalette, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
-  Submenu, Toolbar,
-  type AboutInfo,
+  AboutDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
+  Submenu, Toolbar, QUALITY_PRESETS,
+  type AboutInfo, type ExportQuality, type ExportStats,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
@@ -24,7 +24,6 @@ import {
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
-import { downloadStl } from './wiring/download.js';
 import { defaultStore } from './persistence/store.js';
 import { defaultFileAccess, downloadFallback, type FileAccess, type FileLocation, type OpenedFile } from './persistence/files.js';
 import { captureThumbnail } from './persistence/thumbnail.js';
@@ -147,6 +146,20 @@ export function App() {
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  /**
+   * Export settings outlive the dialog: a quality chosen once should still be there
+   * on the next export. Degrees in the dialog, radians at the kernel.
+   */
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('stl');
+  const [exportQuality, setExportQuality] = useState<ExportQuality>(QUALITY_PRESETS[1]!.quality);
+  const [exportScope, setExportScope] = useState<'all' | 'selected'>('all');
+  const [exportStats, setExportStats] = useState<ExportStats | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const exportRef = useRef<{
+    stats: (quality: ExportQuality, scope: 'all' | 'selected') => Promise<ExportStats | null>;
+    write: (format: ExportFormat, quality: ExportQuality, scope: 'all' | 'selected') => Promise<void>;
+  }>({ stats: async () => null, write: async () => {} });
   /**
    * Where the document lives, and whether it has changed since.
    *
@@ -409,25 +422,39 @@ export function App() {
         }
       },
 
-      exportStl: async () => {
-        // Every body on screen, not just the last one. A part built from several
-        // sketches is several leaves, and exporting only the terminal feature writes a
-        // file missing most of the part — with nothing to say so.
-        const bodies = bodyFeatures(doc)
-          .map((id) => handles.get(id))
-          .filter((h): h is string => h !== undefined);
-        if (bodies.length === 0) { notify('Nothing to export', 'error'); return; }
+      openExport: () => {
+        setExportScope(viewer.selection.selected.some((r) => r.kind === 'body') ? 'selected' : 'all');
+        setExportStats(null);
+        setExportOpen(true);
+      },
 
-        const shape = bodies.length === 1
-          ? bodies[0]!
-          : (await kernel.compound(bodies as never[])).handle;
-        const bytes = await kernel.exportStl(shape as never);
-        downloadStl(bytes, `${doc.meta.name || 'part'}.stl`);
-        notify(
-          bodies.length === 1
-            ? `Exported ${(bytes.length / 1024).toFixed(0)} kB`
-            : `Exported ${bodies.length} bodies, ${(bytes.length / 1024).toFixed(0)} kB`,
-        );
+      importModel: async () => {
+        let picked: Awaited<ReturnType<FileAccess['pickImport']>>;
+        try {
+          picked = await files.pickImport(Object.keys(IMPORT_EXTENSIONS));
+        } catch (e) {
+          notify(e instanceof Error ? e.message : String(e), 'error');
+          return;
+        }
+        if (!picked) return;
+        const extension = picked.name.slice(picked.name.lastIndexOf('.')).toLowerCase();
+        const format = IMPORT_EXTENSIONS[extension];
+        if (!format) { notify(`${picked.name}: only STEP and STL can be imported`, 'error'); return; }
+        // The file's contents live in the feature, so the part stays self-contained.
+        const data = format === 'step'
+          ? new TextDecoder().decode(picked.bytes)
+          : bytesToBase64(picked.bytes);
+        const id = doc.newFeatureId('import');
+        doc.addFeature({
+          id, type: 'import', name: picked.name.slice(0, -extension.length),
+          values: { format, data, file: picked.name }, inputs: {},
+        });
+        setFocused(id);
+        await doRebuild();
+        viewer.fitAll();
+        const state = doc.engine.lastStates?.get(id);
+        if (state?.status === 'error') notify(`Import failed: ${state.message ?? 'unknown error'}`, 'error');
+        else notify(`Imported ${picked.name}`);
       },
       openPalette: () => setPaletteOpen(true),
       openAbout: () => setAboutOpen(true),
@@ -637,6 +664,54 @@ export function App() {
       stopDirtyWatch = doc.subscribe(() => syncFileState());
     })();
 
+    // ---------------------------------------------------------------- export
+    /** The shape to export: one body, or a compound of several. Compounds are
+     *  temporary and must be released, or every export leaks a kernel shape. */
+    const exportShape = async (scope: 'all' | 'selected') => {
+      const chosen = scope === 'selected'
+        ? [...new Set(viewer.selection.selected.filter((r) => r.kind === 'body').map((r) => r.bodyId as unknown as FeatureId))]
+        : bodyFeatures(doc);
+      const bodies = chosen.map((id) => handles.get(id)).filter((h): h is string => h !== undefined);
+      if (bodies.length === 0) return null;
+      if (bodies.length === 1) return { handle: bodies[0] as ShapeHandle, count: 1, release: () => {} };
+      const { handle } = await kernel.compound(bodies as ShapeHandle[]);
+      return { handle, count: bodies.length, release: () => { void kernel.release(handle); } };
+    };
+    const toKernelQuality = (q: ExportQuality) => ({
+      linearDeflection: q.linear, angularDeflection: (q.angular * Math.PI) / 180,
+    });
+    exportRef.current = {
+      stats: async (quality, scope) => {
+        const shape = await exportShape(scope);
+        if (!shape) return null;
+        try {
+          return await kernel.meshStats(shape.handle, toKernelQuality(quality));
+        } finally { shape.release(); }
+      },
+      write: async (format, quality, scope) => {
+        const shape = await exportShape(scope);
+        if (!shape) { notify('Nothing to export', 'error'); return; }
+        const spec = EXPORT_FORMATS[format];
+        const name = doc.meta.name || 'part';
+        try {
+          const result = await kernel.exportModel(shape.handle, format, {
+            quality: toKernelQuality(quality), name,
+          });
+          const written = await files.exportBytes(`${name}${spec.extension}`, result.bytes, spec.mime);
+          if (!written) return;
+          const size = `${(result.bytes.length / 1024).toFixed(0)} kB`;
+          notify(
+            result.triangles > 0
+              ? `Exported ${spec.label}: ${result.triangles.toLocaleString()} triangles, ${size}`
+              : `Exported ${spec.label}: ${size}`,
+          );
+          setExportOpen(false);
+        } catch (e) {
+          notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        } finally { shape.release(); }
+      },
+    };
+
     // Handles for the verification harness. requestAnimationFrame does not run while a
     // browser pane is hidden, so tests must be able to step the viewer explicitly.
     Object.assign(globalThis, {
@@ -760,6 +835,21 @@ export function App() {
   useEffect(() => {
     document.title = `${fileState.dirty ? '• ' : ''}${fileState.name} — CARDstock`;
   }, [fileState]);
+
+  // The live triangle count. Debounced so typing a deviation digit by digit does not
+  // queue a tessellation per keystroke; stale answers are dropped by generation.
+  const statsGeneration = useRef(0);
+  useEffect(() => {
+    if (!exportOpen || !EXPORT_FORMATS[exportFormat].mesh) return;
+    const generation = ++statsGeneration.current;
+    setExportStats(null);
+    const timer = setTimeout(() => {
+      void exportRef.current.stats(exportQuality, exportScope).then((stats) => {
+        if (generation === statsGeneration.current) setExportStats(stats);
+      }).catch(() => { if (generation === statsGeneration.current) setExportStats(null); });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [exportOpen, exportFormat, exportQuality, exportScope]);
   const focusedDefinition = focusedFeature ? doc?.registry.get(focusedFeature.type) : undefined;
   const unitFor = (type: string, key: string) => {
     const unit = FIELD_UNITS[`${type}.${key}`] ?? FIELD_UNITS[key];
@@ -779,7 +869,9 @@ export function App() {
     const declared = focusedDefinition
       ? [...Object.keys(focusedDefinition.choiceKeys ?? {}), ...focusedDefinition.valueKeys]
       : [];
-    const keys = [...new Set([...declared, ...Object.keys(values)])];
+    // Undeclared keys are plain settings the definition reads directly — an import's
+    // file contents, say — not dimensions, so they only surface for an unknown type.
+    const keys = focusedDefinition ? declared : Object.keys(values);
     return keys.map((key) => {
       const choices = focusedDefinition?.choiceKeys?.[key];
       return {
@@ -925,7 +1017,9 @@ export function App() {
           <ParameterPanel
             title={focusedFeature?.name || `${fileState.name}${fileState.dirty ? ' •' : ''}`}
             {...(focusedFeature
-              ? { subtitle: focusedFeature.type }
+              ? { subtitle: focusedFeature.values.file
+                  ? `${focusedFeature.type} · ${focusedFeature.values.file}`
+                  : focusedFeature.type }
               : { subtitle: fileState.dirty ? 'unsaved changes' : 'saved' })}
             {...(!focusedFeature && recents.length > 0 ? {
               footer: (
@@ -1021,6 +1115,31 @@ export function App() {
 
       {aboutOpen && (
         <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
+      )}
+
+      {exportOpen && (
+        <ExportDialog
+          formats={Object.entries(EXPORT_FORMATS).map(([id, f]) => ({ id, label: f.label, mesh: f.mesh }))}
+          format={exportFormat}
+          onFormat={(id) => setExportFormat(id as ExportFormat)}
+          quality={exportQuality}
+          onQuality={setExportQuality}
+          scope={exportScope}
+          onScope={setExportScope}
+          bodyCount={doc ? bodyFeatures(doc).length : 0}
+          selectedCount={new Set(
+            (core.current?.viewer.selection.selected ?? []).filter((r) => r.kind === 'body').map((r) => r.bodyId),
+          ).size}
+          stats={exportStats}
+          fileName={`${fileState.name}${EXPORT_FORMATS[exportFormat].extension}`}
+          busy={exportBusy}
+          onExport={() => {
+            setExportBusy(true);
+            void exportRef.current.write(exportFormat, exportQuality, exportScope)
+              .finally(() => setExportBusy(false));
+          }}
+          onClose={() => setExportOpen(false)}
+        />
       )}
 
       {paletteOpen && registry && (

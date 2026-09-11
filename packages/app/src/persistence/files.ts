@@ -26,6 +26,12 @@ export type FileLocation = FileSystemFileHandle | { readonly path: string };
 export const isPath = (location: FileLocation): location is { readonly path: string } =>
   typeof (location as { path?: unknown }).path === 'string';
 
+/** A file brought in from outside: its bytes and its name. Never kept open. */
+export interface ImportedFile {
+  readonly name: string;
+  readonly bytes: Uint8Array;
+}
+
 /** An opened or saved file: its contents, its name, and — where possible — its location. */
 export interface OpenedFile {
   readonly name: string;
@@ -47,6 +53,13 @@ export interface FileAccess {
    * builds use `window.confirm`, which a desktop shell replaces with a native dialog.
    */
   confirm?(message: string): Promise<boolean>;
+  /**
+   * Hand the user a file that is not a `.card` — an STL, a STEP. Returns false when
+   * they cancelled. `suggestedName` carries the extension.
+   */
+  exportBytes(suggestedName: string, bytes: Uint8Array, mime: string): Promise<boolean>;
+  /** Pick a file to bring in, by extension (with the dot). Null when cancelled. */
+  pickImport(extensions: readonly string[]): Promise<ImportedFile | null>;
   /**
    * The file the host was started with — a `.card` double-clicked while the app was
    * closed. Browsers have none. Resolves null when there was no such file or it could
@@ -142,29 +155,73 @@ export const fileSystemAccess: FileAccess = {
     const file = await handle.getFile();
     return { name: baseName(file.name), contents: parse(file.name, await file.text()), handle };
   },
+
+  async exportBytes(suggestedName, bytes, mime) {
+    const win = window as PickerWindow;
+    const extension = suggestedName.slice(suggestedName.lastIndexOf('.'));
+    try {
+      const handle = await win.showSaveFilePicker!({
+        suggestedName, types: [{ description: extension.slice(1).toUpperCase(), accept: { [mime]: [extension] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(bytes as unknown as BufferSource);
+      await writable.close();
+      return true;
+    } catch (e) {
+      if (cancelled(e)) return false;
+      throw e;
+    }
+  },
+
+  async pickImport(extensions) {
+    const win = window as PickerWindow;
+    try {
+      const [handle] = await win.showOpenFilePicker!({
+        types: [{ description: 'Model', accept: { 'application/octet-stream': [...extensions] } }],
+        multiple: false,
+      });
+      if (!handle) return null;
+      const file = await handle.getFile();
+      return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
+    } catch (e) {
+      if (cancelled(e)) return null;
+      throw e;
+    }
+  },
 };
+
+/** Save through a download link. */
+export function download(bytes: Uint8Array, filename: string, mime: string): void {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  // Revoke on the next tick: revoking synchronously can cancel the download in Safari.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Open through a file input. A dismissed dialog never resolves; nothing awaits it with a timeout. */
+function pickThroughInput(accept: string): Promise<File | null> {
+  return new Promise<File | null>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
 
 // ---------------------------------------------------------------- fallback
 /** Open through a file input; save through a download. No handles, so no overwrite. */
 export const downloadFallback: FileAccess = {
   canOverwrite: false,
 
-  open() {
-    return new Promise<OpenedFile | null>((resolve, reject) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = CARD_EXTENSION;
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file) { resolve(null); return; }
-        try {
-          resolve({ name: baseName(file.name), contents: parse(file.name, await file.text()), handle: null });
-        } catch (e) { reject(e as Error); }
-      };
-      // No cancel event exists for file inputs; a dismissed dialog simply never resolves,
-      // which is harmless because nothing awaits it with a timeout.
-      input.click();
-    });
+  async open() {
+    const file = await pickThroughInput(CARD_EXTENSION);
+    if (!file) return null;
+    return { name: baseName(file.name), contents: parse(file.name, await file.text()), handle: null };
   },
 
   async save() {
@@ -172,17 +229,21 @@ export const downloadFallback: FileAccess = {
   },
 
   async saveAs(suggestedName, contents) {
-    const blob = new Blob([serialise(contents)], { type: MIME });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = withExtension(suggestedName);
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    download(new TextEncoder().encode(serialise(contents)), withExtension(suggestedName), MIME);
     return { name: baseName(suggestedName), contents, handle: null };
   },
 
   async reopen() { return null; },
+
+  async exportBytes(suggestedName, bytes, mime) {
+    download(bytes, suggestedName, mime);
+    return true;
+  },
+
+  async pickImport(extensions) {
+    const file = await pickThroughInput(extensions.join(','));
+    return file ? { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) } : null;
+  },
 };
 
 /** True inside the Tauri desktop shell, which injects this before any script runs. */

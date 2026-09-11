@@ -19,6 +19,10 @@ import {
  */
 export interface ShellBindings {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  /** A command whose body is raw bytes, with string headers alongside. */
+  invokeBytes(command: string, bytes: Uint8Array, headers: Record<string, string>): Promise<void>;
+  /** A command that answers with raw bytes. */
+  invokeForBytes(command: string, args: Record<string, unknown>): Promise<Uint8Array>;
   openDialog(options: { defaultPath?: string; filters: DialogFilter[] }): Promise<string | null>;
   saveDialog(options: { defaultPath?: string; filters: DialogFilter[] }): Promise<string | null>;
   ask(message: string, options: { title: string; kind: 'warning' }): Promise<boolean>;
@@ -76,6 +80,30 @@ export function createTauriFileAccess(shell: ShellBindings): FileAccess {
       return isPath(handle) ? read(handle.path) : null;
     },
 
+    async exportBytes(suggestedName, bytes) {
+      const dir = await partsDir();
+      const extension = suggestedName.slice(suggestedName.lastIndexOf('.'));
+      const chosen = await shell.saveDialog({
+        defaultPath: `${dir}/${suggestedName}`,
+        filters: [{ name: extension.slice(1).toUpperCase(), extensions: [extension.slice(1)] }],
+      });
+      if (!chosen) return false;
+      const path = chosen.toLowerCase().endsWith(extension) ? chosen : `${chosen}${extension}`;
+      // The path travels as a header, so it is percent-encoded: headers are ASCII.
+      await shell.invokeBytes('write_export', bytes, { path: encodeURIComponent(path) });
+      return true;
+    },
+
+    async pickImport(extensions) {
+      const path = await shell.openDialog({
+        defaultPath: await partsDir(),
+        filters: [{ name: 'Model', extensions: extensions.map((e) => e.slice(1)) }],
+      });
+      if (!path) return null;
+      const bytes = await shell.invokeForBytes('read_import', { path });
+      return { name: fileName(path), bytes };
+    },
+
     confirm(message) {
       return shell.ask(message, { title: 'CARDstock', kind: 'warning' });
     },
@@ -111,6 +139,11 @@ export async function tauriFileAccess(): Promise<FileAccess> {
   ]);
   return createTauriFileAccess({
     invoke: (command, args) => invoke(command, args),
+    invokeBytes: async (command, bytes, headers) => { await invoke(command, bytes, { headers }); },
+    invokeForBytes: async (command, args) => {
+      const response = await invoke<ArrayBuffer | number[]>(command, args);
+      return response instanceof ArrayBuffer ? new Uint8Array(response) : Uint8Array.from(response);
+    },
     openDialog: (o) => open({ ...o, multiple: false, directory: false }) as Promise<string | null>,
     saveDialog: (o) => save(o),
     ask: (message, o) => ask(message, o),

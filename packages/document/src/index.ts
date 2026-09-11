@@ -79,3 +79,5 @@ export {
   FASTENERS, SMALL_HOLE_THRESHOLD, compensatedDiameter, fastenerNames, findFastener,
   holeDiameter, type Fastener, type HoleFit,
 } from './features/fasteners.js';
+export { importFeature, IMPORT_EXTENSIONS, type ImportFormat } from './features/import-feature.js';
+export { bytesToBase64, base64ToBytes } from './util/base64.js';

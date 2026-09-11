@@ -34,6 +34,16 @@ function fakeShell(overrides: Partial<ShellBindings> & { disk?: Map<string, stri
         default: throw new Error(`unknown command ${command}`);
       }
     },
+    invokeBytes: async (command, bytes, headers) => {
+      calls.push([command, headers]);
+      disk.set(decodeURIComponent(headers.path!), `<${bytes.length} bytes>`);
+    },
+    invokeForBytes: async (command, args) => {
+      calls.push([command, args]);
+      const text = disk.get(args.path as string);
+      if (text === undefined) throw new Error('missing');
+      return new TextEncoder().encode(text);
+    },
     openDialog: async () => null,
     saveDialog: async () => null,
     ask: async () => true,
@@ -113,6 +123,21 @@ describe('desktop file access', () => {
     shell.fire('open-file', '/p/event.card');
     await new Promise((r) => setTimeout(r, 0));
     expect(received).toEqual(['event']);
+  });
+
+  it('exports bytes to a chosen path, adding the extension', async () => {
+    const shell = fakeShell({ saveDialog: async () => '/parts/lid' });
+    const ok = await createTauriFileAccess(shell).exportBytes('lid.stl', new Uint8Array(10), 'model/stl');
+    expect(ok).toBe(true);
+    expect(shell.disk.get('/parts/lid.stl')).toBe('<10 bytes>');
+  });
+
+  it('imports by picking a path and reading its bytes', async () => {
+    const shell = fakeShell({ openDialog: async () => '/parts/ref.step' });
+    shell.disk.set('/parts/ref.step', 'ISO-10303-21;');
+    const file = await createTauriFileAccess(shell).pickImport(['.step', '.stp']);
+    expect(file?.name).toBe('ref.step');
+    expect(new TextDecoder().decode(file!.bytes)).toBe('ISO-10303-21;');
   });
 
   it('confirm goes through the native dialog', async () => {

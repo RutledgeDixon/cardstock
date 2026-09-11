@@ -378,13 +378,34 @@ window.__smoke = async function smoke() {
       !!rounded && doc.feature(rounded)?.inputs?.base === first);
     viewer.selection.clear();
 
-    // The real Export button, and what it actually hands to the browser.
-    let blob = null;
-    const originalUrl = URL.createObjectURL;
-    URL.createObjectURL = (b) => { blob = b; return originalUrl.call(URL, b); };
+    // The real Export button opens the dialog; the live count must arrive, and the
+    // Export button in it must write a file. The save picker is stood in for, as the
+    // file tests do: a dialog cannot be driven from here.
+    let written = null;
+    const realSavePicker = window.showSaveFilePicker;
+    window.showSaveFilePicker = async (o) => ({
+      kind: 'file', name: o?.suggestedName ?? 'part.stl',
+      async createWritable() {
+        return { async write(chunk) { written = new Uint8Array(chunk); }, async close() {} };
+      },
+    });
     document.querySelector('[data-command="file.export"]')?.click();
-    for (let i = 0; i < 40 && !blob; i++) await sleep(250);
-    URL.createObjectURL = originalUrl;
+    check('exportOpensADialog', await waitFor('.export'));
+    let statsText = '';
+    for (let i = 0; i < 40; i++) {
+      statsText = document.querySelector('.export-stats')?.textContent ?? '';
+      if (/\d+ triangles/.test(statsText)) break;
+      await sleep(250);
+    }
+    check('exportCountsTrianglesLive', /\d+ triangles/.test(statsText));
+    check('exportReportsWatertight', /(^|\s)watertight/.test(statsText) && !/NOT/.test(statsText));
+    document.querySelector('.export-go')?.click();
+    for (let i = 0; i < 40 && !written; i++) await sleep(250);
+    window.showSaveFilePicker = realSavePicker;
+    if (document.querySelector('.export')) {
+      document.querySelector('.export')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+    const blob = written ? new Blob([written]) : null;
 
     check('exportProducesAFile', !!blob);
     if (blob) {

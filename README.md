@@ -87,16 +87,18 @@ first run.
 
 ## Status
 
-**Phase 3 complete.** `npm run dev` gives a live parametric model: real OpenCascade
-geometry in a Web Worker, driven by parameter sliders, rendered and picked in the
-viewer. Drag a slider and the solid rebuilds — only the affected branch, typically in
-tens of milliseconds.
+**Phases 0–8 complete.** `npm run dev` gives a working parametric modeller: sketches
+with a constraint solver, extrude / revolve / sweep / loft, fillet / chamfer / shell /
+draft, holes from a fastener table, patterns, booleans across separate bodies, undo,
+`.card` files with autosave and recents, and export to STL, 3MF, OBJ and STEP with a
+live triangle count and watertight check. STEP and STL can be imported to model
+against. A Tauri desktop shell with its own parts directory and `.card` association is
+written and awaits its first build (see *Desktop app* above).
 
-Phases 0–3 done: de-risking spikes, the viewer with keyboard-first navigation and
-face/edge/vertex picking, the pure part model with its incremental recompute engine, and
-the real geometry kernel behind `KernelPort`. See `docs/adr/` for the decisions and
-`tools/spikes/` for the measurements behind them.
+See `docs/adr/` for the decisions, `tools/browser-smoke.js` for the in-browser checks,
+and `tools/bench.ts` for the measurements.
 
-Next is Phase 4, topological naming — making references survive edits.
+Next is Phase 9, the print-aware suite: printer profiles, live overhang shading,
+thickness analysis, orientation scoring.
 
 Part files are `.card`.

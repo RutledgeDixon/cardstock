@@ -28,7 +28,8 @@ export interface HostDeps {
     indices: readonly number[],
   ) => Promise<TopoRef[]>;
   rebuild: () => Promise<void>;
-  exportStl: () => Promise<void>;
+  openExport: () => void;
+  importModel: () => Promise<void>;
   newDocument: () => Promise<void>;
   openDocument: () => Promise<void>;
   saveDocument: () => Promise<void>;
@@ -412,7 +413,8 @@ export function createHost(deps: HostDeps): CommandHost {
       return id;
     },
 
-    exportStl: () => deps.exportStl(),
+    openExport: () => deps.openExport(),
+    importModel: () => deps.importModel(),
     newDocument: () => deps.newDocument(),
     openDocument: () => deps.openDocument(),
     saveDocument: () => deps.saveDocument(),

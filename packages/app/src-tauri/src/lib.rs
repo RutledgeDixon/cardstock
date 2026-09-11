@@ -13,12 +13,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The `.card` the process was started with, handed to the frontend once it asks.
 struct LaunchFile(Mutex<Option<PathBuf>>);
 
 const EXTENSION: &str = "card";
+/// What Export may write and Import may read. Anything else is not this app's business.
+const MODEL_EXTENSIONS: [&str; 5] = ["stl", "3mf", "obj", "step", "stp"];
 
 /// A path is only worth touching if it names a part file. This is the one rule that
 /// keeps the read/write commands from being a general filesystem API for the webview.
@@ -27,6 +30,22 @@ fn is_card(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case(EXTENSION))
         .unwrap_or(false)
+}
+
+fn has_extension(path: &Path, allowed: &[&str]) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| allowed.iter().any(|a| e.eq_ignore_ascii_case(a)))
+        .unwrap_or(false)
+}
+
+fn model_path(path: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(path);
+    if has_extension(&path, &MODEL_EXTENSIONS) {
+        Ok(path)
+    } else {
+        Err(format!("{} is not a model file", path.display()))
+    }
 }
 
 fn card_path(path: &str) -> Result<PathBuf, String> {
@@ -66,6 +85,50 @@ fn write_card(path: String, contents: String) -> Result<(), String> {
     let tmp = path.with_extension("card.tmp");
     std::fs::write(&tmp, contents).map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("Could not replace {}: {e}", path.display()))
+}
+
+/// An export: raw bytes in the request body, the target path percent-encoded in a
+/// header. Bytes rather than a JSON array because an STL of a real part is megabytes.
+#[tauri::command]
+fn write_export(request: Request<'_>) -> Result<(), String> {
+    let encoded = request
+        .headers()
+        .get("path")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("no path given")?;
+    let path = model_path(&percent_decode(encoded))?;
+    let bytes = match request.body() {
+        InvokeBody::Raw(bytes) => bytes.clone(),
+        InvokeBody::Json(_) => return Err("export body must be raw bytes".into()),
+    };
+    std::fs::write(&path, bytes).map_err(|e| format!("Could not write {}: {e}", path.display()))
+}
+
+/// An import: the file's bytes, whole. Restricted to model types like the export.
+#[tauri::command]
+fn read_import(path: String) -> Result<Response, String> {
+    let path = model_path(&path)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    Ok(Response::new(bytes))
+}
+
+/// Just enough percent-decoding for a path: `%XX` triples, nothing else.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// The launch file is consumed: a reload of the webview must not reopen it over
@@ -112,6 +175,8 @@ pub fn run() {
             parts_directory,
             read_card,
             write_card,
+            write_export,
+            read_import,
             launch_file
         ])
         .build(tauri::generate_context!())
@@ -143,6 +208,21 @@ mod tests {
         assert!(is_card(Path::new("C:\\x\\PART.CARD")));
         assert!(!is_card(Path::new("/x/part.stl")));
         assert!(!is_card(Path::new("/x/card")));
+    }
+
+    #[test]
+    fn model_paths_are_the_listed_types_only() {
+        assert!(model_path("/x/a.STL").is_ok());
+        assert!(model_path("/x/a.step").is_ok());
+        assert!(model_path("/x/a.card").is_err());
+        assert!(model_path("/x/a.exe").is_err());
+    }
+
+    #[test]
+    fn percent_decoding_restores_a_path() {
+        assert_eq!(percent_decode("%2Fhome%2Fu%2Fmy%20part.stl"), "/home/u/my part.stl");
+        assert_eq!(percent_decode("plain"), "plain");
+        assert_eq!(percent_decode("bad%zz%4"), "bad%zz%4");
     }
 
     #[test]

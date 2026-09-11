@@ -370,3 +370,17 @@ kbd {
   background: #0d1117; border: 1px solid var(--panel-edge); flex: 0 0 auto;
 }
 .recent-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- export */
+.export { width: min(360px, 88vw); gap: 4px; }
+.export .field { margin-bottom: 4px; }
+.export-quality { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.export-quality .field { min-width: 0; }
+.export-quality input { width: 100%; min-width: 0; }
+.export-stats { font-size: 11px; padding: 6px 0 2px; min-height: 18px; }
+.export-ok { color: #4c9b6a; }
+.export-bad { color: var(--danger); font-weight: 600; }
+.export-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.export-go { background: #2f5aa3; }
+.export-go:hover { background: #3a6bbd; }
+.export-go:disabled { opacity: 0.5; cursor: default; }

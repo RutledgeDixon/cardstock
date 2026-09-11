@@ -70,7 +70,10 @@ export interface CommandHost {
   extrudeSketch(): Promise<FeatureId | null>;
 
   // --- output
-  exportStl(): Promise<void>;
+  /** Open the export dialog: format, quality, which bodies. */
+  openExport(): void;
+  /** Bring a STEP or STL in as a body to model against. */
+  importModel(): Promise<void>;
 
   // --- files
   newDocument(): Promise<void>;
