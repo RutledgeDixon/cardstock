@@ -5,7 +5,7 @@ import {
   type ShapeDescription,
   type ProfileSpec, type Vec3,
   type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
-  type OrientationOptions, type OrientationSuggestion,
+  type OrientationOptions, type OrientationSuggestion, type FaceOutline,
   KernelError,
 } from '@cardstock/types';
 import { isKernelReady, type KernelMethod, type KernelResponse } from './protocol.js';
@@ -144,6 +144,9 @@ export class WorkerKernel implements KernelPort {
   }
   scoreOrientations(shape: ShapeHandle, options: OrientationOptions) {
     return this.#call<OrientationSuggestion[]>('scoreOrientations', shape, options);
+  }
+  faceOutline(shape: ShapeHandle, faceIndex: number) {
+    return this.#call<FaceOutline>('faceOutline', shape, faceIndex);
   }
   importStep(text: string) { return this.#call<GeometryResult>('importStep', text); }
   importStl(bytes: Uint8Array) { return this.#call<GeometryResult>('importStl', bytes); }

@@ -2,6 +2,7 @@ import type { FeatureDefinition } from './feature.js';
 import { buildProfile, profileRegions } from '../sketch/profile.js';
 import { resolvePlacement } from '../sketch/placement.js';
 import { placementForFaceIndex } from '../sketch/face-plane.js';
+import { externalsFor } from '../sketch/external.js';
 import { resolveTopoRef } from '../toporef/resolver.js';
 
 /**
@@ -27,6 +28,7 @@ export const sketchFeature: FeatureDefinition = {
     // reference machinery as any other topological selection, so the sketch follows its
     // face when the body underneath changes rather than staying where it was drawn.
     let placement = resolvePlacement(sketch.plane);
+    let outline = null;
     if (!placement && sketch.plane.kind === 'face') {
       const base = shapes.base;
       if (!base) throw new Error('the body this sketch sits on is unavailable');
@@ -34,8 +36,13 @@ export const sketchFeature: FeatureDefinition = {
       const resolved = resolveTopoRef(sketch.plane.ref, description);
       if (!resolved.ok) throw new Error(`the sketch plane ${resolved.reason}`);
       placement = placementForFaceIndex(description, resolved.index);
+      if (placement) outline = await kernel.faceOutline(base, resolved.index);
     }
     if (!placement) throw new Error('the sketch plane could not be resolved');
+
+    // The face's edges (or the origin axes) come in as fixed reference geometry before
+    // the solve, so a point tied to a corner follows the corner when the body changes.
+    sketch.syncExternal(externalsFor(sketch.plane, placement, outline));
 
     const solved = await sketch.solve(solver, parameters);
 

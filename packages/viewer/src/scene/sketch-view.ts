@@ -24,7 +24,9 @@ const ARC_SEGMENTS = 64;
 const LINE_WIDTH = 3.4;
 /** Selected geometry is both recoloured and thickened: colour alone is easy to miss. */
 const SELECTED_LINE_WIDTH = 5.5;
-const DIMENSION_LINE_WIDTH = 1.3;
+const DIMENSION_LINE_WIDTH = 1.9;
+const EXTERNAL_LINE_WIDTH = 1.4;
+const EXTERNAL_POINT_SIZE = 6;
 const POINT_SIZE = 8;
 const SELECTED_POINT_SIZE = 12;
 /** Bigger than either, because it is a target you are aiming at. */
@@ -40,6 +42,8 @@ export interface SketchViewColours {
   snap: number;
   /** Dimension and extension lines: thin, dark blue, drawn under the geometry. */
   dimension: number;
+  /** Reference geometry projected from the face or the origin axes: muted, fixed. */
+  external: number;
 }
 
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
@@ -55,7 +59,8 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   selected: 0xff9e38,
   /** The vertex a click would connect to. Green reads as "go", and is not the selection. */
   snap: 0x6fd39a,
-  dimension: 0x3b64b8,
+  dimension: 0x2b4f9e,
+  external: 0x7d8fb0,
 };
 
 export class SketchView {
@@ -67,6 +72,8 @@ export class SketchView {
   #preview = fatLine();
   /** Extension lines, dimension lines and arrowheads, in the engineering-drawing sense. */
   #dimensionLines = fatLine();
+  #external = fatLine();
+  #externalPoints = new Points(new BufferGeometry(), new PointsMaterial());
   #points = new Points(new BufferGeometry(), new PointsMaterial());
   #selectedPoints = new Points(new BufferGeometry(), new PointsMaterial());
   /**
@@ -105,6 +112,15 @@ export class SketchView {
     this.#dimensionLines.material.color = new Color(colours.dimension);
     this.#dimensionLines.material.linewidth = DIMENSION_LINE_WIDTH;
 
+    this.#external.material.color = new Color(colours.external);
+    this.#external.material.linewidth = EXTERNAL_LINE_WIDTH;
+    this.#external.material.transparent = true;
+    this.#external.material.opacity = 0.8;
+    const externalPoints = this.#externalPoints.material;
+    externalPoints.color = new Color(colours.external);
+    externalPoints.size = EXTERNAL_POINT_SIZE;
+    externalPoints.sizeAttenuation = false;
+
     const points = this.#points.material;
     points.color = new Color(colours.point);
     points.size = POINT_SIZE;
@@ -131,6 +147,8 @@ export class SketchView {
       this.group.add(object);
     }
     this.#dimensionLines.renderOrder = 9;
+    this.#external.renderOrder = 8;
+    this.#externalPoints.renderOrder = 8;
     this.#selectedLines.renderOrder = 11;
     this.#selectedPoints.renderOrder = 12;
     this.#snapPoint.renderOrder = 13;
@@ -140,6 +158,7 @@ export class SketchView {
   #all(): (LineSegments2 | Points | Line)[] {
     return [
       this.#solid, this.#construction, this.#selectedLines, this.#preview, this.#dimensionLines,
+      this.#external, this.#externalPoints,
       this.#points, this.#selectedPoints, this.#snapPoint, this.#previewCircle,
     ];
   }
@@ -151,7 +170,7 @@ export class SketchView {
    * the viewer calls it on every resize.
    */
   setResolution(width: number, height: number): void {
-    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview, this.#dimensionLines]) {
+    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview, this.#dimensionLines, this.#external]) {
       line.material.resolution.set(width, height);
     }
   }
@@ -188,6 +207,8 @@ export class SketchView {
     const selectedLines: number[] = [];
     const points: number[] = [];
     const selectedPoints: number[] = [];
+    const external: number[] = [];
+    const externalPoints: number[] = [];
 
     const positionOf = (id: string): Vec2 | null => {
       const entity = geometry.find((e) => e.id === id);
@@ -205,11 +226,13 @@ export class SketchView {
 
       if (entity.type === 'point') {
         const world = this.toWorld({ x: entity.x, y: entity.y });
-        (isSelected ? selectedPoints : points).push(world.x, world.y, world.z);
+        (isSelected ? selectedPoints : entity.external ? externalPoints : points)
+          .push(world.x, world.y, world.z);
         continue;
       }
 
       const into = isSelected ? selectedLines
+        : entity.external ? external
         : entity.construction ? construction
         : solid;
 
@@ -241,6 +264,8 @@ export class SketchView {
     setSegments(this.#solid, solid);
     setSegments(this.#construction, construction);
     setSegments(this.#selectedLines, selectedLines);
+    setSegments(this.#external, external);
+    setPositions(this.#externalPoints.geometry, externalPoints);
     setPositions(this.#points.geometry, points);
     setPositions(this.#selectedPoints.geometry, selectedPoints);
   }

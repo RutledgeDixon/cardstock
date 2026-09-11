@@ -67,6 +67,13 @@ export class PlaneGcsSolver implements SolverPort {
     for (const constraint of request.constraints) {
       primitives.push(...toGcsConstraints(constraint, lineStart));
     }
+    // External circles are fixed in every respect; the centre is a fixed point already,
+    // the radius needs pinning here since a circle primitive has no fixed flag.
+    for (const entity of request.geometry) {
+      if (entity.type === 'circle' && entity.external) {
+        primitives.push({ id: `${entity.id}#fixed`, type: 'circle_radius', c_id: entity.id, radius: entity.radius });
+      }
+    }
 
     try {
       this.gcs.push_primitives_and_params(primitives as never);

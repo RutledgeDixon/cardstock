@@ -2,7 +2,7 @@ import type {
   BooleanOp, Bounds, BoxSpec, CylinderSpec, GeometryResult, KernelPort, MassProperties,
   Matrix4, ShapeHandle, SphereSpec, TessellatedBody, TessellationQuality, TopologyCounts,
   BodyId, EntityFingerprint, ShapeDescription, ProfileSpec,
-  ExportFormat, ExportResult, MeshStats, OrientationSuggestion,
+  ExportFormat, ExportResult, MeshStats, OrientationSuggestion, FaceOutline,
 } from '@cardstock/types';
 import { KernelError } from '@cardstock/types';
 
@@ -460,6 +460,13 @@ export class MockKernel implements KernelPort {
   async meshStats(shape: ShapeHandle): Promise<MeshStats> {
     const s = this.#require(shape, 'meshStats');
     return { triangles: s.faces * 2, vertices: s.vertices, watertight: true };
+  }
+
+  /** A unit square in the XY plane at z = 0: enough for a sketch to project. */
+  async faceOutline(shape: ShapeHandle): Promise<FaceOutline> {
+    this.#require(shape, 'faceOutline');
+    const c = [[0, 0], [10, 0], [10, 10], [0, 10]].map(([x, y]) => ({ x: x!, y: y!, z: 0 }));
+    return { edges: c.map((from, i) => ({ kind: 'line' as const, from, to: c[(i + 1) % 4]! })) };
   }
 
   async scoreOrientations(shape: ShapeHandle): Promise<OrientationSuggestion[]> {

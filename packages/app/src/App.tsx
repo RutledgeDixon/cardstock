@@ -1505,7 +1505,9 @@ export function App() {
       void reportPrintFacts(c, generation);
       // The rebuild re-solves the open sketch, so its DOF and dimensions are only
       // current once it has finished — reading them before would show the state from
-      // before the edit that triggered this.
+      // before the edit that triggered this. It may also have brought in reference
+      // geometry (the face's edges), which the view has not seen.
+      sessionRef.current?.refresh();
       syncSketchFromApp();
     } catch (e) {
       // A SUPERSEDED run failing is expected, not news: it was abandoned mid-flight and
@@ -1642,7 +1644,9 @@ function SketchConstraints({ sketch, selected, onPick, onRemove }: {
         onClick={() => onPick(ids)}
       >
         <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
-        <span className="constraint-entities">{ids.join(' · ')}</span>
+        <span className="constraint-entities">
+          {ids.map((id) => sketch.entity(id)?.external ?? id).join(' · ')}
+        </span>
         {value !== undefined && (
           <span className={`constraint-value${reference ? '' : ' is-driving'}`}>
             {String(value)}{reference ? ' (ref)' : ''}

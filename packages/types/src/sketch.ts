@@ -9,6 +9,8 @@
  * (ADR-0003), so the contract makes that impossible to get wrong.
  */
 
+import type { Vec3 } from './geometry.js';
+
 export interface Vec2 {
   readonly x: number;
   readonly y: number;
@@ -24,6 +26,13 @@ export interface SketchPoint {
   readonly y: number;
   /** Immovable, whatever the constraints say. The sketch origin is one of these. */
   readonly fixed?: boolean;
+  /**
+   * Projected from outside the sketch — a vertex of the face it sits on, the end of an
+   * origin axis. Keyed so it can be re-projected when the body underneath changes.
+   * External geometry is fixed, cannot be deleted, and is never part of a profile; it
+   * exists to be constrained against.
+   */
+  readonly external?: string;
 }
 
 export interface SketchLine {
@@ -33,6 +42,8 @@ export interface SketchLine {
   readonly p2: SketchEntityId;
   /** Reference geometry: solved and drawn, but never part of a profile. */
   readonly construction?: boolean;
+  /** See SketchPoint.external. */
+  readonly external?: string;
 }
 
 export interface SketchCircle {
@@ -41,6 +52,8 @@ export interface SketchCircle {
   readonly centre: SketchEntityId;
   readonly radius: number;
   readonly construction?: boolean;
+  /** See SketchPoint.external. The radius is locked as well as the centre. */
+  readonly external?: string;
 }
 
 export interface SketchArc {
@@ -54,6 +67,8 @@ export interface SketchArc {
   readonly startAngle: number;
   readonly endAngle: number;
   readonly construction?: boolean;
+  /** Arcs are never external; present so every geometry kind can be asked. */
+  readonly external?: undefined;
 }
 
 export type SketchGeometry = SketchPoint | SketchLine | SketchCircle | SketchArc;
@@ -127,6 +142,22 @@ export const DIMENSIONAL_CONSTRAINTS: readonly SketchConstraintType[] = [
 
 export const isDimensional = (type: SketchConstraintType): boolean =>
   DIMENSIONAL_CONSTRAINTS.includes(type);
+
+/**
+ * The boundary of a face, in 3D, for projecting into a sketch on it.
+ *
+ * Only what a sketch can constrain against is described: straight edges as their two
+ * ends, circular edges as centre and radius (with the ends, for arcs). Anything else is
+ * reported by its ends alone.
+ */
+export type OutlineEdge =
+  | { readonly kind: 'line'; readonly from: Vec3; readonly to: Vec3 }
+  | { readonly kind: 'circle'; readonly centre: Vec3; readonly radius: number; readonly from: Vec3; readonly to: Vec3; readonly closed: boolean }
+  | { readonly kind: 'other'; readonly from: Vec3; readonly to: Vec3 };
+
+export interface FaceOutline {
+  readonly edges: readonly OutlineEdge[];
+}
 
 // ---------------------------------------------------------------- profiles
 

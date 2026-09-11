@@ -1,3 +1,4 @@
+import type { ExternalItem } from './external.js';
 import type {
   NewSketchConstraint, SketchConstraint, SketchEntityId, SketchGeometry,
   SolveResult, SolverPort, Vec2,
@@ -99,6 +100,65 @@ export class Sketch {
     const id = this.newId('a');
     this.#geometry.set(id, { id, type: 'arc', centre, radius, start, end, startAngle, endAngle });
     return id;
+  }
+
+  /**
+   * Bring the sketch's external reference geometry up to date.
+   *
+   * Entities keyed `external` are created for new items, moved for existing ones, and
+   * removed — with their constraints — when the item is gone. Lines name their ends by
+   * point key, so a corner two edges share is one point; a circle's centre is `<key>.c`.
+   * Everything is fixed, and lines and circles are construction, so nothing here can
+   * move, be part of a profile, or be dragged.
+   */
+  syncExternal(items: readonly ExternalItem[]): void {
+    const byKey = new Map<string, SketchGeometry>();
+    for (const e of this.#geometry.values()) if (e.external) byKey.set(e.external, e);
+    const idByKey = new Map<string, SketchEntityId>();
+
+    const point = (key: string, at: Vec2): SketchEntityId => {
+      const existing = byKey.get(key);
+      if (existing?.type === 'point') {
+        this.#geometry.set(existing.id, { ...existing, x: at.x, y: at.y });
+        byKey.delete(key);
+        idByKey.set(key, existing.id);
+        return existing.id;
+      }
+      const id = this.newId('x');
+      this.#geometry.set(id, { id, type: 'point', x: at.x, y: at.y, fixed: true, external: key });
+      idByKey.set(key, id);
+      return id;
+    };
+
+    // Points first: lines refer to them by key.
+    for (const item of items) if (item.kind === 'point') point(item.key, item.at);
+    for (const item of items) {
+      if (item.kind === 'point') continue;
+      if (item.kind === 'line') {
+        const p1 = idByKey.get(item.p1), p2 = idByKey.get(item.p2);
+        if (!p1 || !p2) continue;
+        const existing = byKey.get(item.key);
+        if (existing?.type === 'line') {
+          this.#geometry.set(existing.id, { ...existing, p1, p2 });
+          byKey.delete(item.key);
+          continue;
+        }
+        const id = this.newId('x');
+        this.#geometry.set(id, { id, type: 'line', p1, p2, construction: true, external: item.key });
+        continue;
+      }
+      const centre = point(`${item.key}.c`, item.centre);
+      const existing = byKey.get(item.key);
+      if (existing?.type === 'circle') {
+        this.#geometry.set(existing.id, { ...existing, radius: item.radius });
+        byKey.delete(item.key);
+        continue;
+      }
+      const id = this.newId('x');
+      this.#geometry.set(id, { id, type: 'circle', centre, radius: item.radius, construction: true, external: item.key });
+    }
+    // Whatever was not matched is gone from the outside world.
+    for (const stale of byKey.values()) this.remove(stale.id);
   }
 
   /**

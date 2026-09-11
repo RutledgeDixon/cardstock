@@ -444,7 +444,8 @@ window.__smoke = async function smoke() {
     session.tools.click({ x: 0, y: 0 });
     session.tools.click({ x: 40, y: 25 });
     session.refresh();
-    check('rectangleDrawn', session.sketch.geometry.filter((e) => e.type === 'line').length === 4);
+    // Four of the sketch's own; the origin axes come in as external construction lines.
+    check('rectangleDrawn', session.sketch.geometry.filter((e) => e.type === 'line' && !e.external).length === 4);
     check('rectangleIsConstrained', session.sketch.constraints.length === 4);
     // A dimension must survive being expressed as a formula over a parameter.
     const points = session.sketch.geometry.filter((e) => e.type === 'point' && !e.fixed);
@@ -552,7 +553,7 @@ window.__smoke = async function smoke() {
   if (session) {
     window.__host.setSketchTool('line');
     await sleep(150);
-    const first = session.sketch.geometry.find((e) => e.type === 'point');
+    const first = session.sketch.geometry.find((e) => e.type === 'point' && !e.external);
     if (first) {
       session.view.setSnapTarget({ x: first.x, y: first.y });
       const ring = session.view.group.children.find(
@@ -897,14 +898,14 @@ window.__smoke = async function smoke() {
     check('drivingDimensionIsGreen', !!document.querySelector('.dimension.is-driving'));
     // A dimension that is not along a sketch line gets drawn lines; one that is, does not.
     const blueLines = () => sk.view.group.children
-      .filter((c) => c.material?.color?.getHexString?.() === '3b64b8')
+      .filter((c) => c.material?.color?.getHexString?.() === '2b4f9e')
       .reduce((n, c) => n + (c.geometry.attributes.instanceStart?.count ?? 0), 0);
     check('dimensionAlongALineHasNoExtraLines', blueLines() === 0);
     // The corner diagonal from the origin: no sketch line joins them.
     const joinedToOrigin = new Set(sk.sketch.geometry
       .filter((e) => e.type === 'line' && (e.p1 === origin.id || e.p2 === origin.id))
       .flatMap((l) => [l.p1, l.p2]));
-    const far = sk.sketch.geometry.find((e) => e.type === 'point' && e.id !== origin.id && !joinedToOrigin.has(e.id));
+    const far = sk.sketch.geometry.find((e) => e.type === 'point' && !e.external && e.id !== origin.id && !joinedToOrigin.has(e.id));
     await press(origin);
     await press(far);
     await sleep(300);

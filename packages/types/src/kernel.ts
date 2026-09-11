@@ -1,7 +1,7 @@
 import type { Bounds, Vec3 } from './geometry.js';
 import type { TessellatedBody, TessellationQuality } from './tessellation.js';
 import type { BodyId } from './ids.js';
-import type { ProfileSpec } from './sketch.js';
+import type { FaceOutline, ProfileSpec } from './sketch.js';
 
 /**
  * The geometry contract.
@@ -235,6 +235,8 @@ export interface KernelPort {
   endScope(keep: readonly ShapeHandle[]): Promise<number>;
 
   massProperties(shape: ShapeHandle): Promise<MassProperties>;
+  /** The edges bounding one face, for a sketch on it to constrain against. */
+  faceOutline(shape: ShapeHandle, faceIndex: number): Promise<FaceOutline>;
   /** Fingerprints for every sub-shape. Drives topological naming (Phase 4). */
   describeShape(shape: ShapeHandle): Promise<ShapeDescription>;
   boundingBox(shape: ShapeHandle): Promise<Bounds>;

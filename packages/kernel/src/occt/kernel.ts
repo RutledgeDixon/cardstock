@@ -5,7 +5,7 @@ import {
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription, type ProfileSpec, type Vec3,
   type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
-  type OrientationOptions, type OrientationSuggestion,
+  type OrientationOptions, type OrientationSuggestion, type FaceOutline,
   KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
 import {
@@ -17,6 +17,7 @@ import { asWire, subShapes } from './topology.js';
 import { captureHistory } from './history.js';
 import { tessellate } from '../tessellate/tessellate.js';
 import { describeShape } from './describe.js';
+import { faceOutline } from './outline.js';
 import { makeFace, makePath } from './profile.js';
 
 /**
@@ -504,6 +505,10 @@ export class OcctKernel implements KernelPort {
 
   async describeShape(shape: ShapeHandle): Promise<ShapeDescription> {
     return describeShape(this.oc, this.registry.get(shape));
+  }
+
+  async faceOutline(shape: ShapeHandle, faceIndex: number): Promise<FaceOutline> {
+    return faceOutline(this.oc, this.registry.get(shape), faceIndex);
   }
 
   async boundingBox(shape: ShapeHandle): Promise<Bounds> {

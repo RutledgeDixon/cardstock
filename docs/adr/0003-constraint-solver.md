@@ -94,3 +94,16 @@ Regions nest one level — a loop inside another is its hole — and the contain
 sample is taken just inside an edge, because a shared vertex would test as inside both.
 Loose segments still report as a gap, and three meeting at a point with nothing closed
 is still refused rather than swept along a Y.
+
+## Amendment: external references
+
+A sketch can constrain against what it sits on. On an origin plane that is the two
+axes through the origin; on a face it is the face's edges and corners, read from the
+kernel (`faceOutline`) and projected into the sketch plane. They arrive as ordinary
+sketch entities — fixed points, construction lines and circles — carrying an `external`
+key, so every existing constraint works against them and nothing new is needed in the
+solver beyond pinning an external circle's radius. The sketch feature re-projects them
+on every rebuild before solving, keyed so a corner stays the same entity when the body
+changes: a point coincident with it follows, and a constraint against an edge that no
+longer exists fails loudly like any reference to deleted geometry. External geometry is
+drawn muted, is pickable, cannot be dragged or deleted, and is never part of a profile.

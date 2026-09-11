@@ -431,7 +431,8 @@ export class SketchSession {
   /** @returns true when anything was removed. */
   deleteSelected(): boolean {
     if (this.selected.size === 0) return false;
-    for (const id of this.selected) this.sketch.remove(id);
+    // Reference geometry belongs to the face or the origin, not to the sketch.
+    for (const id of this.selected) if (!this.sketch.entity(id)?.external) this.sketch.remove(id);
     this.selected.clear();
     this.refresh();
     this.doc?.markSketchChanged(this.featureId);

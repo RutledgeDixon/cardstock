@@ -203,3 +203,54 @@ describe('several regions in one sketch', () => {
     expect((await kernel.topologyCounts(handle)).faces).toBe(10);
   });
 });
+
+describe('external references', () => {
+  it('a point tied to a corner of the face follows the body when it changes', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    doc.setParameter({ name: 'width', expression: '40', unit: 'mm' });
+    const base = asFeatureId('base');
+    doc.addFeature({ id: base, type: 'box', name: 'Plate', values: { dx: 'width', dy: '30', dz: '5' }, inputs: {} });
+    const first = await doc.recompute();
+    const description = await kernel.describeShape(first.states.get(base)!.handle!);
+    const top = description.faces.find((f) => (f.direction?.z ?? 0) > 0.99)!;
+
+    const { sketch, id } = doc.addSketch({
+      kind: 'face', ref: { kind: 'face', origin: base, index: top.index, fingerprint: top },
+    }, { base });
+    // The first rebuild brings the face's corners in as reference geometry.
+    await doc.recompute();
+    const corners = sketch.geometry.filter((e) => e.type === 'point' && e.external);
+    expect(corners).toHaveLength(4);
+    const farCorner = corners[0] as { id: string; x: number; y: number };
+
+    const mine = sketch.addPoint(5, 5);
+    sketch.addConstraint({ type: 'coincident', a: mine, b: farCorner.id });
+    doc.markSketchChanged(id);
+    await doc.recompute();
+    const tied = sketch.entity(mine) as { x: number; y: number };
+    expect(tied.x).toBeCloseTo(farCorner.x, 6);
+    expect(tied.y).toBeCloseTo(farCorner.y, 6);
+
+    // Widen the plate: the corner moves 10 mm (the face's centroid moves 10 and the far
+    // corner 20 in world; the sketch frame follows the centroid) and the point with it.
+    doc.setParameter({ name: 'width', expression: '60', unit: 'mm' });
+    await doc.recompute();
+    const movedCorner = sketch.entity(farCorner.id) as { x: number; y: number };
+    const movedMine = sketch.entity(mine) as { x: number; y: number };
+    expect(Math.hypot(movedCorner.x - farCorner.x, movedCorner.y - farCorner.y)).toBeCloseTo(10, 3);
+    expect(movedMine.x).toBeCloseTo(movedCorner.x, 6);
+    expect(movedMine.y).toBeCloseTo(movedCorner.y, 6);
+  });
+
+  it('an origin-plane sketch offers the axes, which cannot be profiled', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    await doc.recompute();
+    const axes = sketch.geometry.filter((e) => e.type === 'line' && e.external);
+    expect(axes.map((a) => a.external).sort()).toEqual(['axis:h', 'axis:v']);
+    const state = (await doc.recompute()).states.get(id)!;
+    // Two construction lines make no profile: the sketch is empty, not a path.
+    expect(state.status).toBe('error');
+    expect(state.message).toMatch(/empty/);
+  });
+});
