@@ -4,6 +4,7 @@ import {
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription,
   type ProfileSpec, type Vec3,
+  type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
   KernelError,
 } from '@cardstock/types';
 import { isKernelReady, type KernelMethod, type KernelResponse } from './protocol.js';
@@ -134,6 +135,14 @@ export class WorkerKernel implements KernelPort {
   exportStl(shape: ShapeHandle, options?: { quality?: TessellationQuality; binary?: boolean }) {
     return this.#call<Uint8Array>('exportStl', shape, options);
   }
+  exportModel(shape: ShapeHandle, format: ExportFormat, options?: ExportOptions) {
+    return this.#call<ExportResult>('exportModel', shape, format, options);
+  }
+  meshStats(shape: ShapeHandle, quality: TessellationQuality) {
+    return this.#call<MeshStats>('meshStats', shape, quality);
+  }
+  importStep(text: string) { return this.#call<GeometryResult>('importStep', text); }
+  importStl(bytes: Uint8Array) { return this.#call<GeometryResult>('importStl', bytes); }
   release(shape: ShapeHandle) { return this.#call<void>('release', shape); }
 
   terminate(): void {

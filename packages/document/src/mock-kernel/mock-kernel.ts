@@ -2,6 +2,7 @@ import type {
   BooleanOp, Bounds, BoxSpec, CylinderSpec, GeometryResult, KernelPort, MassProperties,
   Matrix4, ShapeHandle, SphereSpec, TessellatedBody, TessellationQuality, TopologyCounts,
   BodyId, EntityFingerprint, ShapeDescription, ProfileSpec,
+  ExportFormat, ExportResult, MeshStats,
 } from '@cardstock/types';
 import { KernelError } from '@cardstock/types';
 
@@ -447,6 +448,29 @@ export class MockKernel implements KernelPort {
     const bytes = new Uint8Array(84);
     new DataView(bytes.buffer).setUint32(80, s.faces * 2, true);
     return bytes;
+  }
+
+  async exportModel(shape: ShapeHandle, format: ExportFormat): Promise<ExportResult> {
+    await this.#record('exportModel', `${format} ${this.describe(shape)}`);
+    const s = this.#require(shape, 'exportModel');
+    const triangles = format === 'step' ? 0 : s.faces * 2;
+    return { bytes: new Uint8Array(84 + triangles * 50), triangles };
+  }
+
+  async meshStats(shape: ShapeHandle): Promise<MeshStats> {
+    const s = this.#require(shape, 'meshStats');
+    return { triangles: s.faces * 2, vertices: s.vertices, watertight: true };
+  }
+
+  async importStep(text: string): Promise<GeometryResult> {
+    await this.#record('importStep', `${text.length} chars`);
+    if (!text.startsWith('ISO-10303-21')) throw new KernelError('not a STEP file', 'importStep');
+    return this.#create({ volume: 1000, faces: 6, edges: 12, vertices: 8, description: 'step' });
+  }
+
+  async importStl(bytes: Uint8Array): Promise<GeometryResult> {
+    await this.#record('importStl', `${bytes.length} bytes`);
+    return this.#create({ volume: 1000, faces: 12, edges: 18, vertices: 8, description: 'stl' });
   }
 
   async release(shape: ShapeHandle): Promise<void> {

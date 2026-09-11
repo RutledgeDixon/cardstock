@@ -19,7 +19,7 @@ import {
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
-  captureRefs, captureFaceRef, leafFeatures, rebuild, terminalFeature,
+  captureRefs, captureFaceRef, bodyFeatures, rebuild, terminalFeature,
   type RebuildReport,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
@@ -41,14 +41,6 @@ declare const __BUILD__: AboutInfo;
 const BUILD: AboutInfo = __BUILD__;
 
 /** Features whose output nothing else consumes — the things a boolean can combine. */
-function leafBodyCount(doc: Document): number {
-  const consumed = new Set<string>();
-  for (const feature of doc.features) {
-    for (const input of Object.values(feature.inputs)) consumed.add(input as string);
-  }
-  return doc.features.filter((f) => !consumed.has(f.id as string)).length;
-}
-
 /** Field labels, so the panel reads as dimensions rather than as variable names. */
 /**
  * Human labels for feature fields.
@@ -421,7 +413,7 @@ export function App() {
         // Every body on screen, not just the last one. A part built from several
         // sketches is several leaves, and exporting only the terminal feature writes a
         // file missing most of the part — with nothing to say so.
-        const bodies = leafFeatures(doc)
+        const bodies = bodyFeatures(doc)
           .map((id) => handles.get(id))
           .filter((h): h is string => h !== undefined);
         if (bodies.length === 0) { notify('Nothing to export', 'error'); return; }
@@ -692,7 +684,7 @@ export function App() {
       hoverKind: c.viewer.selection.hover?.kind ?? null,
       hasModel: c.viewer.bodies.size > 0,
       featureCount: c.doc.features.length,
-      bodyCount: leafBodyCount(c.doc),
+      bodyCount: bodyFeatures(c.doc).length,
       canUndo: c.doc.canUndo,
       canRedo: c.doc.canRedo,
       busy: c.busy,
@@ -737,12 +729,26 @@ export function App() {
   const rows: FeatureRow[] = useMemo(() => {
     if (!doc) return [];
     const states = core.current?.doc.engine.lastStates;
+    // Indented under what each feature was built FROM: an extrude under its sketch, a
+    // fillet under the extrude. The list stays in history order — that is what reorder
+    // acts on — so the indent is the only thing that says which chain a row belongs to.
+    // Optional inputs (a sketch naming the face it sits on) do not count: the sketch
+    // starts a new object, and nesting it under the plate would say they are one body
+    // when Combine, correctly, says they are not.
+    const depths = new Map<string, number>();
+    for (const feature of doc.features) {
+      const definition = doc.registry.get(feature.type);
+      const role = definition?.primaryInput ?? definition?.shapeInputs[0];
+      const parent = role ? feature.inputs[role] : undefined;
+      depths.set(feature.id, parent && depths.has(parent) ? depths.get(parent)! + 1 : 0);
+    }
     return doc.features.map((feature) => {
       const featureState = states?.get(feature.id);
       return {
         id: feature.id,
         name: feature.name,
         type: feature.type,
+        depth: depths.get(feature.id) ?? 0,
         status: featureState?.status ?? 'blocked',
         ...(featureState?.message ? { message: featureState.message } : {}),
       };

@@ -4,8 +4,13 @@ import {
   type KernelPort, type MassProperties, type Matrix4, type ShapeHandle, type SphereSpec,
   type TessellatedBody, type TessellationQuality, type TopologyCounts, type BodyId,
   type ShapeDescription, type ProfileSpec, type Vec3,
+  type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
   KernelError, EXPORT_QUALITY,
 } from '@cardstock/types';
+import {
+  weld, triangleCount, isWatertight, encodeStlBinary, encodeStlAscii, encodeObj, encode3mf,
+  type ExportMesh,
+} from '../export/index.js';
 import { ShapeRegistry } from './registry.js';
 import { asWire, subShapes } from './topology.js';
 import { captureHistory } from './history.js';
@@ -586,12 +591,139 @@ export class OcctKernel implements KernelPort {
     return bytes;
   }
 
+  /** The welded export mesh of a shape at a quality. */
+  #exportMesh(input: TopoDS_Shape, quality: TessellationQuality): ExportMesh {
+    const body = tessellate(this.oc, input, 'export' as BodyId, quality);
+    return weld(body.positions, body.indices);
+  }
+
+  async exportModel(
+    shape: ShapeHandle, format: ExportFormat, options: ExportOptions = {},
+  ): Promise<ExportResult> {
+    const input = this.registry.get(shape);
+    const name = options.name ?? 'part';
+    if (format === 'step') return { bytes: this.#writeStep(input), triangles: 0 };
+
+    const mesh = this.#exportMesh(input, options.quality ?? EXPORT_QUALITY);
+    const triangles = triangleCount(mesh);
+    if (triangles === 0) throw new KernelError('the shape has no surface to export', 'exportModel');
+    const bytes = format === 'stl' ? encodeStlBinary(mesh, name)
+      : format === 'stl-ascii' ? encodeStlAscii(mesh, name)
+      : format === 'obj' ? encodeObj(mesh, name)
+      : encode3mf(mesh, name);
+    return { bytes, triangles };
+  }
+
+  async meshStats(shape: ShapeHandle, quality: TessellationQuality): Promise<MeshStats> {
+    const mesh = this.#exportMesh(this.registry.get(shape), quality);
+    return {
+      triangles: triangleCount(mesh),
+      vertices: mesh.positions.length / 3,
+      watertight: isWatertight(mesh),
+    };
+  }
+
+  #writeStep(input: TopoDS_Shape): Uint8Array {
+    const oc = this.oc;
+    const writer = new oc.STEPControl_Writer();
+    const done = oc.IFSelect_ReturnStatus.IFSelect_RetDone;
+    const status = writer.Transfer(
+      input, oc.STEPControl_StepModelType.STEPControl_AsIs, true, new oc.Message_ProgressRange(),
+    );
+    if (status !== done) throw new KernelError('OpenCascade could not translate the shape to STEP', 'exportModel');
+    const path = this.#scratchPath('step');
+    if (writer.Write(path) !== done) throw new KernelError('OpenCascade refused to write the STEP', 'exportModel');
+    const bytes = oc.FS.readFile(path, { encoding: 'binary' }) as Uint8Array;
+    oc.FS.unlink(path);
+    writer.delete();
+    return bytes;
+  }
+
+  #scratchPath(extension: string) {
+    return `/scratch-${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+  }
+
+  async importStep(text: string): Promise<GeometryResult> {
+    const oc = this.oc;
+    const path = this.#scratchPath('step');
+    oc.FS.writeFile(path, text);
+    const reader = new oc.STEPControl_Reader();
+    try {
+      if (reader.ReadFile(path) !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+        throw new KernelError('this is not a STEP file OpenCascade can read', 'importStep');
+      }
+      if (reader.TransferRoots(new oc.Message_ProgressRange()) === 0) {
+        throw new KernelError('the STEP file contains no shapes', 'importStep');
+      }
+      const shape = reader.OneShape();
+      if (shape.IsNull()) throw new KernelError('the STEP file produced no geometry', 'importStep');
+      return { handle: this.#wrap(shape) };
+    } finally {
+      oc.FS.unlink(path);
+      reader.delete();
+    }
+  }
+
+  async importStl(bytes: Uint8Array): Promise<GeometryResult> {
+    const oc = this.oc;
+    const facets = stlTriangleCount(bytes);
+    if (facets > STL_IMPORT_LIMIT) {
+      throw new KernelError(
+        `this STL has ${facets.toLocaleString()} triangles; sewing more than `
+        + `${STL_IMPORT_LIMIT.toLocaleString()} into a solid would take minutes`,
+        'importStl',
+      );
+    }
+    const path = this.#scratchPath('stl');
+    oc.FS.writeFile(path, bytes);
+    try {
+      const faces = new oc.TopoDS_Shape();
+      if (!new oc.StlAPI_Reader().Read(faces, path)) {
+        throw new KernelError('this is not an STL file OpenCascade can read', 'importStl');
+      }
+      // Each triangle came back as its own face. Sew them into one shell, then close it
+      // into a solid so booleans and mass properties mean something.
+      const sewing = new oc.BRepBuilderAPI_Sewing(1e-4, true, true, true, false);
+      sewing.Add(faces);
+      sewing.Perform(new oc.Message_ProgressRange());
+      const sewn = sewing.SewedShape();
+      if (sewn.IsNull()) throw new KernelError('the STL could not be sewn into a surface', 'importStl');
+      const shells = subShapes(oc, sewn, 'TopAbs_SHELL');
+      if (shells.length === 0) throw new KernelError('the STL has no closed surface', 'importStl');
+      const builder = new oc.BRepBuilderAPI_MakeSolid();
+      for (const shell of shells) builder.Add(oc.TopoDS.Shell(shell));
+      const solid = this.#build(builder, 'importStl');
+      // A mesh wound inside-out sews into a solid with negative volume; fix orientation.
+      const fixer = new oc.ShapeFix_Solid(oc.TopoDS.Solid(solid));
+      fixer.Perform(new oc.Message_ProgressRange());
+      return { handle: this.#wrap(fixer.Shape()) };
+    } finally {
+      oc.FS.unlink(path);
+    }
+  }
+
   async release(shape: ShapeHandle): Promise<void> {
     this.registry.release(shape);
   }
 
   /** Free every shape. Call when tearing down a document. */
   dispose(): void { this.registry.clear(); }
+}
+
+/** Sewing is quadratic-ish in practice; past this a solid is not worth waiting for. */
+const STL_IMPORT_LIMIT = 50_000;
+
+/** Triangle count from the header (binary) or by counting facets (ASCII). */
+function stlTriangleCount(bytes: Uint8Array): number {
+  const head = new TextDecoder().decode(bytes.subarray(0, 5));
+  if (bytes.length >= 84) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const count = view.getUint32(80, true);
+    // Binary if the size matches the count; ASCII files starting "solid" would not.
+    if (84 + count * 50 === bytes.length) return count;
+  }
+  if (head !== 'solid') return 0;
+  return (new TextDecoder().decode(bytes).match(/facet normal/g) ?? []).length;
 }
 
 /** Outward normal of the first planar face of a shape, or null if it has none. */

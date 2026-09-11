@@ -81,3 +81,82 @@ describe('quality is not poisoned by an earlier tessellation', () => {
     expect(view.getUint32(80, true)).toBeGreaterThan(200);
   });
 });
+
+describe('export formats', () => {
+  it('every mesh format agrees on the triangle count and STEP has none', async () => {
+    const { handle } = await kernel.makeBox({ dx: 40, dy: 30, dz: 20 });
+    const stl = await kernel.exportModel(handle, 'stl');
+    const obj = await kernel.exportModel(handle, 'obj');
+    const mf = await kernel.exportModel(handle, '3mf');
+    const step = await kernel.exportModel(handle, 'step');
+    expect(stl.triangles).toBe(12);
+    expect(obj.triangles).toBe(12);
+    expect(mf.triangles).toBe(12);
+    expect(step.triangles).toBe(0);
+    expect(new TextDecoder().decode(step.bytes.subarray(0, 12))).toBe('ISO-10303-21');
+  });
+
+  it('mesh stats track quality and report a solid as watertight', async () => {
+    const { handle } = await kernel.makeCylinder({ radius: 10, height: 20 });
+    const fine = await kernel.meshStats(handle, { linearDeflection: 0.01, angularDeflection: 0.1 });
+    const coarse = await kernel.meshStats(handle, { linearDeflection: 1, angularDeflection: 1 });
+    expect(fine.triangles).toBeGreaterThan(coarse.triangles);
+    expect(fine.watertight).toBe(true);
+    expect(coarse.watertight).toBe(true);
+  });
+
+  it('a cut part exports watertight in every mesh format', async () => {
+    const base = await kernel.makeBox({ dx: 40, dy: 30, dz: 20 });
+    const drill = await kernel.makeCylinder({ radius: 6, height: 40, origin: { x: 20, y: 15, z: -10 } });
+    const cut = await kernel.boolean('cut', base.handle, drill.handle);
+    const stats = await kernel.meshStats(cut.handle, { linearDeflection: 0.05, angularDeflection: 0.3 });
+    expect(stats.watertight).toBe(true);
+    expect(stats.triangles).toBeGreaterThan(12);
+  });
+});
+
+describe('import', () => {
+  it('STEP round-trips a solid with its volume intact', async () => {
+    const base = await kernel.makeBox({ dx: 40, dy: 30, dz: 20 });
+    const drill = await kernel.makeCylinder({ radius: 6, height: 40, origin: { x: 20, y: 15, z: -10 } });
+    const cut = await kernel.boolean('cut', base.handle, drill.handle);
+    const before = await kernel.massProperties(cut.handle);
+    const step = await kernel.exportModel(cut.handle, 'step');
+
+    const imported = await kernel.importStep(new TextDecoder().decode(step.bytes));
+    const after = await kernel.massProperties(imported.handle);
+    expect(after.volume).toBeCloseTo(before.volume, 3);
+    expect((await kernel.topologyCounts(imported.handle)).faces).toBe(
+      (await kernel.topologyCounts(cut.handle)).faces,
+    );
+  });
+
+  it('refuses text that is not STEP', async () => {
+    await expect(kernel.importStep('hello')).rejects.toThrow(/not a STEP file/);
+  });
+
+  it('STL becomes a solid with the right volume', async () => {
+    const { handle } = await kernel.makeBox({ dx: 10, dy: 20, dz: 30 });
+    const stl = await kernel.exportModel(handle, 'stl');
+    const imported = await kernel.importStl(stl.bytes);
+    const props = await kernel.massProperties(imported.handle);
+    expect(props.volume).toBeCloseTo(6000, 3);
+    expect((await kernel.topologyCounts(imported.handle)).faces).toBe(12);
+  });
+
+  it('a curved STL imports as a solid too', async () => {
+    const { handle } = await kernel.makeCylinder({ radius: 10, height: 20 });
+    const stl = await kernel.exportModel(handle, 'stl', { quality: { linearDeflection: 0.5, angularDeflection: 0.5 } });
+    const imported = await kernel.importStl(stl.bytes);
+    const props = await kernel.massProperties(imported.handle);
+    // A faceted cylinder is a little under the true volume; well within 5%.
+    expect(props.volume).toBeGreaterThan(Math.PI * 100 * 20 * 0.95);
+    expect(props.volume).toBeLessThan(Math.PI * 100 * 20 * 1.001);
+  });
+
+  it('refuses an STL too big to sew', async () => {
+    const bytes = new Uint8Array(84 + 50 * 60_000);
+    new DataView(bytes.buffer).setUint32(80, 60_000, true);
+    await expect(kernel.importStl(bytes)).rejects.toThrow(/60,000 triangles/);
+  });
+});

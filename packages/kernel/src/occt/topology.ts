@@ -9,7 +9,7 @@ import type { OpenCascadeInstance, TopoDS_Shape } from 'replicad-opencascadejs';
  */
 
 export type ShapeKind =
-  | 'TopAbs_FACE' | 'TopAbs_EDGE' | 'TopAbs_VERTEX' | 'TopAbs_SOLID' | 'TopAbs_WIRE';
+  | 'TopAbs_FACE' | 'TopAbs_EDGE' | 'TopAbs_VERTEX' | 'TopAbs_SOLID' | 'TopAbs_WIRE' | 'TopAbs_SHELL';
 
 /**
  * Unique sub-shapes in deterministic traversal order.

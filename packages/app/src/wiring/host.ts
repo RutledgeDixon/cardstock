@@ -1,7 +1,7 @@
 import { asFeatureId, type EntityRef, type FeatureId } from '@cardstock/types';
 import type { Document, TopoRef } from '@cardstock/document';
 import type { Viewer } from '@cardstock/viewer';
-import { leafFeatures as bodyLeaves } from './model-bridge.js';
+import { bodyFeatures as bodyLeaves } from './model-bridge.js';
 import type { CommandHost, CommandState } from '@cardstock/commands';
 
 /**

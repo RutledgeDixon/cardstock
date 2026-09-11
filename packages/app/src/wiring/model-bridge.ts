@@ -51,6 +51,17 @@ export function leafFeatures(doc: Document): FeatureId[] {
     : doc.features.slice(-1).map((f) => f.id);
 }
 
+/**
+ * The leaves that are solids.
+ *
+ * A sketch nobody has extruded yet is a leaf too, but it is a face, not a body: it
+ * cannot be combined, and exporting it writes a zero-thickness surface into the STL.
+ * Anything that counts or exports bodies wants this list, not `leafFeatures`.
+ */
+export function bodyFeatures(doc: Document): FeatureId[] {
+  return leafFeatures(doc).filter((id) => doc.feature(id)?.type !== 'sketch');
+}
+
 /** The body a new operation should default to acting on: the most recent leaf. */
 export function terminalFeature(doc: Document): FeatureId | null {
   return leafFeatures(doc).at(-1) ?? null;

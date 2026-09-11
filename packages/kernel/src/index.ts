@@ -14,3 +14,7 @@ export { PlaneGcsSolver, loadSolver } from './solver/planegcs.js';
 export {
   isKernelReady, type KernelMethod, type KernelReady, type KernelRequest, type KernelResponse,
 } from './rpc/protocol.js';
+export {
+  weld, triangleCount, signedVolume, isWatertight, encodeStlBinary, encodeStlAscii, encodeObj,
+  encode3mf, zipStore, zipEntryNames, type ExportMesh,
+} from './export/index.js';

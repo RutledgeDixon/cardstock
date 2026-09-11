@@ -11,6 +11,8 @@ export interface FeatureRow {
   readonly id: FeatureId;
   readonly name: string;
   readonly type: string;
+  /** How many features deep this one's origin chain goes; drives the indent. */
+  readonly depth?: number;
   readonly status: 'ok' | 'error' | 'blocked' | 'suppressed';
   readonly message?: string;
 }
@@ -48,7 +50,9 @@ export function FeatureTree({
               onContextMenu(row.id, { x: e.clientX, y: e.clientY });
             }}
             title={row.message ?? `${row.type}`}
+            style={{ paddingLeft: 4 + (row.depth ?? 0) * 14 }}
           >
+            {(row.depth ?? 0) > 0 && <span className="tree-branch" aria-hidden="true">└</span>}
             <span className="tree-status" aria-hidden="true">
               {row.status === 'ok' ? '●'
                 : row.status === 'suppressed' ? '○'

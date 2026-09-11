@@ -246,9 +246,67 @@ export interface KernelPort {
     options?: { quality?: TessellationQuality; binary?: boolean },
   ): Promise<Uint8Array>;
 
+  /**
+   * Encode a shape for another program.
+   *
+   * Mesh formats re-tessellate at the quality given — export quality by default, never
+   * the display mesh — and weld the result so it is closed as a mesh, not just as
+   * geometry. STEP writes the B-rep itself and ignores quality.
+   */
+  exportModel(
+    shape: ShapeHandle,
+    format: ExportFormat,
+    options?: ExportOptions,
+  ): Promise<ExportResult>;
+
+  /** What a mesh export at this quality would contain, without writing it. */
+  meshStats(shape: ShapeHandle, quality: TessellationQuality): Promise<MeshStats>;
+
+  /** Read a STEP file's contents into a shape. Units are converted to millimetres. */
+  importStep(text: string): Promise<GeometryResult>;
+  /**
+   * Read an STL into a solid.
+   *
+   * Every triangle becomes a face and the faces are sewn into a shell, so a large mesh
+   * is slow and a huge one is refused; STL is imported to model against, not to edit.
+   */
+  importStl(bytes: Uint8Array): Promise<GeometryResult>;
+
   /** Drop a handle. The kernel refcounts; the document releases what it evicts. */
   release(shape: ShapeHandle): Promise<void>;
 }
+
+export type ExportFormat = 'stl' | 'stl-ascii' | '3mf' | 'obj' | 'step';
+
+export interface ExportOptions {
+  readonly quality?: TessellationQuality;
+  /** Object name written into formats that carry one. */
+  readonly name?: string;
+}
+
+export interface ExportResult {
+  readonly bytes: Uint8Array;
+  /** Triangles written; 0 for STEP, which has none. */
+  readonly triangles: number;
+}
+
+export interface MeshStats {
+  readonly triangles: number;
+  readonly vertices: number;
+  /** Closed and consistently wound — what a slicer checks before anything else. */
+  readonly watertight: boolean;
+}
+
+/** File extension and MIME type per export format, for whoever writes the file. */
+export const EXPORT_FORMATS: Readonly<Record<ExportFormat, {
+  readonly label: string; readonly extension: string; readonly mime: string; readonly mesh: boolean;
+}>> = {
+  'stl': { label: 'STL (binary)', extension: '.stl', mime: 'model/stl', mesh: true },
+  'stl-ascii': { label: 'STL (ASCII)', extension: '.stl', mime: 'model/stl', mesh: true },
+  '3mf': { label: '3MF', extension: '.3mf', mime: 'model/3mf', mesh: true },
+  'obj': { label: 'OBJ', extension: '.obj', mime: 'model/obj', mesh: true },
+  'step': { label: 'STEP', extension: '.step', mime: 'model/step', mesh: false },
+};
 
 /** Thrown by a kernel implementation when an operation fails on valid-looking input. */
 export class KernelError extends Error {
