@@ -425,7 +425,9 @@ kbd {
   display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center;
   padding: 2px 4px; border-radius: 4px; font-size: 11px;
 }
-.constraint:hover { background: #262c36; }
+.constraint:hover { background: #262c36; cursor: default; }
+.constraint.is-related { background: #23304a; }
+.constraint.is-related .constraint-type { color: var(--accent); }
 .constraint-type { color: var(--ink); }
 .constraint-entities { color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .constraint-value { color: var(--dim); font-style: italic; }

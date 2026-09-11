@@ -515,6 +515,8 @@ export function App() {
         sessionRef.current?.close();
         const session = SketchSession.open(doc, viewer, plane);
         sessionRef.current = session;
+        // The panel shows the sketch being edited — its constraints, above all.
+        setFocused(session.featureId);
         session.alignCamera();
         // Selecting the body underneath while drawing on top of it is only confusing.
         viewer.selection.clear();
@@ -554,6 +556,7 @@ export function App() {
         sessionRef.current?.close();
         const session = SketchSession.onFace(doc, viewer, ref, placement, base);
         sessionRef.current = session;
+        setFocused(session.featureId);
         session.alignCamera();
         viewer.selection.clear();
         session.setTool('line');
@@ -589,6 +592,7 @@ export function App() {
         const session = SketchSession.reopen(doc, viewer, id, placement);
         if (!session) return false;
         sessionRef.current = session;
+        setFocused(session.featureId);
         session.alignCamera();
         viewer.selection.clear();
         session.setTool('select');
@@ -1124,7 +1128,15 @@ export function App() {
               footer: (
                 <SketchConstraints
                   sketch={doc.sketchFor(focusedFeature.id) ?? null}
-                  revision={doc.revision + (sketchInfo?.dof ?? 0)}
+                  revision={doc.revision + (sketchInfo?.dof ?? 0) * 1000 + (sketchInfo?.selected ?? 0)}
+                  selected={sessionRef.current?.featureId === focusedFeature.id ? sessionRef.current.selected : null}
+                  onPick={(ids) => {
+                    const session = sessionRef.current;
+                    if (!session || session.featureId !== focusedFeature.id) return;
+                    session.toggleSelection(null, false);
+                    for (const id of ids) session.toggleSelection(id, true);
+                    syncSketchFromApp();
+                  }}
                   onRemove={(constraintId) => {
                     const sketch = doc.sketchFor(focusedFeature.id);
                     if (!sketch) return;
@@ -1590,40 +1602,78 @@ const CONSTRAINT_LABELS: Record<string, string> = {
  * it has: what pins the sketch down. A constraint you cannot see is one you cannot
  * remove when it is the reason the sketch will not move.
  */
-function SketchConstraints({ sketch, onRemove }: {
+function SketchConstraints({ sketch, selected, onPick, onRemove }: {
   sketch: Sketch | null;
   /** Any change to this re-renders; the sketch itself is mutable and not React state. */
   revision: number;
+  /** Entities selected in the open sketch, when this sketch is the one being edited. */
+  selected: ReadonlySet<string> | null;
+  /** Select the entities a constraint ties, to see what it holds. */
+  onPick: (ids: string[]) => void;
   onRemove: (constraintId: string) => void;
 }) {
   if (!sketch) return null;
-  const constraints = sketch.constraints;
-  const entities = (c: Record<string, unknown>) =>
+  const idsOf = (c: Record<string, unknown>) =>
     ['a', 'b', 'point', 'line', 'entity', 'circle']
-      .map((k) => c[k]).filter((v): v is string => typeof v === 'string').join(' · ');
+      .map((k) => c[k]).filter((v): v is string => typeof v === 'string');
+  // A line's constraints are also its endpoints' concern: selecting a vertex should
+  // show the horizontal on the line it ends, since that is what stops it moving.
+  const touches = (ids: string[]) => {
+    if (!selected || selected.size === 0) return false;
+    if (ids.some((id) => selected.has(id))) return true;
+    return ids.some((id) => {
+      const e = sketch.entity(id);
+      return e?.type === 'line' && (selected.has(e.p1) || selected.has(e.p2));
+    });
+  };
+  const all = sketch.constraints.map((c) => ({ c, ids: idsOf(c as unknown as Record<string, unknown>) }));
+  const related = all.filter(({ ids }) => touches(ids));
+  const rest = all.filter((x) => !related.includes(x));
+  const row = ({ c, ids }: (typeof all)[number], isRelated: boolean) => {
+    const raw = c as unknown as Record<string, unknown>;
+    const value = raw.value;
+    const reference = raw.reference === true;
+    return (
+      <div
+        key={c.id}
+        className={`constraint${reference ? ' is-reference' : ''}${isRelated ? ' is-related' : ''}`}
+        data-constraint={c.id}
+        title="Click to select what this constraint ties"
+        onClick={() => onPick(ids)}
+      >
+        <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
+        <span className="constraint-entities">{ids.join(' · ')}</span>
+        {value !== undefined && (
+          <span className={`constraint-value${reference ? '' : ' is-driving'}`}>
+            {String(value)}{reference ? ' (ref)' : ''}
+          </span>
+        )}
+        <button
+          type="button"
+          className="constraint-remove"
+          title="Remove this constraint"
+          onClick={(e) => { e.stopPropagation(); onRemove(c.id); }}
+        >×</button>
+      </div>
+    );
+  };
   return (
     <div className="constraints">
-      <div className="panel-section-title">
-        Constraints <span className="about-dim">· {constraints.length}</span>
-      </div>
-      {constraints.length === 0 && <div className="about-dim constraint-empty">None yet — the sketch is free to move</div>}
-      {constraints.map((c) => {
-        const raw = c as unknown as Record<string, unknown>;
-        const value = raw.value;
-        const reference = raw.reference === true;
-        return (
-          <div key={c.id} className={`constraint${reference ? ' is-reference' : ''}`} data-constraint={c.id}>
-            <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
-            <span className="constraint-entities">{entities(raw)}</span>
-            {value !== undefined && (
-              <span className={`constraint-value${reference ? '' : ' is-driving'}`}>
-                {String(value)}{reference ? ' (ref)' : ''}
-              </span>
-            )}
-            <button type="button" className="constraint-remove" title="Remove this constraint" onClick={() => onRemove(c.id)}>×</button>
+      {selected && selected.size > 0 && (
+        <>
+          <div className="panel-section-title">
+            On the selection <span className="about-dim">· {related.length}</span>
           </div>
-        );
-      })}
+          {related.length === 0 && <div className="about-dim constraint-empty">Nothing holds it — it is free to move</div>}
+          {related.map((x) => row(x, true))}
+        </>
+      )}
+      <div className="panel-section-title">
+        {selected && selected.size > 0 ? 'Other constraints' : 'Constraints'}
+        <span className="about-dim"> · {rest.length}</span>
+      </div>
+      {all.length === 0 && <div className="about-dim constraint-empty">None yet — the sketch is free to move</div>}
+      {rest.map((x) => row(x, false))}
     </div>
   );
 }
