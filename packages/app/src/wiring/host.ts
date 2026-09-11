@@ -40,6 +40,7 @@ export interface HostDeps {
   saveDocumentAs: () => Promise<void>;
   openPalette: () => void;
   openAbout: () => void;
+  openKeys: () => void;
   openPanel: (id: FeatureId) => void;
   notify: (message: string, kind?: 'info' | 'error') => void;
   focused: () => FeatureId | null;
@@ -435,6 +436,7 @@ export function createHost(deps: HostDeps): CommandHost {
     sketchConstraintBlocker: (type) => deps.sketchConstraintBlocker(type),
     openPalette: () => deps.openPalette(),
     openAbout: () => deps.openAbout(),
+    openKeys: () => deps.openKeys(),
     openPanel: (id) => deps.openPanel(id),
     notify: (message, kind) => deps.notify(message, kind),
   };

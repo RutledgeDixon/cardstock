@@ -13,3 +13,4 @@ export {
 } from './export/ExportDialog.js';
 export { PrinterDialog, type PrinterFields } from './print/PrinterDialog.js';
 export { OrientationDialog, describeDown, type OrientationRow } from './print/OrientationDialog.js';
+export { KeysDialog, CAMERA_KEYS, type KeyBinding } from './help/KeysDialog.js';

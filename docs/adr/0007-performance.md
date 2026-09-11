@@ -84,3 +84,14 @@ told apart from a stall when it does happen.
 
 The heap size is deliberately not reported: this OCCT build exposes neither `HEAP8` nor
 `wasmMemory` on the module, and a number that is always zero is worse than no number.
+
+## Amendment: unchanged bodies are not re-meshed
+
+Every rebuild used to tessellate every leaf body, whether or not its geometry had
+changed — and on a part with several bodies, meshing the ones that did not change was
+the largest cost of an edit to the one that did. The bridge now remembers which kernel
+handle each on-screen body was meshed from; a leaf whose handle is unchanged keeps its
+mesh. Handles are never reused by the kernel, so `(body, handle)` identifies a mesh
+exactly, and a handle that was later evicted still names the right mesh: the display
+mesh does not need the shape alive. Measured in the browser: editing the plate beside
+an untouched disc leaves the disc's `BodyView` the same object.

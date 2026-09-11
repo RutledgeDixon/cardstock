@@ -7,3 +7,4 @@ coverage/
 .vite/
 tools/spikes/**/out/
 *.local
+packages/app/public/__smoke.js

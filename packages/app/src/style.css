@@ -403,3 +403,16 @@ kbd {
 .orient-table .about-close { padding: 3px 9px; margin: 0; }
 .status-print { color: var(--danger); }
 .export-link { background: none; color: var(--accent); font-size: 10px; margin-left: 8px; padding: 0; text-decoration: underline; }
+
+/* ---------------------------------------------------------------- keys */
+.keys { width: min(720px, 94vw); max-height: 88vh; overflow: auto; }
+.keys-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.keys-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.keys-table td { padding: 3px 6px 3px 0; vertical-align: top; border-bottom: 1px solid #23282f; }
+.keys-chords { white-space: nowrap; width: 1%; }
+.keys kbd {
+  display: inline-block; margin-right: 4px; padding: 1px 6px; border-radius: 4px;
+  background: #12151a; border: 1px solid var(--panel-edge); color: var(--ink);
+  font: inherit; font-size: 10.5px;
+}
+@media (max-width: 640px) { .keys-columns { grid-template-columns: 1fr; } }

@@ -94,6 +94,8 @@ export interface CommandHost {
   openPalette(): void;
   /** Show the about dialog: what the name means, and which build this is. */
   openAbout(): void;
+  /** The keys page: camera keys and every command chord. */
+  openKeys(): void;
   openPanel(feature: FeatureId): void;
   notify(message: string, kind?: 'info' | 'error'): void;
 }

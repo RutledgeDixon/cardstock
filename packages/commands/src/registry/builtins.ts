@@ -818,6 +818,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: () => host.openAbout(),
     },
     {
+      id: 'app.keys',
+      title: 'Keys',
+      hint: 'Every key the app answers to',
+      icon: '⌨',
+      contexts: ['always'],
+      // '?' arrives as shift+? — the chord carries the modifier that produced it.
+      keys: ['shift+?', 'f1'],
+      enabled: () => true,
+      run: () => host.openKeys(),
+    },
+    {
       id: 'app.palette',
       title: 'Command palette',
       hint: 'Search every command',

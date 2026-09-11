@@ -17,6 +17,8 @@ export interface RebuildReport {
   /** One per independent body currently on screen. */
   readonly bodies: readonly TessellatedBody[];
   readonly errors: readonly string[];
+  /** Bodies left on screen as they were, because their geometry did not change. */
+  readonly reusedMeshes: number;
   /**
    * This run was superseded and stopped early; its bodies mean nothing.
    *
@@ -137,20 +139,35 @@ export async function rebuild(
   }
 
   if (result.cancelled) {
-    return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true };
+    return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true, reusedMeshes: 0 };
   }
 
   // Tessellate EVERY leaf, each under its own feature id. Reusing one body id would make
   // each new shape replace the last, which is what made a second primitive appear to do
   // nothing at all.
+  //
+  // But not every leaf every time: a body whose handle has not changed since it was
+  // last meshed is already on screen, and meshing it again is the largest cost of a
+  // rebuild that touched something else. Handles are never reused by the kernel, so
+  // (body, handle) identifies a mesh exactly.
   const startedTessellate = performance.now();
   const bodies: TessellatedBody[] = [];
   const live = new Set<string>();
+  const meshed = meshedHandles(viewer);
+  let reusedMeshes = 0;
 
   for (const id of leafFeatures(doc)) {
     if (hide && id === hide) continue;
     const handle = result.states.get(id)?.handle;
     if (!handle) continue;
+
+    const existing = viewer.bodies.get(id as string);
+    if (existing && meshed.get(id as string) === handle) {
+      bodies.push(existing.data);
+      live.add(id as string);
+      reusedMeshes++;
+      continue;
+    }
 
     // Bail if a newer rebuild has started. Tessellation happens OUTSIDE the document's
     // recompute, so a superseded run could still reach for a handle the newer run's
@@ -158,21 +175,30 @@ export async function rebuild(
     // and the app sat on "rebuilding…" for good. Checked per body, because tessellating
     // a large part takes long enough for a newer edit to land mid-loop.
     if (superseded?.()) {
-      return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true };
+      return { result, rebuildMs, tessellateMs: 0, bodies: [], errors, abandoned: true, reusedMeshes };
     }
 
     const body = await kernel.tessellate(handle, id as unknown as BodyId, DISPLAY_QUALITY);
     bodies.push(body);
     live.add(id as string);
     viewer.setBody(body);
+    meshed.set(id as string, handle);
   }
   const tessellateMs = performance.now() - startedTessellate;
 
   // Drop bodies whose feature is gone or no longer a leaf — otherwise a cut leaves its
   // two inputs on screen, overlapping the result.
   for (const bodyId of [...viewer.bodies.keys()]) {
-    if (!live.has(bodyId)) viewer.removeBody(bodyId);
+    if (!live.has(bodyId)) { viewer.removeBody(bodyId); meshed.delete(bodyId); }
   }
 
-  return { result, rebuildMs, tessellateMs, bodies, errors, abandoned: false };
+  return { result, rebuildMs, tessellateMs, bodies, errors, abandoned: false, reusedMeshes };
+}
+
+/** Which kernel handle each on-screen body was meshed from, per viewer. */
+const MESHED = new WeakMap<Viewer, Map<string, string>>();
+function meshedHandles(viewer: Viewer): Map<string, string> {
+  let map = MESHED.get(viewer);
+  if (!map) { map = new Map(); MESHED.set(viewer, map); }
+  return map;
 }

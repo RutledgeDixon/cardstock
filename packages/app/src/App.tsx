@@ -15,7 +15,7 @@ import {
 } from '@cardstock/commands';
 import {
   AboutDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
-  Submenu, Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown,
+  Submenu, Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown, KeysDialog,
   type AboutInfo, type ExportQuality, type ExportStats, type OrientationRow,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
@@ -147,6 +147,7 @@ export function App() {
   const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
   /**
    * Export settings outlive the dialog: a quality chosen once should still be there
    * on the next export. Degrees in the dialog, radians at the kernel.
@@ -507,6 +508,7 @@ export function App() {
       },
       openPalette: () => setPaletteOpen(true),
       openAbout: () => setAboutOpen(true),
+      openKeys: () => setKeysOpen(true),
       openPanel: (id) => setFocused(id),
       notify,
       beginSketch: async (plane) => {
@@ -1206,6 +1208,18 @@ export function App() {
 
       {aboutOpen && (
         <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
+      )}
+
+      {keysOpen && registry && (
+        <KeysDialog
+          commands={registry.all()
+            .filter((c) => c.keys && c.keys.length > 0)
+            .map((c) => ({
+              keys: (c.keys ?? []).map((k) => (k === 'shift+?' ? '?' : k)),
+              title: c.title, ...(c.hint ? { hint: c.hint } : {}),
+            }))}
+          onClose={() => setKeysOpen(false)}
+        />
       )}
 
       {printerOpen && (

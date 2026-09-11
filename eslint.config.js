@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'tools/spikes/browser/**', 'fixtures/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'tools/spikes/browser/**', 'fixtures/**', 'packages/app/public/__smoke.js', 'packages/app/src-tauri/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
