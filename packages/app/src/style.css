@@ -427,6 +427,8 @@ kbd {
 }
 .constraint:hover { background: #262c36; cursor: default; }
 .constraint.is-related { background: #23304a; }
+.constraint.is-selected { outline: 1px solid var(--accent); background: #2b3444; }
+.constraint.is-flagged .constraint-type { color: var(--danger); }
 .constraint.is-related .constraint-type { color: var(--accent); }
 .constraint-type { color: var(--ink); }
 .constraint-entities { color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

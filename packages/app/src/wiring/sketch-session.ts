@@ -136,6 +136,10 @@ export class SketchSession {
     }
     if (ids.length !== 2) return 'Select two things to measure between';
     if (kinds.some((k) => k === 'arc' || k === undefined)) return 'Arcs cannot be dimensioned yet';
+    const [a, b] = ids.map((id) => this.sketch.entity(id)!);
+    const endOf = (point: SketchGeometry, line: SketchGeometry) =>
+      point.type === 'point' && line.type === 'line' && (line.p1 === point.id || line.p2 === point.id);
+    if (endOf(a!, b!) || endOf(b!, a!)) return 'That point is already an end of that line';
     return null;
   }
 
@@ -174,6 +178,8 @@ export class SketchSession {
       return this.#addDimension({ type: 'distance', a: p.id, b: q.id, value: round(distance2(p, q)) });
     }
     if (p.type === 'point' && q.type === 'line') {
+      // An endpoint is zero from its own line; the distance would be meaningless.
+      if (q.p1 === p.id || q.p2 === p.id) return null;
       const line = lineOf(q);
       if (!line) return null;
       return this.#addDimension({

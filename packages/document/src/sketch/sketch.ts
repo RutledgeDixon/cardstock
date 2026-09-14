@@ -47,11 +47,16 @@ export class Sketch {
 
   /** Remaining degrees of freedom, or null before the first solve. */
   get dof(): number | null { return this.#lastSolve ? this.#lastSolve.dof : null; }
+  /** Constraints the last solve found to be saying nothing new, or contradicting others. */
+  get redundant(): readonly string[] { return this.#lastSolve?.redundant ?? []; }
+  get conflicting(): readonly string[] { return this.#lastSolve?.conflicting ?? []; }
 
   get status(): SketchStatus {
     const solve = this.#lastSolve;
     if (!solve) return 'unsolved';
-    if (solve.conflicting.length > 0 || solve.status === 'failed') return 'over-constrained';
+    if (solve.conflicting.length > 0 || solve.redundant.length > 0 || solve.dof < 0 || solve.status === 'failed') {
+      return 'over-constrained';
+    }
     return solve.dof === 0 ? 'fully-constrained' : 'under-constrained';
   }
 
@@ -168,8 +173,22 @@ export class Sketch {
    * solve, with a message about something that is no longer on screen.
    */
   remove(id: SketchEntityId): boolean {
-    const existed = this.#geometry.delete(id);
-    if (!existed) return this.#constraints.delete(id);
+    const removed = this.#geometry.get(id);
+    if (!removed) return this.#constraints.delete(id);
+    this.#geometry.delete(id);
+
+    // A point takes every curve built on it: a line with one end gone is not a line,
+    // and handing the solver one is what produced "-1 DOF" — it could not find the
+    // point, declared the sketch invalid, and reported nonsense.
+    if (removed.type === 'point') {
+      for (const entity of [...this.#geometry.values()]) {
+        const ends = entity.type === 'line' ? [entity.p1, entity.p2]
+          : entity.type === 'circle' ? [entity.centre]
+          : entity.type === 'arc' ? [entity.centre, entity.start, entity.end]
+          : [];
+        if (ends.includes(id)) this.remove(entity.id);
+      }
+    }
 
     // A line's points may be shared; only drop those nothing else uses.
     for (const [constraintId, constraint] of this.#constraints) {
@@ -271,8 +290,16 @@ export class Sketch {
       return typeof value !== 'string' && !(c as { reference?: boolean }).reference;
     });
 
+    // A drag pulls everything connected to the point along with it, as the initial
+    // guess. The solver then settles whatever is tied down back where it belongs — a
+    // rectangle pinned to the origin stretches exactly as before — but a shape that is
+    // constrained in itself and tied to nothing moves as a whole, instead of the
+    // solver quietly putting the one dragged point back because that was the smaller
+    // change.
+    const geometry = drag ? this.#carried(drag) : this.geometry;
+
     const result = await solver.solve({
-      geometry: this.geometry,
+      geometry,
       constraints: usable,
       parameters,
       ...(drag ? { drag } : {}),
@@ -280,6 +307,49 @@ export class Sketch {
     this.#lastSolve = result;
     if (result.status === 'solved' || result.status === 'converged') this.#applySolution(result);
     return result;
+  }
+
+  /** The geometry with the dragged point's connected component moved by the drag. */
+  #carried(drag: { point: SketchEntityId; x: number; y: number }): SketchGeometry[] {
+    const dragged = this.#geometry.get(drag.point);
+    if (dragged?.type !== 'point') return this.geometry;
+    const dx = drag.x - dragged.x, dy = drag.y - dragged.y;
+
+    // Connectivity: curves join their points; constraints join what they name.
+    const links = new Map<SketchEntityId, Set<SketchEntityId>>();
+    const join = (ids: SketchEntityId[]) => {
+      for (const a of ids) for (const b of ids) {
+        if (a === b) continue;
+        let set = links.get(a);
+        if (!set) { set = new Set(); links.set(a, set); }
+        set.add(b);
+      }
+    };
+    for (const e of this.#geometry.values()) {
+      if (e.type === 'line') join([e.id, e.p1, e.p2]);
+      else if (e.type === 'circle') join([e.id, e.centre]);
+      else if (e.type === 'arc') join([e.id, e.centre, e.start, e.end]);
+    }
+    for (const c of this.#constraints.values()) join(referencedIds(c));
+
+    const component = new Set<SketchEntityId>([drag.point]);
+    const queue = [drag.point];
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      const entity = this.#geometry.get(id);
+      // Anchors are reached but not crossed: what is tied to the origin is not
+      // thereby tied to everything else the origin touches.
+      if (entity?.type === 'point' && (entity.fixed || entity.external) && id !== drag.point) continue;
+      for (const next of links.get(id) ?? []) {
+        if (!component.has(next)) { component.add(next); queue.push(next); }
+      }
+    }
+
+    return this.geometry.map((e) => (
+      e.type === 'point' && component.has(e.id) && !e.fixed && !e.external
+        ? { ...e, x: e.x + dx, y: e.y + dy }
+        : e
+    ));
   }
 
   /** Write solved positions back, so the stored sketch matches what is on screen. */

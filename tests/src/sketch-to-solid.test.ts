@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { asFeatureId } from '@cardstock/types';
-import { Document } from '@cardstock/document';
+import { Document, Sketch, SketchTools, constraintFromSelection } from '@cardstock/document';
 import { PlaneGcsSolver, createOcctKernel, type OcctKernel } from '@cardstock/kernel';
 
 /**
@@ -252,5 +252,94 @@ describe('external references', () => {
     // Two construction lines make no profile: the sketch is empty, not a path.
     expect(state.status).toBe('error');
     expect(state.message).toMatch(/empty/);
+  });
+});
+
+describe('deleting and dragging', () => {
+  it('removing geometry removes every constraint on it, and DOF never goes negative', async () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    const tools = new SketchTools(sketch);
+    tools.setTool('rectangle');
+    tools.click({ x: 0, y: 0 });
+    tools.click({ x: 40, y: 25 });
+    tools.setTool('line');
+    tools.click({ x: 40, y: 25 });
+    tools.click({ x: 60, y: 25 });
+    tools.click({ x: 60, y: 0 });
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBeGreaterThanOrEqual(0);
+    const constraintsBefore = sketch.constraints.length;
+    expect(constraintsBefore).toBeGreaterThan(0);
+
+    // Delete a rectangle side, then one of its corners, then the spur's far point.
+    const side = sketch.geometry.find((e) => e.type === 'line' && !e.external)!;
+    sketch.remove(side.id);
+    for (const c of sketch.constraints) {
+      for (const id of Object.values(c as Record<string, unknown>)) {
+        if (typeof id === 'string' && id !== c.id && id !== c.type && sketch.entity(id) === undefined && /^[plcax]\d+$|^origin$/.test(id)) {
+          throw new Error(`constraint ${c.id} still names deleted ${id}`);
+        }
+      }
+    }
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBeGreaterThanOrEqual(0);
+    expect(sketch.status).not.toBe('over-constrained');
+
+    const corner = sketch.geometry.find((e) => e.type === 'point' && !e.fixed)!;
+    sketch.remove(corner.id);
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBeGreaterThanOrEqual(0);
+    // No line is left with a missing end.
+    for (const e of sketch.geometry) {
+      if (e.type === 'line') expect(sketch.entity(e.p1) && sketch.entity(e.p2)).toBeTruthy();
+    }
+    expect(sketch.redundant).toEqual([]);
+  });
+
+  it('a redundant constraint reads as over-constrained, never as a negative count', async () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    const a = sketch.addPoint(10, 0), b = sketch.addPoint(10, 10);
+    const l1 = sketch.addLine('origin', a), l2 = sketch.addLine(a, b);
+    sketch.addConstraint({ type: 'horizontal', line: l1 });
+    sketch.addConstraint({ type: 'vertical', line: l2 });
+    sketch.addConstraint({ type: 'perpendicular', a: l1, b: l2 }); // says nothing new
+    await sketch.solve(solver, {});
+    expect(sketch.status).toBe('over-constrained');
+    expect(sketch.redundant.length + sketch.conflicting.length).toBeGreaterThan(0);
+  });
+
+  it('a sketch constrained in itself but not tied down drags as a whole', async () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    const a = sketch.addPoint(10, 10), b = sketch.addPoint(50, 10), c = sketch.addPoint(50, 30), d = sketch.addPoint(10, 30);
+    const bottom = sketch.addLine(a, b), right = sketch.addLine(b, c), top = sketch.addLine(c, d), left = sketch.addLine(d, a);
+    sketch.addConstraint({ type: 'horizontal', line: bottom });
+    sketch.addConstraint({ type: 'horizontal', line: top });
+    sketch.addConstraint({ type: 'vertical', line: right });
+    sketch.addConstraint({ type: 'vertical', line: left });
+    sketch.addConstraint({ type: 'distance', a, b, value: 40 });
+    sketch.addConstraint({ type: 'distance', a: b, b: c, value: 20 });
+    await sketch.solve(solver, {});
+    expect(sketch.dof).toBe(2); // where it sits, and nothing else
+
+    await sketch.solve(solver, {}, { point: a, x: 30, y: 25 });
+    const p = (id: string) => sketch.entity(id) as { x: number; y: number };
+    expect(p(a).x).toBeCloseTo(30, 4);
+    expect(p(a).y).toBeCloseTo(25, 4);
+    // The rest came along, shape intact.
+    expect(p(b).x - p(a).x).toBeCloseTo(40, 4);
+    expect(p(c).y - p(b).y).toBeCloseTo(20, 4);
+    expect(p(d).x).toBeCloseTo(p(a).x, 4);
+  });
+
+  it('refuses to put an endpoint on its own line, or to dimension it from it', () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    const a = sketch.addPoint(0, 0), b = sketch.addPoint(10, 0);
+    const line = sketch.addLine(a, b);
+    const result = constraintFromSelection(sketch, 'pointOnLine', [a, line]);
+    expect(result.ok).toBe(false);
+    expect((result as { reason: string }).reason).toMatch(/already an end/);
   });
 });

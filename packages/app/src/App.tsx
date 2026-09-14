@@ -152,6 +152,13 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
+  /** A constraint picked in the panel: Delete removes it rather than sketch geometry. */
+  const selectedConstraintRef = useRef<string | null>(null);
+  const [selectedConstraint, setSelectedConstraintState] = useState<string | null>(null);
+  const setSelectedConstraint = (id: string | null) => {
+    selectedConstraintRef.current = id;
+    setSelectedConstraintState(id);
+  };
   /**
    * Export settings outlive the dialog: a quality chosen once should still be there
    * on the next export. Degrees in the dialog, radians at the kernel.
@@ -604,7 +611,20 @@ export function App() {
       },
 
       deleteSketchSelection: () => {
-        const removed = sessionRef.current?.deleteSelected() ?? false;
+        const session = sessionRef.current;
+        if (!session) return false;
+        // A constraint picked in the panel is what Delete means, before any geometry.
+        const constraint = selectedConstraintRef.current;
+        if (constraint && session.sketch.constraint(constraint)) {
+          session.sketch.removeConstraint(constraint);
+          setSelectedConstraint(null);
+          session.refresh();
+          doc.markSketchChanged(session.featureId);
+          syncSketch();
+          void doRebuild();
+          return true;
+        }
+        const removed = session.deleteSelected();
         if (removed) { syncSketch(); void doRebuild(); }
         return removed;
       },
@@ -649,7 +669,8 @@ export function App() {
       setSketchTool: (tool) => { sessionRef.current?.setTool(tool); syncSketch(); },
       sketching: () => sessionRef.current !== null,
       sketchTool: () => sessionRef.current?.tools.kind ?? null,
-      sketchSelectionCount: () => sessionRef.current?.selected.size ?? 0,
+      sketchSelectionCount: () =>
+        (sessionRef.current?.selected.size ?? 0) + (selectedConstraintRef.current ? 1 : 0),
       analysis: () => viewer.analysis,
       buildVolume: () => buildVolumeRef.current,
 
@@ -1057,6 +1078,7 @@ export function App() {
           const session = sessionRef.current;
           if (session) {
             core.current?.viewer.setPointer(e.clientX, e.clientY);
+            if (selectedConstraintRef.current) setSelectedConstraint(null);
             if (session.tools.kind === 'dimension') {
               const { placed } = session.placeDimension();
               syncSketchFromApp();
@@ -1178,7 +1200,13 @@ export function App() {
                   sketch={doc.sketchFor(focusedFeature.id) ?? null}
                   revision={doc.revision + (sketchInfo?.dof ?? 0) * 1000 + (sketchInfo?.selected ?? 0)}
                   selected={sessionRef.current?.featureId === focusedFeature.id ? sessionRef.current.selected : null}
-                  onPick={(ids) => {
+                  selectedConstraint={selectedConstraint}
+                  flagged={new Set([
+                    ...(doc.sketchFor(focusedFeature.id)?.redundant ?? []),
+                    ...(doc.sketchFor(focusedFeature.id)?.conflicting ?? []),
+                  ])}
+                  onPick={(constraintId, ids) => {
+                    setSelectedConstraint(constraintId);
                     const session = sessionRef.current;
                     if (!session || session.featureId !== focusedFeature.id) return;
                     session.toggleSelection(null, false);
@@ -1452,6 +1480,7 @@ export function App() {
               about, a divider, then the actions. */}
           <span className={`sketchbar-dof status-${sketchInfo.status}`}>
             {sketchInfo.dof === null ? '—'
+              : sketchInfo.status === 'over-constrained' ? 'over-constrained'
               : sketchInfo.dof === 0 ? 'fully constrained'
               : `${sketchInfo.dof} DOF`}
           </span>
@@ -1648,14 +1677,18 @@ const CONSTRAINT_LABELS: Record<string, string> = {
  * it has: what pins the sketch down. A constraint you cannot see is one you cannot
  * remove when it is the reason the sketch will not move.
  */
-function SketchConstraints({ sketch, selected, onPick, onRemove }: {
+function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPick, onRemove }: {
   sketch: Sketch | null;
   /** Any change to this re-renders; the sketch itself is mutable and not React state. */
   revision: number;
   /** Entities selected in the open sketch, when this sketch is the one being edited. */
   selected: ReadonlySet<string> | null;
-  /** Select the entities a constraint ties, to see what it holds. */
-  onPick: (ids: string[]) => void;
+  /** The row picked in this list; Delete removes it. */
+  selectedConstraint: string | null;
+  /** Constraints the solver found redundant or contradictory. */
+  flagged: ReadonlySet<string>;
+  /** Pick a constraint: select its row and the entities it ties. */
+  onPick: (constraintId: string, ids: string[]) => void;
   onRemove: (constraintId: string) => void;
 }) {
   if (!sketch) return null;
@@ -1682,10 +1715,13 @@ function SketchConstraints({ sketch, selected, onPick, onRemove }: {
     return (
       <div
         key={c.id}
-        className={`constraint${reference ? ' is-reference' : ''}${isRelated ? ' is-related' : ''}`}
+        className={`constraint${reference ? ' is-reference' : ''}${isRelated ? ' is-related' : ''}${
+          selectedConstraint === c.id ? ' is-selected' : ''}${flagged.has(c.id) ? ' is-flagged' : ''}`}
         data-constraint={c.id}
-        title="Click to select what this constraint ties"
-        onClick={() => onPick(ids)}
+        title={flagged.has(c.id)
+          ? 'The solver finds this redundant or contradictory — remove it'
+          : 'Click to select; Delete removes it'}
+        onClick={() => onPick(c.id, ids)}
       >
         <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
         <span className="constraint-entities">

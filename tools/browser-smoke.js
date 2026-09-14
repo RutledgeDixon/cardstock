@@ -981,6 +981,80 @@ window.__smoke = async function smoke() {
     viewer.selection.clear();
   }
 
+  // --- deleting, dragging as a whole, and the constraint list -------------------
+  {
+    await window.__host.newDocument();
+    await sleep(500);
+    await window.__host.beginSketch('xy');
+    await sleep(300);
+    const sk = window.__session();
+    sk.tools.setTool('rectangle');
+    sk.tools.click({ x: 10, y: 10 });
+    sk.tools.click({ x: 50, y: 30 });
+    sk.refresh();
+    const P = (id) => sk.sketch.entity(id);
+    const own = sk.sketch.geometry.filter((e) => e.type === 'point' && !e.fixed && !e.external);
+    const bottom = sk.sketch.geometry.find((e) => e.type === 'line' && !e.external && P(e.p1).y === P(e.p2).y && P(e.p1).y === 10);
+    const right = sk.sketch.geometry.find((e) => e.type === 'line' && !e.external && P(e.p1).x === P(e.p2).x && P(e.p1).x === 50);
+    sk.sketch.addConstraint({ type: 'distance', a: bottom.p1, b: bottom.p2, value: 40 });
+    sk.sketch.addConstraint({ type: 'distance', a: right.p1, b: right.p2, value: 20 });
+    doc.markSketchChanged(sk.featureId);
+    await window.__rebuild();
+    await sleep(600);
+    check('freeRectangleHasTwoDof', sk.sketch.dof === 2);
+
+    // Dragging a corner of a shape constrained in itself moves the whole shape.
+    window.__host.setSketchTool('select');
+    const at = (p) => {
+      const v = sk.view.toWorld(p).project(viewer.camera);
+      const r = viewer.canvas.getBoundingClientRect();
+      return { clientX: r.left + ((v.x + 1) / 2) * r.width, clientY: r.top + ((1 - v.y) / 2) * r.height };
+    };
+    const corner = own[0];
+    const start = at(corner), end = at({ x: corner.x + 15, y: corner.y + 8 });
+    viewer.canvas.dispatchEvent(new PointerEvent('pointerdown', { ...start, button: 0, pointerId: 1, bubbles: true }));
+    await sleep(40);
+    for (let i = 1; i <= 4; i++) {
+      viewer.canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: start.clientX + ((end.clientX - start.clientX) * i) / 4,
+        clientY: start.clientY + ((end.clientY - start.clientY) * i) / 4,
+        pointerId: 1, bubbles: true, buttons: 1,
+      }));
+      await sleep(80);
+    }
+    viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...end, button: 0, pointerId: 1, bubbles: true }));
+    await sleep(400);
+    check('untiedShapeDragsAsAWhole', own.every((p) => {
+      const q = P(p.id);
+      return Math.abs(q.x - p.x - 15) < 0.05 && Math.abs(q.y - p.y - 8) < 0.05;
+    }));
+
+    // A constraint row picked in the panel is what Delete removes.
+    const before = sk.sketch.constraints.length;
+    document.querySelector('.constraint')?.click();
+    await sleep(150);
+    check('constraintRowSelects', !!document.querySelector('.constraint.is-selected'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true }));
+    await sleep(700);
+    check('deleteKeyRemovesPickedConstraint', sk.sketch.constraints.length === before - 1);
+
+    // Deleting a vertex takes its lines and their constraints; DOF never goes negative.
+    sk.toggleSelection(own[0].id, false);
+    await registry.get('feature.delete').run();
+    await sleep(800);
+    const dangling = sk.sketch.geometry.filter((e) => e.type === 'line' && (!sk.sketch.entity(e.p1) || !sk.sketch.entity(e.p2)));
+    check('deletingAVertexTakesItsLines', dangling.length === 0);
+    check('dofNeverNegative', (sk.sketch.dof ?? 0) >= 0 && !/-\d/.test(document.querySelector('.sketchbar-dof')?.textContent ?? ''));
+
+    // An endpoint cannot be constrained onto its own line.
+    const line = sk.sketch.geometry.find((e) => e.type === 'line' && !e.external);
+    sk.toggleSelection(line.p1, false);
+    sk.toggleSelection(line.id, true);
+    check('endpointOnOwnLineRefused', /already an end/.test(window.__host.sketchConstraintBlocker('pointOnLine') ?? ''));
+    await window.__host.finishSketch();
+    await sleep(300);
+  }
+
   check('paletteFindsEveryCommand',
     registry.search('', registry.all()[0] && {
       selectionKind: null, selectionCount: 0, hoverKind: null, hasModel: true,

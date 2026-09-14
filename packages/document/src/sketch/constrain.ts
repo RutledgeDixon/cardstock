@@ -113,9 +113,16 @@ export function constraintFromSelection(
       if (round.length !== 2) return no();
       return one({ type, a: round[0]!.id, b: round[1]!.id });
 
-    case 'pointOnLine':
+    case 'pointOnLine': {
       if (points.length !== 1 || lines.length !== 1) return no();
-      return one({ type, point: points[0]!.id, line: lines[0]!.id });
+      const point = points[0]!, line = lines[0]!;
+      // An endpoint is already on its own line; the constraint would be redundant and
+      // the solver would count it against the sketch.
+      if (line.p1 === point.id || line.p2 === point.id) {
+        return { ok: false, reason: 'That point is already an end of that line' };
+      }
+      return one({ type, point: point.id, line: line.id });
+    }
 
     case 'symmetric':
       if (points.length !== 2 || lines.length !== 1) return no();
