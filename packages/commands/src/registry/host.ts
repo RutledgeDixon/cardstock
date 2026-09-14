@@ -69,6 +69,10 @@ export interface CommandHost {
   /** Extrude the sketch that was just finished. */
   extrudeSketch(): Promise<FeatureId | null>;
 
+  /** Dimension the sketch selection, from the ring. Returns the reason if it cannot. */
+  dimensionSketchSelection(): string | null;
+  sketchDimensionBlocker(): string | null;
+
   // --- output
   /** Open the export dialog: format, quality, which bodies. */
   openExport(): void;

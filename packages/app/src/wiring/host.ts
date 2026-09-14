@@ -54,6 +54,8 @@ export interface HostDeps {
   deleteSketchSelection: () => boolean;
   applySketchConstraint: (type: string) => string | null;
   sketchConstraintBlocker: (type: string) => string | null;
+  dimensionSketchSelection: () => string | null;
+  sketchDimensionBlocker: () => string | null;
   finishSketch: () => Promise<void>;
   setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain') => void;
   sketching: () => boolean;
@@ -434,6 +436,8 @@ export function createHost(deps: HostDeps): CommandHost {
     saveDocumentAs: () => deps.saveDocumentAs(),
     applySketchConstraint: (type) => deps.applySketchConstraint(type),
     sketchConstraintBlocker: (type) => deps.sketchConstraintBlocker(type),
+    dimensionSketchSelection: () => deps.dimensionSketchSelection(),
+    sketchDimensionBlocker: () => deps.sketchDimensionBlocker(),
     openPalette: () => deps.openPalette(),
     openAbout: () => deps.openAbout(),
     openKeys: () => deps.openKeys(),

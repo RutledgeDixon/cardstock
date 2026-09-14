@@ -156,9 +156,20 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       sector: { sketch: 3 },
       // The children are what the ring shows once something is selected. They stay
       // listed here so they live in one place and never surface on the toolbar.
-      children: ['constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.symmetric', 'constrain.fix'],
+      children: ['constrain.dimension', 'constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.symmetric', 'constrain.fix'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('constrain'),
+    },
+    {
+      id: 'constrain.dimension',
+      title: 'Dimension',
+      hint: 'Measure the selection: a circle, or the distance or angle between two things',
+      icon: '↔',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchDimensionBlocker() ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.dimensionSketchSelection(); },
     },
     {
       id: 'constrain.coincident',

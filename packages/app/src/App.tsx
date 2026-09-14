@@ -626,6 +626,17 @@ export function App() {
         return null;
       },
 
+      dimensionSketchSelection: () => {
+        const session = sessionRef.current;
+        if (!session) return 'Open a sketch first';
+        const { placed, reason } = session.dimensionSelection();
+        if (reason) { notify(reason, 'error'); return reason; }
+        syncSketch();
+        if (placed) { setEditingDimension(placed); rebuildNow(); }
+        return null;
+      },
+      sketchDimensionBlocker: () => (sessionRef.current ? sessionRef.current.dimensionBlocker() : 'Open a sketch first'),
+
       sketchConstraintBlocker: (type) => {
         const session = sessionRef.current;
         if (!session) return 'Open a sketch first';
@@ -1053,23 +1064,14 @@ export function App() {
               return;
             }
             if (session.tools.kind === 'constrain') {
-              // The constrain tool: pick (shift adds), then the ring offers every
-              // constraint that applies to what is selected. Nothing applying is said,
-              // not left as a ring that fails to appear.
+              // The constrain tool: every left click ADDS to the selection (clicking
+              // empty space clears it), so as many edges and vertices as the constraint
+              // needs can be gathered; the right button opens the ring.
               const picked = session.pick();
-              session.toggleSelection(picked, e.shiftKey);
+              session.toggleSelection(picked, picked !== null);
               setSketchInfo((current) => (current
                 ? { ...current, selected: session.selected.size }
                 : current));
-              if (session.selected.size === 0) return;
-              const applicable = core.current?.registry
-                .childrenOf('sketch.constrain', hostState())
-                .filter((r) => r.enabled === true) ?? [];
-              if (applicable.length === 0) {
-                setNotice({ text: 'No constraint applies to this selection', kind: 'error' });
-                return;
-              }
-              setRadial({ context: 'sketch', at: { x: e.clientX, y: e.clientY }, constrain: true });
               return;
             }
             if (session.tools.kind === 'select') {
@@ -1100,6 +1102,29 @@ export function App() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          const session = sessionRef.current;
+          if (session) {
+            // In a sketch the ring is about the sketch selection: what constraints and
+            // dimensions apply to it. With nothing selected, the thing under the pointer
+            // is what was meant; with a selection, the ring is for that and only that.
+            if (session.selected.size === 0) session.toggleSelection(session.pick(), false);
+            setSketchInfo((current) => (current
+              ? { ...current, selected: session.selected.size }
+              : current));
+            if (session.selected.size === 0) {
+              setNotice({ text: 'Select some sketch geometry first', kind: 'error' });
+              return;
+            }
+            const applicable = core.current?.registry
+              .childrenOf('sketch.constrain', hostState())
+              .filter((r) => r.enabled === true) ?? [];
+            if (applicable.length === 0) {
+              setNotice({ text: 'No constraint applies to this selection', kind: 'error' });
+              return;
+            }
+            setRadial({ context: 'sketch', at: { x: e.clientX, y: e.clientY }, constrain: true });
+            return;
+          }
           const v = core.current?.viewer;
           if (!v) return;
           v.setPointer(e.clientX, e.clientY);
@@ -1603,7 +1628,7 @@ const TOOL_HINTS: Record<string, string> = {
   circle: 'Click the centre, then the rim',
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
-  constrain: 'Click geometry (shift-click to add), then pick a constraint from the ring',
+  constrain: 'Click geometry to gather a selection, then right-click for constraints and dimensions',
 };
 
 /** Human names for constraint types, for the sketch's constraint list. */

@@ -92,14 +92,51 @@ export class SketchSession {
 
     if (anchor === null) {
       this.#dimensionAnchor = id;
+      // Show what was picked, as every other tool does; the second pick completes it.
+      this.selected.clear();
+      this.selected.add(id);
+      this.view.setSelection(this.selected);
       return { placed: null, awaiting: true };
     }
     const first = this.sketch.entity(anchor);
     this.#dimensionAnchor = null;
+    this.selected.clear();
+    this.view.setSelection(this.selected);
     if (!first) return { placed: null, awaiting: false };
 
     const placed = this.#dimensionBetween(first, entity);
     return { placed, awaiting: false };
+  }
+
+  /**
+   * A dimension for whatever is selected — from the constrain ring, where the user
+   * has already said what to measure. One circle is its radius; two entities are the
+   * dimension the pair makes. Returns why, when nothing can be made of it.
+   */
+  dimensionSelection(): { placed: string | null; reason: string | null } {
+    const reason = this.dimensionBlocker();
+    if (reason) return { placed: null, reason };
+    const ids = [...this.selected];
+    const a = this.sketch.entity(ids[0]!)!;
+    const b = ids.length === 2 ? this.sketch.entity(ids[1]!)! : a;
+    const placed = this.#dimensionBetween(a, b);
+    this.selected.clear();
+    this.view.setSelection(this.selected);
+    return placed
+      ? { placed, reason: null }
+      : { placed: null, reason: 'Those two cannot be dimensioned against each other' };
+  }
+
+  /** Why the selection cannot be dimensioned, or null when it can. */
+  dimensionBlocker(): string | null {
+    const ids = [...this.selected];
+    const kinds = ids.map((id) => this.sketch.entity(id)?.type);
+    if (ids.length === 1) {
+      return kinds[0] === 'circle' || kinds[0] === 'arc' ? null : 'Select a circle, or two things to measure between';
+    }
+    if (ids.length !== 2) return 'Select two things to measure between';
+    if (kinds.some((k) => k === 'arc' || k === undefined)) return 'Arcs cannot be dimensioned yet';
+    return null;
   }
 
   #addDimension(constraint: Parameters<Sketch['addConstraint']>[0]): string {
@@ -381,12 +418,20 @@ export class SketchSession {
     // both its lines are all exactly zero away, so a pure distance comparison hands the
     // pick to whichever the loop happened to reach first — and that corner point could
     // then never be grabbed at all.
-    let best: { id: string; distance: number; isPoint: boolean } | null = null;
+    let best: { id: string; distance: number; isPoint: boolean; external: boolean } | null = null;
     const consider = (id: string, distance: number, isPoint = false) => {
       if (distance > tolerance) return;
-      if (!best) { best = { id, distance, isPoint }; return; }
-      if (best.isPoint !== isPoint) { if (isPoint) best = { id, distance, isPoint }; return; }
-      if (distance < best.distance) best = { id, distance, isPoint };
+      const external = !!this.sketch.entity(id)?.external;
+      const candidate = { id, distance, isPoint, external };
+      if (!best) { best = candidate; return; }
+      if (best.isPoint !== isPoint) { if (isPoint) best = candidate; return; }
+      // The sketch's own geometry beats reference geometry lying on top of it: a line
+      // drawn along an origin axis must still be pickable as itself.
+      if (Math.abs(distance - best.distance) < 1e-9) {
+        if (best.external && !external) best = candidate;
+        return;
+      }
+      if (distance < best.distance) best = candidate;
     };
 
     const positionOf = (id: string) => {

@@ -475,12 +475,18 @@ window.__smoke = async function smoke() {
       viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...at, button: 0, pointerId: 1, bubbles: true }));
       await sleep(300);
       check('constrainClickSelects', session.selected.has(line.id));
+      // A left click only gathers; the ring waits for the right button.
+      check('leftClickDoesNotOpenRing', !document.querySelector('.radial-ring'));
+      viewer.canvas.dispatchEvent(new MouseEvent('contextmenu', { ...at, button: 2, bubbles: true }));
+      await sleep(300);
       const ring = document.querySelector('.radial-ring');
       check('constraintRingOpens', !!ring);
       const wedges = ring ? [...ring.querySelectorAll('[data-command]')] : [];
       const ids = wedges.map((w) => w.getAttribute('data-command'));
       // Only what applies to one line: horizontal and vertical, never coincident.
       check('ringShowsOnlyApplicable', ids.includes('constrain.horizontal') && !ids.includes('constrain.coincident'));
+      // One line cannot be dimensioned; two points can, and the ring then offers it.
+      check('ringHidesDimensionForOneLine', !ids.includes('constrain.dimension'));
       const before = session.sketch.constraints.length;
       // An SVG group has no click(): dispatch the event.
       wedges.find((w) => w.getAttribute('data-command') === 'constrain.vertical')
@@ -493,6 +499,30 @@ window.__smoke = async function smoke() {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       await sleep(200);
       check('escapeLeavesConstrainTool', window.__host.state().sketchTool === 'select');
+
+      // Two points gathered by left clicks, then Dimension from the ring.
+      document.querySelector('[data-command="sketch.constrain"]')?.click();
+      await sleep(150);
+      const pts = session.sketch.geometry.filter((e) => e.type === 'point' && !e.external && !e.fixed).slice(0, 2);
+      for (const p of pts) {
+        const pv = session.view.toWorld({ x: p.x, y: p.y }).project(viewer.camera);
+        const pat = { clientX: r.left + ((pv.x + 1) / 2) * r.width, clientY: r.top + ((1 - pv.y) / 2) * r.height };
+        viewer.canvas.dispatchEvent(new PointerEvent('pointerdown', { ...pat, button: 0, pointerId: 1, bubbles: true }));
+        viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...pat, button: 0, pointerId: 1, bubbles: true }));
+        await sleep(150);
+      }
+      check('leftClicksGatherWithoutShift', session.selected.size === 2);
+      viewer.canvas.dispatchEvent(new MouseEvent('contextmenu', { ...at, button: 2, bubbles: true }));
+      await sleep(300);
+      const dimWedge = document.querySelector('.radial-ring [data-command="constrain.dimension"]');
+      check('ringOffersDimensionForTwoPoints', !!dimWedge);
+      const dimsBefore = session.dimensions().length;
+      dimWedge?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await sleep(700);
+      check('ringPlacesADimension', session.dimensions().length === dimsBefore + 1);
+      document.querySelector('.dimension input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      await sleep(200);
     }
   }
 
