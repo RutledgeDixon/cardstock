@@ -454,40 +454,45 @@ window.__smoke = async function smoke() {
     });
     check('dimensionAppears', session.dimensions().some((d) => d.id === id));
   }
-  // --- constraints are reachable, and say what they want -------------------------
-  // There was no constraint UI at all: the sketcher supported them and nothing offered
-  // them, so half of what a sketcher is for was unreachable.
+  // --- constraints are a tool, and a ring ---------------------------------------
+  // The Constrain button is a sketch tool: click geometry and a ring offers exactly the
+  // constraints that apply to it. Nothing applying is said, not left as a missing ring.
   {
     const opener = document.querySelector('[data-command="sketch.constrain"]');
     check('constrainButtonShown', !!opener);
     opener?.click();
-    await sleep(350);
-    const menu = document.querySelector('.submenu');
-    const items = menu ? [...menu.querySelectorAll('button')] : [];
-    check('constraintSubmenuOpens', items.length >= 8);
-    // Every entry says what it wants, so a disabled one teaches instead of dead-ending.
-    check('everyConstraintSaysWhatItWants', items.every((b) => (b.title ?? '').length > 0));
-    // One level, never two: a child of the group may not itself open a menu.
-    check('constraintSubmenuIsOneLevel',
-      items.every((b) => b.getAttribute('aria-haspopup') === null));
-    opener?.click();
     await sleep(250);
+    check('constrainIsATool', window.__host.state().sketchTool === 'constrain');
 
     if (session) {
-      const line = session.sketch.geometry.find((e) => e.type === 'line');
-      if (line) {
-        session.toggleSelection(line.id, false);
-        // Selection has to be VISIBLE: it used to register and look like nothing.
-        check('sketchSelectionIsDrawn', session.selected.has(line.id));
-        const horizontal = registry.get('constrain.horizontal');
-        check('constraintEnablesOnSelection',
-          horizontal?.enabled(window.__host.state()) === true);
-
-        const before = session.sketch.constraints.length;
-        window.__host.applySketchConstraint('horizontal');
-        await sleep(700);
-        check('constraintApplies', session.sketch.constraints.length > before);
-      }
+      const line = session.sketch.geometry.find((e) => e.type === 'line' && !e.external);
+      const P = (id) => session.sketch.entity(id);
+      const mid = { x: (P(line.p1).x + P(line.p2).x) / 2, y: (P(line.p1).y + P(line.p2).y) / 2 };
+      const v = session.view.toWorld(mid).project(viewer.camera);
+      const r = viewer.canvas.getBoundingClientRect();
+      const at = { clientX: r.left + ((v.x + 1) / 2) * r.width, clientY: r.top + ((1 - v.y) / 2) * r.height };
+      viewer.canvas.dispatchEvent(new PointerEvent('pointerdown', { ...at, button: 0, pointerId: 1, bubbles: true }));
+      viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...at, button: 0, pointerId: 1, bubbles: true }));
+      await sleep(300);
+      check('constrainClickSelects', session.selected.has(line.id));
+      const ring = document.querySelector('.radial-ring');
+      check('constraintRingOpens', !!ring);
+      const wedges = ring ? [...ring.querySelectorAll('[data-command]')] : [];
+      const ids = wedges.map((w) => w.getAttribute('data-command'));
+      // Only what applies to one line: horizontal and vertical, never coincident.
+      check('ringShowsOnlyApplicable', ids.includes('constrain.horizontal') && !ids.includes('constrain.coincident'));
+      const before = session.sketch.constraints.length;
+      // An SVG group has no click(): dispatch the event.
+      wedges.find((w) => w.getAttribute('data-command') === 'constrain.vertical')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await sleep(700);
+      check('ringAppliesConstraint', session.sketch.constraints.length === before + 1);
+      check('ringClosesAfterApplying', !document.querySelector('.radial-ring'));
+      check('selectionClearedAfterApplying', session.selected.size === 0);
+      // Escape puts the tool down.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      await sleep(200);
+      check('escapeLeavesConstrainTool', window.__host.state().sketchTool === 'select');
     }
   }
 

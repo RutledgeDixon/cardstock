@@ -26,7 +26,7 @@ const SNAP_PIXELS = 12;
  * picked, which needs screen-space hit testing this class deliberately knows nothing
  * about. They are listed here so the tool set is one enumeration rather than two.
  */
-export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension';
+export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain';
 
 /** What to draw as feedback before the click lands. */
 export interface ToolPreview {
@@ -105,7 +105,7 @@ export class SketchTools {
       : { position: at, axis: null as 'horizontal' | 'vertical' | null };
     const position = snapPoint ? this.#positionOf(snapPoint)! : axis.position;
 
-    if (this.#kind === 'select' || this.#kind === 'dimension') {
+    if (this.#kind === 'select' || this.#kind === 'dimension' || this.#kind === 'constrain') {
       return { kind: this.#kind, segments: [], snapPoint, inference: null };
     }
     if (this.#kind === 'circle' && anchor) {
@@ -149,6 +149,7 @@ export class SketchTools {
     switch (this.#kind) {
       case 'select':
       case 'dimension':
+      case 'constrain':
         return { created: [], completed: false };
       case 'line': return this.#clickLine(at);
       case 'rectangle': return this.#clickRectangle(at);

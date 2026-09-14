@@ -144,7 +144,11 @@ export function App() {
   const rebuildGeneration = useRef(0);
 
   const [focused, setFocused] = useState<FeatureId | null>(null);
-  const [radial, setRadial] = useState<{ context: CommandContext; at: { x: number; y: number } } | null>(null);
+  const [radial, setRadial] = useState<{
+    context: CommandContext; at: { x: number; y: number };
+    /** The constrain tool's ring: only what applies to the selection. */
+    constrain?: boolean;
+  } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
@@ -206,7 +210,6 @@ export function App() {
    */
   const [treeMenuAt, setTreeMenuAt] = useState<{ top: number; left: number } | null>(null);
   /** Where the sketch bar's constraint flyout sits, or null when closed. */
-  const [constraintsAt, setConstraintsAt] = useState<{ top: number; left: number } | null>(null);
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [sketchInfo, setSketchInfo] = useState<{
     open: boolean; tool: string; dof: number | null; status: string;
@@ -1049,6 +1052,26 @@ export function App() {
               if (placed) { setEditingDimension(placed); rebuildNow(); }
               return;
             }
+            if (session.tools.kind === 'constrain') {
+              // The constrain tool: pick (shift adds), then the ring offers every
+              // constraint that applies to what is selected. Nothing applying is said,
+              // not left as a ring that fails to appear.
+              const picked = session.pick();
+              session.toggleSelection(picked, e.shiftKey);
+              setSketchInfo((current) => (current
+                ? { ...current, selected: session.selected.size }
+                : current));
+              if (session.selected.size === 0) return;
+              const applicable = core.current?.registry
+                .childrenOf('sketch.constrain', hostState())
+                .filter((r) => r.enabled === true) ?? [];
+              if (applicable.length === 0) {
+                setNotice({ text: 'No constraint applies to this selection', kind: 'error' });
+                return;
+              }
+              setRadial({ context: 'sketch', at: { x: e.clientX, y: e.clientY }, constrain: true });
+              return;
+            }
             if (session.tools.kind === 'select') {
               // Pressing selects what is under the pointer; on a point it ALSO starts a
               // drag. It used to be one or the other, so a vertex could be dragged but
@@ -1212,7 +1235,18 @@ export function App() {
           state={state}
           context={radial.context}
           at={radial.at}
-          onRun={run}
+          {...(radial.constrain ? {
+            items: registry.childrenOf('sketch.constrain', state).filter((r) => r.enabled === true),
+            label: 'Constraints for the selection',
+          } : {})}
+          onRun={(id) => {
+            run(id);
+            if (radial.constrain) {
+              // Applied: the selection has done its job, and the next click starts fresh.
+              sessionRef.current?.toggleSelection(null, false);
+              syncSketchFromApp();
+            }
+          }}
           onClose={() => setRadial(null)}
         />
       )}
@@ -1232,16 +1266,6 @@ export function App() {
             onRun={(id) => { run(id); setTreeMenuAt(null); }}
           />
         </>
-      )}
-
-      {constraintsAt && registry && (
-        <Submenu
-          items={registry.childrenOf('sketch.constrain', hostState())}
-          anchor={constraintsAt}
-          title="Constrain"
-          onRun={(id) => { run(id); setConstraintsAt(null); }}
-          onLeave={() => setConstraintsAt(null)}
-        />
       )}
 
       {aboutOpen && (
@@ -1407,21 +1431,15 @@ export function App() {
               : `${sketchInfo.dof} DOF`}
           </span>
 
-          {/* Constraints, behind ONE level of submenu. Each entry carries the selection
-              it wants, so a disabled one teaches instead of dead-ending. */}
+          {/* The constrain TOOL: click geometry, and a ring offers what applies. */}
           <span className="sketchbar-constraints">
             <button
               type="button"
-              className={constraintsAt ? 'is-open' : ''}
+              className={sketchInfo.tool === 'constrain' ? 'is-open' : ''}
               data-command="sketch.constrain"
-              aria-haspopup="true"
-              aria-expanded={constraintsAt !== null}
-              title="Constrain the selected geometry"
-              onClick={(e) => {
-                if (constraintsAt) { setConstraintsAt(null); return; }
-                const box = e.currentTarget.getBoundingClientRect();
-                setConstraintsAt({ top: box.bottom + 6, left: box.left });
-              }}
+              aria-pressed={sketchInfo.tool === 'constrain'}
+              title={TOOL_HINTS.constrain}
+              onClick={() => run('sketch.constrain')}
             >
               ⌗ Constrain
             </button>
@@ -1585,6 +1603,7 @@ const TOOL_HINTS: Record<string, string> = {
   circle: 'Click the centre, then the rim',
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
+  constrain: 'Click geometry (shift-click to add), then pick a constraint from the ring',
 };
 
 /** Human names for constraint types, for the sketch's constraint list. */

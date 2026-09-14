@@ -150,15 +150,15 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
     {
       id: 'sketch.constrain',
       title: 'Constrain',
-      hint: 'Pin the sketch down: parallel, perpendicular, equal, tangent…',
+      hint: 'Click geometry (shift-click to add) and pick a constraint from the ring',
       icon: '⌗',
       contexts: ['sketch'],
       sector: { sketch: 3 },
+      // The children are what the ring shows once something is selected. They stay
+      // listed here so they live in one place and never surface on the toolbar.
       children: ['constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.symmetric', 'constrain.fix'],
-      enabled: (s) => (s.sketching
-        ? (s.sketchSelectionCount > 0 ? true : 'Select sketch geometry first')
-        : 'Open a sketch first'),
-      run: () => {},
+      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
+      run: () => host.setSketchTool('constrain'),
     },
     {
       id: 'constrain.coincident',

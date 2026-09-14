@@ -27,6 +27,13 @@ export interface RadialMenuProps {
   state: CommandState;
   context: CommandContext;
   at: { x: number; y: number };
+  /**
+   * Show exactly these instead of what the context resolves to — the constraints that
+   * apply to a sketch selection, say. Sectors are laid out in the order given.
+   */
+  items?: readonly ResolvedCommand[];
+  /** Read out for assistive tech in place of the context name. */
+  label?: string;
   onRun: (id: string) => void;
   onClose: () => void;
 }
@@ -70,11 +77,11 @@ function wedgePath(sector: number): string {
   ].join(' ');
 }
 
-export function RadialMenu({ registry, state, context, at, onRun, onClose }: RadialMenuProps) {
+export function RadialMenu({ registry, state, context, at, items, label, onRun, onClose }: RadialMenuProps) {
   const [flyout, setFlyout] = useState<{
     items: readonly ResolvedCommand[]; title: string; at: { x: number; y: number };
   } | null>(null);
-  const slots = layoutRadial(registry.forContext(context, state));
+  const slots = layoutRadial(items ?? registry.forContext(context, state));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -97,7 +104,7 @@ export function RadialMenu({ registry, state, context, at, onRun, onClose }: Rad
           height={extent * 2}
           viewBox={`${-extent} ${-extent} ${extent * 2} ${extent * 2}`}
           role="menu"
-          aria-label={`${context} actions`}
+          aria-label={label ?? `${context} actions`}
         >
           {slots.map((slot) => {
             if (!slot.command && !slot.overflow) return null;
