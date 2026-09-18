@@ -25,7 +25,7 @@ export interface SketchData {
   readonly constraints: readonly SketchConstraint[];
 }
 
-export type SketchStatus = 'under-constrained' | 'fully-constrained' | 'over-constrained' | 'unsolved';
+export type SketchStatus = 'under-constrained' | 'fully-constrained' | 'over-constrained' | 'unsolvable' | 'unsolved';
 
 export class Sketch {
   #geometry = new Map<SketchEntityId, SketchGeometry>();
@@ -50,13 +50,16 @@ export class Sketch {
   /** Constraints the last solve found to be saying nothing new, or contradicting others. */
   get redundant(): readonly string[] { return this.#lastSolve?.redundant ?? []; }
   get conflicting(): readonly string[] { return this.#lastSolve?.conflicting ?? []; }
+  /** Why the last solve could not be done, when it could not. */
+  get solveMessage(): string | null { return this.#lastSolve?.message ?? null; }
 
   get status(): SketchStatus {
     const solve = this.#lastSolve;
     if (!solve) return 'unsolved';
-    if (solve.conflicting.length > 0 || solve.redundant.length > 0 || solve.dof < 0 || solve.status === 'failed') {
-      return 'over-constrained';
-    }
+    if (solve.conflicting.length > 0 || solve.redundant.length > 0) return 'over-constrained';
+    // A solve that failed or blew up is not a constraint problem to fix by deleting
+    // things; it is reported as what it is, with the solver's own message.
+    if (solve.status === 'failed' || solve.status === 'invalid' || solve.dof < 0) return 'unsolvable';
     return solve.dof === 0 ? 'fully-constrained' : 'under-constrained';
   }
 

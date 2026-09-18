@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
-import { EXPORT_FORMATS, type ExportFormat, type FeatureId, type ShapeHandle, type OrientationSuggestion } from '@cardstock/types';
+import { EXPORT_FORMATS, isDimensional, type ExportFormat, type FeatureId, type ShapeHandle, type OrientationSuggestion } from '@cardstock/types';
 import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
   placementForFaceIndex, resolvePlacement, resolveTopoRef, bytesToBase64, IMPORT_EXTENSIONS,
@@ -155,6 +155,8 @@ export function App() {
   /** A constraint picked in the panel: Delete removes it rather than sketch geometry. */
   const selectedConstraintRef = useRef<string | null>(null);
   const [selectedConstraint, setSelectedConstraintState] = useState<string | null>(null);
+  /** The constraint pointed at in the panel; its dimension label lights up. */
+  const [hoveredConstraint, setHoveredConstraint] = useState<string | null>(null);
   const setSelectedConstraint = (id: string | null) => {
     selectedConstraintRef.current = id;
     setSelectedConstraintState(id);
@@ -656,6 +658,16 @@ export function App() {
         return null;
       },
       sketchDimensionBlocker: () => (sessionRef.current ? sessionRef.current.dimensionBlocker() : 'Open a sketch first'),
+      addSketchSweep: () => {
+        const session = sessionRef.current;
+        if (!session) return 'Open a sketch first';
+        const { placed, reason } = session.addSweep();
+        if (reason) { notify(reason, 'error'); return reason; }
+        syncSketch();
+        if (placed) { setEditingDimension(placed); rebuildNow(); }
+        return null;
+      },
+      sketchSweepBlocker: () => (sessionRef.current ? sessionRef.current.sweepBlocker() : 'Open a sketch first'),
 
       sketchConstraintBlocker: (type) => {
         const session = sessionRef.current;
@@ -1129,7 +1141,7 @@ export function App() {
             // In a sketch the ring is about the sketch selection: what constraints and
             // dimensions apply to it. With nothing selected, the thing under the pointer
             // is what was meant; with a selection, the ring is for that and only that.
-            if (session.selected.size === 0) session.toggleSelection(session.pick(), false);
+            if (session.pruneSelection() === 0) session.toggleSelection(session.pick(), false);
             setSketchInfo((current) => (current
               ? { ...current, selected: session.selected.size }
               : current));
@@ -1141,7 +1153,8 @@ export function App() {
               .childrenOf('sketch.constrain', hostState())
               .filter((r) => r.enabled === true) ?? [];
             if (applicable.length === 0) {
-              setNotice({ text: 'No constraint applies to this selection', kind: 'error' });
+              const kinds = [...session.selected].map((id) => session.sketch.entity(id)?.type ?? '?').join(', ');
+              setNotice({ text: `No constraint applies to this selection (${kinds})`, kind: 'error' });
               return;
             }
             setRadial({ context: 'sketch', at: { x: e.clientX, y: e.clientY }, constrain: true });
@@ -1205,6 +1218,11 @@ export function App() {
                     ...(doc.sketchFor(focusedFeature.id)?.redundant ?? []),
                     ...(doc.sketchFor(focusedFeature.id)?.conflicting ?? []),
                   ])}
+                  onHover={(constraintId, ids) => {
+                    setHoveredConstraint(constraintId);
+                    const session = sessionRef.current;
+                    if (session && session.featureId === focusedFeature.id) session.setHover(ids);
+                  }}
                   onPick={(constraintId, ids) => {
                     setSelectedConstraint(constraintId);
                     const session = sessionRef.current;
@@ -1407,7 +1425,8 @@ export function App() {
             <div
               key={dimension.id}
               data-dimension={dimension.id}
-              className={`dimension${dimension.error ? ' is-invalid' : ''}${dimension.reference ? ' is-reference' : ' is-driving'}`}
+              className={`dimension${dimension.error ? ' is-invalid' : ''}${dimension.reference ? ' is-reference' : ' is-driving'}${
+                hoveredConstraint === dimension.id ? ' is-hover' : ''}`}
               title={dimension.error
                 ?? (dimension.reference
                   ? 'Reference: shows the value as drawn. Click and type to make it drive.'
@@ -1478,9 +1497,17 @@ export function App() {
 
           {/* The right-hand side, in a fixed order: the number you are always asking
               about, a divider, then the actions. */}
-          <span className={`sketchbar-dof status-${sketchInfo.status}`}>
+          <span
+            className={`sketchbar-dof status-${sketchInfo.status}`}
+            title={sketchInfo.status === 'unsolvable'
+              ? (sessionRef.current?.sketch.solveMessage ?? 'The solver could not find a solution')
+              : sketchInfo.status === 'over-constrained'
+                ? 'Some constraints repeat or contradict each other; they are red in the list'
+                : undefined}
+          >
             {sketchInfo.dof === null ? '—'
               : sketchInfo.status === 'over-constrained' ? 'over-constrained'
+              : sketchInfo.status === 'unsolvable' ? 'cannot solve'
               : sketchInfo.dof === 0 ? 'fully constrained'
               : `${sketchInfo.dof} DOF`}
           </span>
@@ -1678,7 +1705,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
  * it has: what pins the sketch down. A constraint you cannot see is one you cannot
  * remove when it is the reason the sketch will not move.
  */
-function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPick, onRemove }: {
+function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onHover, onPick, onRemove }: {
   sketch: Sketch | null;
   /** Any change to this re-renders; the sketch itself is mutable and not React state. */
   revision: number;
@@ -1688,6 +1715,8 @@ function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPi
   selectedConstraint: string | null;
   /** Constraints the solver found redundant or contradictory. */
   flagged: ReadonlySet<string>;
+  /** Point at a constraint (null when leaving): light what it ties. */
+  onHover: (constraintId: string | null, ids: string[]) => void;
   /** Pick a constraint: select its row and the entities it ties. */
   onPick: (constraintId: string, ids: string[]) => void;
   onRemove: (constraintId: string) => void;
@@ -1708,7 +1737,6 @@ function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPi
   };
   const all = sketch.constraints.map((c) => ({ c, ids: idsOf(c as unknown as Record<string, unknown>) }));
   const related = all.filter(({ ids }) => touches(ids));
-  const rest = all.filter((x) => !related.includes(x));
   const row = ({ c, ids }: (typeof all)[number], isRelated: boolean) => {
     const raw = c as unknown as Record<string, unknown>;
     const value = raw.value;
@@ -1723,6 +1751,8 @@ function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPi
           ? 'The solver finds this redundant or contradictory — remove it'
           : 'Click to select; Delete removes it'}
         onClick={() => onPick(c.id, ids)}
+        onPointerEnter={() => onHover(c.id, ids)}
+        onPointerLeave={() => onHover(null, [])}
       >
         <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
         <span className="constraint-entities">
@@ -1742,23 +1772,26 @@ function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onPi
       </div>
     );
   };
+  // Two kinds: dimensions (a number you can type) and logical rules. Within each,
+  // what touches the selection comes first and is lit.
+  const isDim = ({ c }: (typeof all)[number]) => isDimensional(c.type);
+  const group = (title: string, items: typeof all) => (
+    <>
+      <div className="panel-section-title">
+        {title} <span className="about-dim">· {items.length}</span>
+      </div>
+      {items.length === 0 && <div className="about-dim constraint-empty">None</div>}
+      {[...items.filter((x) => related.includes(x)), ...items.filter((x) => !related.includes(x))]
+        .map((x) => row(x, related.includes(x)))}
+    </>
+  );
   return (
     <div className="constraints">
-      {selected && selected.size > 0 && (
-        <>
-          <div className="panel-section-title">
-            On the selection <span className="about-dim">· {related.length}</span>
-          </div>
-          {related.length === 0 && <div className="about-dim constraint-empty">Nothing holds it — it is free to move</div>}
-          {related.map((x) => row(x, true))}
-        </>
+      {selected && selected.size > 0 && related.length === 0 && (
+        <div className="about-dim constraint-empty">Nothing holds the selection — it is free to move</div>
       )}
-      <div className="panel-section-title">
-        {selected && selected.size > 0 ? 'Other constraints' : 'Constraints'}
-        <span className="about-dim"> · {rest.length}</span>
-      </div>
-      {all.length === 0 && <div className="about-dim constraint-empty">None yet — the sketch is free to move</div>}
-      {rest.map((x) => row(x, false))}
+      {group('Dimensional', all.filter(isDim))}
+      {group('Logical', all.filter((x) => !isDim(x)))}
     </div>
   );
 }

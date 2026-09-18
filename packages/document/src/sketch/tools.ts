@@ -254,25 +254,22 @@ export class SketchTools {
     if (radius < 1e-6) return { created: [], completed: false };
     const centreAt = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const centre = this.sketch.addPoint(centreAt.x, centreAt.y);
-    // The arc's ends: their own points, sitting on the axis ends to begin with.
-    const start = this.sketch.addPoint(a.x, a.y);
-    const end = this.sketch.addPoint(b.x, b.y);
+    // A click ON an existing point means "the arc ends HERE": that point IS the arc's
+    // end, one point, not two stacked. Changing the sweep then moves the centre along
+    // the bisector to keep such an end where it is. A fresh click gets its own end
+    // point, sitting on the axis end to begin with, so the centre holds and the end
+    // travels round the circle instead.
+    const start = this.#arcSnappedStart ? axisA : this.sketch.addPoint(a.x, a.y);
+    const end = snappedEnd ? axisB : this.sketch.addPoint(b.x, b.y);
     const startAngle = Math.atan2(a.y - centreAt.y, a.x - centreAt.x);
     const axis = this.sketch.addLine(axisA, axisB, true);
     const arc = this.sketch.addArc(centre, radius, start, end, startAngle, startAngle + Math.PI, axis);
     this.sketch.addLine(centre, axisA, true, arc);
     this.sketch.addLine(centre, axisB, true, arc);
     const sweep = this.sketch.addConstraint({ type: 'arcAngle', entity: arc, axis, value: 180 });
-    // Clicking a point that was already there means "the arc ends HERE": tie the arc's
-    // end to it. Changing the sweep then moves the centre along the bisector to keep
-    // the ends where they are — which is what a tied end has to mean. A fresh click
-    // stays free, so the centre holds and the ends travel instead.
-    const ties: SketchEntityId[] = [];
-    if (this.#arcSnappedStart) ties.push(this.sketch.addConstraint({ type: 'coincident', a: start, b: axisA }));
-    if (snappedEnd) ties.push(this.sketch.addConstraint({ type: 'coincident', a: end, b: axisB }));
     this.#anchors = [];
     this.#arcSnappedStart = false;
-    return { created: [axisA, axisB, centre, start, end, arc, axis, sweep, ...ties], completed: true };
+    return { created: [axisA, axisB, centre, start, end, arc, axis, sweep], completed: true };
   }
 
   /** Whether the arc's first click landed on a point that already existed. */

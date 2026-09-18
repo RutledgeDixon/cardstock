@@ -317,3 +317,31 @@ describe('arcs', () => {
     expect(result.points.a).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe('equal', () => {
+  it('equalises line lengths and circle/arc radii, rather than failing on entity ids', async () => {
+    const geometry: SketchGeometry[] = [
+      { id: 'o', type: 'point', x: 0, y: 0, fixed: true },
+      { id: 'a', type: 'point', x: 30, y: 0 },
+      { id: 'b', type: 'point', x: 0, y: 10, fixed: true },
+      { id: 'c', type: 'point', x: 12, y: 10 },
+      { id: 'l1', type: 'line', p1: 'o', p2: 'a' },
+      { id: 'l2', type: 'line', p1: 'b', p2: 'c' },
+      { id: 'k1', type: 'point', x: 50, y: 50, fixed: true },
+      { id: 'ring', type: 'circle', centre: 'k1', radius: 5 },
+      { id: 'k2', type: 'point', x: 80, y: 50, fixed: true },
+      { id: 's', type: 'point', x: 90, y: 50 },
+      { id: 'e', type: 'point', x: 80, y: 60 },
+      { id: 'arc', type: 'arc', centre: 'k2', radius: 10, start: 's', end: 'e', startAngle: 0, endAngle: Math.PI / 2 },
+    ];
+    const result = await solver.solve({ geometry, parameters: {}, constraints: [
+      { id: 'h1', type: 'horizontal', line: 'l1' }, { id: 'h2', type: 'horizontal', line: 'l2' },
+      { id: 'eqL', type: 'equal', a: 'l1', b: 'l2' },
+      { id: 'r', type: 'radius', entity: 'ring', value: 5 },
+      { id: 'eqR', type: 'equal', a: 'ring', b: 'arc' },
+    ] });
+    expect(result.status).toBe('solved');
+    expect(result.points.c!.x - result.points.b!.x).toBeCloseTo(result.points.a!.x - result.points.o!.x, 5);
+    expect(result.radii.arc).toBeCloseTo(5, 5);
+  });
+});

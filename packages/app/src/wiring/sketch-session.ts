@@ -127,6 +127,44 @@ export class SketchSession {
       : { placed: null, reason: 'Those two cannot be dimensioned against each other' };
   }
 
+  /** Why a sweep dimension cannot be added to the selection, or null when it can. */
+  sweepBlocker(): string | null {
+    const ids = [...this.selected];
+    if (ids.length !== 1) return 'Select one arc';
+    const arc = this.sketch.entity(ids[0]!);
+    if (arc?.type !== 'arc') return 'Select one arc';
+    if (!arc.axis) return 'This arc has no axis to measure from';
+    if (this.sketch.constraints.some((c) => c.type === 'arcAngle' && c.entity === arc.id)) {
+      return 'This arc already has a sweep; edit or delete that one';
+    }
+    return null;
+  }
+
+  /** Add a sweep dimension to the selected arc, at its current (signed) sweep. */
+  addSweep(): { placed: string | null; reason: string | null } {
+    const reason = this.sweepBlocker();
+    if (reason) return { placed: null, reason };
+    const arc = this.sketch.entity([...this.selected][0]!);
+    if (arc?.type !== 'arc' || !arc.axis) return { placed: null, reason: 'Select one arc' };
+    const P = (id: string) => this.sketch.entity(id);
+    const centre = P(arc.centre), axis = P(arc.axis);
+    let side = 1;
+    if (centre?.type === 'point' && axis?.type === 'line') {
+      const a = P(axis.p1), b = P(axis.p2);
+      if (a?.type === 'point' && b?.type === 'point') {
+        const midAngle = arc.startAngle + arcSweepOf(arc) / 2;
+        const m = { x: centre.x + arc.radius * Math.cos(midAngle) - a.x, y: centre.y + arc.radius * Math.sin(midAngle) - a.y };
+        const d = { x: b.x - a.x, y: b.y - a.y };
+        side = d.x * m.y - d.y * m.x < 0 ? 1 : -1;
+      }
+    }
+    const value = round((side * arcSweepOf(arc) * 180) / Math.PI);
+    const placed = this.#addDimension({ type: 'arcAngle', entity: arc.id, axis: arc.axis, value });
+    this.selected.clear();
+    this.view.setSelection(this.selected);
+    return { placed, reason: null };
+  }
+
   /** Why the selection cannot be dimensioned, or null when it can. */
   dimensionBlocker(): string | null {
     const ids = [...this.selected];
@@ -501,7 +539,19 @@ export class SketchSession {
     return this.sketch.geometry.some((e) => e.type === 'arc' && (e.start === id || e.end === id));
   }
 
+  /** Light the entities a constraint ties, while it is pointed at in the list. */
+  setHover(ids: Iterable<string>): void {
+    this.view.setHover(ids);
+  }
+
+  /** Drop selected ids that no longer exist. Returns the live selection size. */
+  pruneSelection(): number {
+    for (const id of [...this.selected]) if (!this.sketch.entity(id)) this.selected.delete(id);
+    return this.selected.size;
+  }
+
   toggleSelection(id: string | null, additive: boolean): void {
+    this.pruneSelection();
     if (id === null) {
       if (!additive) this.selected.clear();
     } else if (additive) {

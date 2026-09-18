@@ -72,6 +72,9 @@ export interface CommandHost {
   /** Dimension the sketch selection, from the ring. Returns the reason if it cannot. */
   dimensionSketchSelection(): string | null;
   sketchDimensionBlocker(): string | null;
+  /** Give the selected arc a sweep dimension. */
+  addSketchSweep(): string | null;
+  sketchSweepBlocker(): string | null;
 
   // --- output
   /** Open the export dialog: format, quality, which bodies. */

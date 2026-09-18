@@ -64,7 +64,8 @@ export class PlaneGcsSolver implements SolverPort {
       const line = request.geometry.find((e) => e.id === lineId);
       return line?.type === 'line' ? line.p1 : lineId;
     };
-    const isArc = (id: string) => request.geometry.find((e) => e.id === id)?.type === 'arc';
+    const typeOf = (id: string) => request.geometry.find((e) => e.id === id)?.type;
+    const isArc = (id: string) => typeOf(id) === 'arc';
     const lineEnds = (lineId: string) => {
       const line = request.geometry.find((e) => e.id === lineId);
       return line?.type === 'line' ? { p1: line.p1, p2: line.p2 } : null;
@@ -76,10 +77,13 @@ export class PlaneGcsSolver implements SolverPort {
       const arc = request.geometry.find((e) => e.id === arcId);
       const axis = arc?.type === 'arc' && arc.axis ? lineEnds(arc.axis) : null;
       if (arc?.type !== 'arc' || !axis) return { start: false, end: false };
-      return { start: coincident(arc.start, axis.p1), end: coincident(arc.end, axis.p2) };
+      return {
+        start: arc.start === axis.p1 || coincident(arc.start, axis.p1),
+        end: arc.end === axis.p2 || coincident(arc.end, axis.p2),
+      };
     };
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds, tiedEnds));
+      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds, tiedEnds, typeOf));
     }
     // External circles are fixed in every respect; the centre is a fixed point already,
     // the radius needs pinning here since a circle primitive has no fixed flag.
@@ -199,6 +203,7 @@ function toGcsConstraints(
   c: SketchConstraint, lineStart: (lineId: string) => string, isArc: (id: string) => boolean,
   lineEnds: (lineId: string) => { p1: string; p2: string } | null,
   tiedEnds: (arcId: string) => { start: boolean; end: boolean },
+  typeOf: (id: string) => string | undefined,
 ): unknown[] {
   switch (c.type) {
     case 'coincident':
@@ -213,8 +218,18 @@ function toGcsConstraints(
       return [{ id: c.id, type: 'perpendicular_ll', l1_id: c.a, l2_id: c.b }];
     case 'tangent':
       return [{ id: c.id, type: 'tangent_lc', l_id: c.a, c_id: c.b }];
-    case 'equal':
-      return [{ id: c.id, type: 'equal', param1: c.a, param2: c.b }];
+    case 'equal': {
+      // GCS's plain `equal` is for parameters, not entities: handing it entity ids
+      // threw "unknown param" and the whole sketch failed to solve. Lines are equal
+      // in length; circles and arcs in radius, each pairing its own constraint.
+      const a = typeOf(c.a), b = typeOf(c.b);
+      if (a === 'line' && b === 'line') return [{ id: c.id, type: 'equal_length', l1_id: c.a, l2_id: c.b }];
+      if (a === 'circle' && b === 'circle') return [{ id: c.id, type: 'equal_radius_cc', c1_id: c.a, c2_id: c.b }];
+      if (a === 'arc' && b === 'arc') return [{ id: c.id, type: 'equal_radius_aa', a1_id: c.a, a2_id: c.b }];
+      if (a === 'circle' && b === 'arc') return [{ id: c.id, type: 'equal_radius_ca', c1_id: c.a, a2_id: c.b }];
+      if (a === 'arc' && b === 'circle') return [{ id: c.id, type: 'equal_radius_ca', c1_id: c.b, a2_id: c.a }];
+      return [];
+    }
     case 'concentric':
       return [{ id: c.id, type: 'p2p_coincident', p1_id: c.a, p2_id: c.b }];
     case 'pointOnLine':

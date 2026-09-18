@@ -292,6 +292,7 @@ kbd {
 .sketchbar-dof { font-size: 11px; color: var(--dim); margin-left: auto; white-space: nowrap; }
 .sketchbar-dof.status-fully-constrained { color: #6fd39a; }
 .sketchbar-dof.status-over-constrained { color: var(--danger); }
+.sketchbar-dof.status-unsolvable { color: var(--danger); text-decoration: underline dotted; }
 .sketchbar-inference {
   font-size: 10px; color: var(--accent);
   border: 1px solid #33507a; border-radius: 4px; padding: 1px 6px;
@@ -323,6 +324,7 @@ kbd {
 /* A reference dimension only reports; a driving one — green — holds the sketch. */
 .dimension.is-reference button { color: var(--dim); border-color: var(--panel-edge); font-style: italic; }
 .dimension.is-driving button { color: #6fd39a; border-color: #2f6b4a; }
+.dimension.is-hover button { border-color: #61adff; background: #1f3552; box-shadow: 0 0 0 2px #61adff55; }
 .dimension.is-invalid button { color: var(--danger); border-color: #5a3a32; }
 .dimension input {
   width: 84px; padding: 2px 6px; border-radius: 4px; font: inherit; font-size: 11px;

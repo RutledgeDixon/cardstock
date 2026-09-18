@@ -44,6 +44,8 @@ export interface SketchViewColours {
   dimension: number;
   /** Reference geometry projected from the face or the origin axes: muted, fixed. */
   external: number;
+  /** Pointed at — from the constraint list — without being selected. */
+  hover: number;
 }
 
 export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
@@ -61,6 +63,7 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   snap: 0x6fd39a,
   dimension: 0x2b4f9e,
   external: 0x7d8fb0,
+  hover: 0x61adff,
 };
 
 export class SketchView {
@@ -74,6 +77,9 @@ export class SketchView {
   #dimensionLines = fatLine();
   #external = fatLine();
   #externalPoints = new Points(new BufferGeometry(), new PointsMaterial());
+  #hoverLines = fatLine();
+  #hoverPoints = new Points(new BufferGeometry(), new PointsMaterial());
+  #hovered: ReadonlySet<string> = new Set();
   #points = new Points(new BufferGeometry(), new PointsMaterial());
   #selectedPoints = new Points(new BufferGeometry(), new PointsMaterial());
   /**
@@ -126,6 +132,13 @@ export class SketchView {
     externalPoints.size = EXTERNAL_POINT_SIZE;
     externalPoints.sizeAttenuation = false;
 
+    this.#hoverLines.material.color = new Color(colours.hover);
+    this.#hoverLines.material.linewidth = SELECTED_LINE_WIDTH;
+    const hoverPoints = this.#hoverPoints.material;
+    hoverPoints.color = new Color(colours.hover);
+    hoverPoints.size = SELECTED_POINT_SIZE;
+    hoverPoints.sizeAttenuation = false;
+
     const points = this.#points.material;
     points.color = new Color(colours.point);
     points.size = POINT_SIZE;
@@ -156,6 +169,8 @@ export class SketchView {
     this.#externalPoints.renderOrder = 8;
     this.#selectedLines.renderOrder = 11;
     this.#selectedPoints.renderOrder = 12;
+    this.#hoverLines.renderOrder = 11;
+    this.#hoverPoints.renderOrder = 12;
     this.#snapPoint.renderOrder = 13;
     this.#points.renderOrder = 11;
   }
@@ -163,7 +178,7 @@ export class SketchView {
   #all(): (LineSegments2 | Points | Line)[] {
     return [
       this.#solid, this.#construction, this.#selectedLines, this.#preview, this.#dimensionLines,
-      this.#external, this.#externalPoints,
+      this.#external, this.#externalPoints, this.#hoverLines, this.#hoverPoints,
       this.#points, this.#selectedPoints, this.#snapPoint, this.#previewCircle,
     ];
   }
@@ -175,7 +190,7 @@ export class SketchView {
    * the viewer calls it on every resize.
    */
   setResolution(width: number, height: number): void {
-    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview, this.#dimensionLines, this.#external]) {
+    for (const line of [this.#solid, this.#selectedLines, this.#construction, this.#preview, this.#dimensionLines, this.#external, this.#hoverLines]) {
       line.material.resolution.set(width, height);
     }
   }
@@ -205,6 +220,12 @@ export class SketchView {
     this.update(this.#geometry);
   }
 
+  /** What the user is pointing at in the constraint list. Drawn like a hover in 3D. */
+  setHover(ids: Iterable<string>): void {
+    this.#hovered = new Set(ids);
+    this.update(this.#geometry);
+  }
+
   update(geometry: readonly SketchGeometry[]): void {
     this.#geometry = geometry;
     const solid: number[] = [];
@@ -214,6 +235,8 @@ export class SketchView {
     const selectedPoints: number[] = [];
     const external: number[] = [];
     const externalPoints: number[] = [];
+    const hoverLines: number[] = [];
+    const hoverPoints: number[] = [];
 
     const positionOf = (id: string): Vec2 | null => {
       const entity = geometry.find((e) => e.id === id);
@@ -228,15 +251,17 @@ export class SketchView {
 
     for (const entity of geometry) {
       const isSelected = this.#selected.has(entity.id);
+      const isHovered = !isSelected && this.#hovered.has(entity.id);
 
       if (entity.type === 'point') {
         const world = this.toWorld({ x: entity.x, y: entity.y });
-        (isSelected ? selectedPoints : entity.external ? externalPoints : points)
+        (isSelected ? selectedPoints : isHovered ? hoverPoints : entity.external ? externalPoints : points)
           .push(world.x, world.y, world.z);
         continue;
       }
 
       const into = isSelected ? selectedLines
+        : isHovered ? hoverLines
         : entity.external ? external
         : entity.construction ? construction
         : solid;
@@ -271,6 +296,8 @@ export class SketchView {
     setSegments(this.#selectedLines, selectedLines);
     setSegments(this.#external, external);
     setPositions(this.#externalPoints.geometry, externalPoints);
+    setSegments(this.#hoverLines, hoverLines);
+    setPositions(this.#hoverPoints.geometry, hoverPoints);
     setPositions(this.#points.geometry, points);
     setPositions(this.#selectedPoints.geometry, selectedPoints);
   }

@@ -418,8 +418,12 @@ describe('arcs on existing points', () => {
     tools.click({ x: 70, y: 10 }); tools.click({ x: 70, y: 30 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
-    const ties = sketch.constraints.filter((c) => c.type === 'coincident');
-    expect(ties).toHaveLength(2);
+    // The line ends ARE the arc's ends: one point each, nothing stacked.
+    const axisLineNow = sketch.entity(arc.axis!);
+    if (axisLineNow?.type !== 'line') throw new Error('no axis');
+    expect(arc.start).toBe(axisLineNow.p1);
+    expect(arc.end).toBe(axisLineNow.p2);
+    expect(sketch.constraints.filter((c) => c.type === 'coincident')).toHaveLength(0);
     // Freshly drawn, nothing is redundant: the 180 is a real dimension, not a repeat.
     await sketch.solve(solver, {});
     expect(sketch.status).not.toBe('over-constrained');
