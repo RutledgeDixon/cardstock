@@ -1,7 +1,8 @@
 name: Desktop build
 
-# Builds installers for Linux, Windows and macOS with Tauri and attaches them to a
-# GitHub release. Runs on a version tag (v0.7.0) or by hand from the Actions tab.
+# Builds installers for Linux and Windows with Tauri and attaches them to a GitHub
+# release. macOS is deliberately left out: the runners are slow to come by and the
+# builds would be unsigned anyway. Runs on a version tag (v0.7.0) or by hand from the Actions tab.
 # This is how the app reaches testers: nobody needs a toolchain, they download the
 # installer for their machine from the release page.
 
@@ -28,10 +29,6 @@ jobs:
             args: ''
           - platform: windows-latest
             args: ''
-          - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-          - platform: macos-13
-            args: '--target x86_64-apple-darwin'
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -70,9 +67,8 @@ jobs:
           releaseName: 'CARDstock ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
             Test build. Download the installer for your system:
-            - Windows: the `.msi` or `-setup.exe`
-            - macOS: the `.dmg` (Apple Silicon: aarch64; Intel: x64) — unsigned, so right-click → Open the first time
-            - Linux: the `.AppImage` (make it executable) or the `.deb`
+            - Windows: the `-setup.exe` (or the `.msi`)
+            - Linux: the `.AppImage` (make it executable) or the `.deb` / `.rpm`
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
