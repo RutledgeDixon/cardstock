@@ -106,3 +106,11 @@ describe('mirror', () => {
     expect(bounds.max.x).toBeCloseTo(5, 6);
   });
 });
+
+describe('fillet that does not fit', () => {
+  it('says the radius is too big rather than quoting OpenCascade', async () => {
+    const { handle } = await kernel.makeBox({ dx: 10, dy: 10, dz: 10 });
+    await expect(kernel.fillet(handle, [0], 20)).rejects.toThrow(/too big for the edge/);
+    await expect(kernel.chamfer(handle, [0], 20)).rejects.toThrow(/too big for the edge/);
+  });
+});

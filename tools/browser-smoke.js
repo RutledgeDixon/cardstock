@@ -446,7 +446,8 @@ window.__smoke = async function smoke() {
     session.refresh();
     // Four of the sketch's own; the origin axes come in as external construction lines.
     check('rectangleDrawn', session.sketch.geometry.filter((e) => e.type === 'line' && !e.external).length === 4);
-    check('rectangleIsConstrained', session.sketch.constraints.length === 4);
+    // Bottom horizontal, left vertical, the other two parallel to them.
+    check('rectangleIsConstrained', session.sketch.constraints.map((c) => c.type).sort().join() === 'horizontal,parallel,parallel,vertical');
     // A dimension must survive being expressed as a formula over a parameter.
     const points = session.sketch.geometry.filter((e) => e.type === 'point' && !e.fixed);
     const id = session.sketch.addConstraint({
@@ -899,8 +900,11 @@ window.__smoke = async function smoke() {
     };
     await press(corner);
     check('vertexPressSelectsIt', sk.selected.size === 1 && sk.selected.has(corner.id));
-    const orange = sk.view.group.children.find((c) => c.type === 'Points' && c.material.color.getHexString() === 'ff9e38');
-    check('selectedVertexDrawnOrange', (orange?.geometry.attributes.position?.count ?? 0) === 1);
+    // Selection and list-hover both draw orange; count what is lit across them.
+    const orangeCount = sk.view.group.children
+      .filter((c) => c.type === 'Points' && c.material.color.getHexString() === 'ff9e38')
+      .reduce((n, c) => n + (c.geometry.attributes.position?.count ?? 0), 0);
+    check('selectedVertexDrawnOrange', orangeCount === 1);
 
     // The sketch bar's right-hand side: DOF, then Constrain, then Finish.
     const barClasses = [...document.querySelector('.sketchbar').children].map((c) => c.className.split(' ')[0]);

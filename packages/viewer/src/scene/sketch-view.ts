@@ -44,7 +44,8 @@ export interface SketchViewColours {
   dimension: number;
   /** Reference geometry projected from the face or the origin axes: muted, fixed. */
   external: number;
-  /** Pointed at — from the constraint list — without being selected. */
+  /** Pointed at — from the constraint list — without being selected. Same orange as
+   *  selection, since that is what "this one" looks like everywhere in the app. */
   hover: number;
 }
 
@@ -63,7 +64,7 @@ export const DEFAULT_SKETCH_COLOURS: SketchViewColours = {
   snap: 0x6fd39a,
   dimension: 0x2b4f9e,
   external: 0x7d8fb0,
-  hover: 0x61adff,
+  hover: 0xff9e38,
 };
 
 export class SketchView {

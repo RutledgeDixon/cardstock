@@ -13,7 +13,7 @@ import {
   scoreOrientations, type ExportMesh,
 } from '../export/index.js';
 import { ShapeRegistry } from './registry.js';
-import { asWire, subShapes } from './topology.js';
+import { asWire, countSubShapes, subShapes } from './topology.js';
 import { captureHistory } from './history.js';
 import { tessellate } from '../tessellate/tessellate.js';
 import { describeShape } from './describe.js';
@@ -437,7 +437,21 @@ export class OcctKernel implements KernelPort {
       }
       builder.Add(radius, this.oc.TopoDS.Edge(edge));
     }
-    const result = this.#build(builder, 'fillet');
+    let result: TopoDS_Shape;
+    try {
+      result = this.#build(builder, 'fillet');
+    } catch (e) {
+      // The one way a fillet fails on a sane edge is the radius not fitting — the
+      // blend would have to eat past a neighbouring face. Say that, not "StdFail".
+      throw new KernelError(
+        `fillet of ${radius} mm is too big for the edge${edges.length > 1 ? 's' : ''} — reduce the radius`
+        + (e instanceof Error && !/StdFail|NotDone/i.test(e.message) ? ` (${e.message})` : ''),
+        'fillet',
+      );
+    }
+    if (result.IsNull() || countSubShapes(this.oc, result, 'TopAbs_FACE') === 0) {
+      throw new KernelError(`fillet of ${radius} mm is too big for the edge — reduce the radius`, 'fillet');
+    }
     const history = captureHistory(this.oc, builder, [input], result);
     return { handle: this.#wrap(result), history };
   }
@@ -460,7 +474,15 @@ export class OcctKernel implements KernelPort {
       }
       builder.Add(distance, this.oc.TopoDS.Edge(edge));
     }
-    const result = this.#build(builder, 'chamfer');
+    let result: TopoDS_Shape;
+    try {
+      result = this.#build(builder, 'chamfer');
+    } catch {
+      throw new KernelError(
+        `chamfer of ${distance} mm is too big for the edge${edges.length > 1 ? 's' : ''} — reduce the distance`,
+        'chamfer',
+      );
+    }
     const history = captureHistory(this.oc, builder, [input], result);
     return { handle: this.#wrap(result), history };
   }

@@ -79,11 +79,32 @@ describe('the rectangle tool', () => {
     expect(points()).toHaveLength(4);
   });
 
-  it('constrains it as a rectangle rather than four loose lines', () => {
+  it('constrains it as a rectangle with the fewest rules: bottom, left, and two parallels', () => {
     // Without these the first drag turns it into an arbitrary quadrilateral.
     tools.click({ x: 0, y: 0 });
     tools.click({ x: 40, y: 20 });
-    expect(constraintTypes()).toEqual(['horizontal', 'horizontal', 'vertical', 'vertical']);
+    expect(constraintTypes()).toEqual(['horizontal', 'parallel', 'parallel', 'vertical']);
+    const P = (id: string) => sketch.entity(id) as { x: number; y: number };
+    const horizontal = sketch.constraints.find((c) => c.type === 'horizontal') as { line: string };
+    const vertical = sketch.constraints.find((c) => c.type === 'vertical') as { line: string };
+    const bottom = sketch.entity(horizontal.line) as { p1: string; p2: string };
+    const left = sketch.entity(vertical.line) as { p1: string; p2: string };
+    expect(P(bottom.p1).y).toBe(0);
+    expect(P(bottom.p2).y).toBe(0);
+    expect(P(left.p1).x).toBe(0);
+    expect(P(left.p2).x).toBe(0);
+  });
+
+  it('puts the horizontal on the bottom and the vertical on the left whichever way it is dragged', () => {
+    tools.click({ x: 40, y: 20 });
+    tools.click({ x: 0, y: 0 });
+    const P = (id: string) => sketch.entity(id) as { x: number; y: number };
+    const horizontal = sketch.constraints.find((c) => c.type === 'horizontal') as { line: string };
+    const vertical = sketch.constraints.find((c) => c.type === 'vertical') as { line: string };
+    const bottom = sketch.entity(horizontal.line) as { p1: string; p2: string };
+    const left = sketch.entity(vertical.line) as { p1: string; p2: string };
+    expect(P(bottom.p1).y).toBe(0);
+    expect(P(left.p1).x).toBe(0);
   });
 
   it('works when dragged from any corner', () => {

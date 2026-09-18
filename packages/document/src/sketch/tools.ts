@@ -215,11 +215,20 @@ export class SketchTools {
       this.sketch.addLine(corner, d), this.sketch.addLine(d, first),
     ];
     // Constrain it as a rectangle rather than leaving four free lines that merely look
-    // like one — otherwise the first drag turns it into a quadrilateral.
-    this.sketch.addConstraint({ type: 'horizontal', line: lines[0]! });
-    this.sketch.addConstraint({ type: 'vertical', line: lines[1]! });
-    this.sketch.addConstraint({ type: 'horizontal', line: lines[2]! });
-    this.sketch.addConstraint({ type: 'vertical', line: lines[3]! });
+    // like one — otherwise the first drag turns it into a quadrilateral. One horizontal
+    // (the bottom), one vertical (the left), and the other two parallel to those: the
+    // same shape with the fewest rules, so a user relaxing it removes one thing.
+    // Which line is "bottom" and "left" depends on the drag direction.
+    const bottomFirst = a.y <= c.y;
+    const leftFirst = a.x <= c.x;
+    const bottom = bottomFirst ? lines[0]! : lines[2]!;
+    const top = bottomFirst ? lines[2]! : lines[0]!;
+    const left = leftFirst ? lines[3]! : lines[1]!;
+    const right = leftFirst ? lines[1]! : lines[3]!;
+    this.sketch.addConstraint({ type: 'horizontal', line: bottom });
+    this.sketch.addConstraint({ type: 'vertical', line: left });
+    this.sketch.addConstraint({ type: 'parallel', a: top, b: bottom });
+    this.sketch.addConstraint({ type: 'parallel', a: right, b: left });
 
     this.#anchors = [];
     return { created: [first, b, corner, d, ...lines], completed: true };
