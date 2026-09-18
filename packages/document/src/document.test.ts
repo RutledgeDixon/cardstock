@@ -396,3 +396,32 @@ describe('files carry sketches', () => {
     expect(doc.revision).toBe(before + 2);
   });
 });
+
+describe('sketch edits undo', () => {
+  it('undo restores geometry drawn by the tools, in the same Sketch object', async () => {
+    const { Document } = await import('./document.js');
+    const { MockKernel } = await import('./mock-kernel/mock-kernel.js');
+    const { MockSolver } = await import('./sketch/mock-solver.js');
+    const doc = new Document(new MockKernel(), undefined, new MockSolver());
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const a = sketch.addPoint(5, 5);
+    const b = sketch.addPoint(15, 5);
+    sketch.addLine(a, b);
+    doc.markSketchChanged(id, 'Draw');
+    expect(sketch.geometry.filter((e) => e.type === 'line')).toHaveLength(1);
+
+    expect(doc.undo()).toBe(true);
+    expect(doc.sketchFor(id)).toBe(sketch); // in place, for an open session
+    expect(sketch.geometry.filter((e) => e.type === 'line')).toHaveLength(0);
+    expect(sketch.geometry.some((e) => e.id === a)).toBe(false);
+
+    expect(doc.redo()).toBe(true);
+    expect(sketch.geometry.filter((e) => e.type === 'line')).toHaveLength(1);
+
+    // Undoing past the sketch's creation removes the sketch with its feature.
+    doc.undo();
+    doc.undo();
+    expect(doc.feature(id)).toBeUndefined();
+    expect(doc.sketchFor(id)).toBeNull();
+  });
+});

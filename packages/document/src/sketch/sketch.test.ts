@@ -189,3 +189,42 @@ describe('reference dimensions', () => {
     expect(sketch.dof).toBe(free! - 1);
   });
 });
+
+describe('drag safety', () => {
+  it('refuses a solution that flings the sketch, keeping the last good state', async () => {
+    const { Sketch } = await import('./sketch.js');
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    const a = sketch.addPoint(0, 0), b = sketch.addPoint(10, 0);
+    sketch.addLine(a, b);
+    // A solver that "solves" by throwing everything a long way off.
+    const flinger = {
+      async solve(request: { drag?: { point: string; x: number; y: number } }) {
+        const far = request.drag ? 1000 : 0;
+        return {
+          status: 'solved' as const, dof: 2,
+          points: { [a]: { x: far, y: far }, [b]: { x: far + 10, y: far } }, radii: {},
+          conflicting: [], redundant: [],
+        };
+      },
+    };
+    await sketch.solve(flinger as never, {}, { point: a, x: 1, y: 1 });
+    expect(sketch.entity(a)).toMatchObject({ x: 0, y: 0 });
+    expect(sketch.entity(b)).toMatchObject({ x: 10, y: 0 });
+    // Without a drag the same answer is taken: it is the solver's, not a pull.
+    await sketch.solve(flinger as never, {});
+    expect(sketch.entity(a)).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it('refuses a converged-but-unsolved drag', async () => {
+    const { Sketch } = await import('./sketch.js');
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    const a = sketch.addPoint(0, 0);
+    const nearlySolver = {
+      async solve() {
+        return { status: 'converged' as const, dof: 2, points: { [a]: { x: 1, y: 1 } }, radii: {}, conflicting: [], redundant: [] };
+      },
+    };
+    await sketch.solve(nearlySolver as never, {}, { point: a, x: 1, y: 1 });
+    expect(sketch.entity(a)).toMatchObject({ x: 0, y: 0 });
+  });
+});

@@ -530,6 +530,9 @@ export class SketchSession {
 
   /** Redraw from the current sketch state. */
   refresh(): void {
+    // Undo can take away what was selected; a selection of ghosts confuses every tool.
+    for (const id of [...this.selected]) if (!this.sketch.entity(id)) this.selected.delete(id);
+    if (this.#dragging && !this.sketch.entity(this.#dragging)) this.#dragging = null;
     // Resolution is re-applied here rather than only at construction: the window can be
     // resized mid-sketch, and a stale resolution makes every line the wrong width.
     this.view.setResolution(this.viewer.viewport.width, this.viewer.viewport.height);

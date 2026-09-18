@@ -325,9 +325,37 @@ export class Sketch {
       parameters,
       ...(drag ? { drag } : {}),
     });
+    if (drag) {
+      // A drag may only land somewhere NEAR. The solver, asked to move one point,
+      // sometimes finds a valid configuration a long way off — everything flung
+      // out of view — or "converges" to something that is not a solution at all.
+      // Neither is a drag. If any point would move further than the pointer did
+      // (with room for the shape to swing), the sketch stays as it is; the next pointer
+      // move tries again from where it was. It is fine to hop to a nearby valid place;
+      // it is never fine to explode.
+      if (result.status !== 'solved' || this.#dragTooFar(drag, result)) {
+        this.#lastSolve = { ...result, status: 'solved', points: {}, radii: {}, angles: {} };
+        return this.#lastSolve;
+      }
+    }
     this.#lastSolve = result;
     if (result.status === 'solved' || result.status === 'converged') this.#applySolution(result);
     return result;
+  }
+
+  #dragTooFar(drag: { point: SketchEntityId; x: number; y: number }, result: SolveResult): boolean {
+    const dragged = this.#geometry.get(drag.point);
+    if (dragged?.type !== 'point') return false;
+    const pulled = Math.hypot(drag.x - dragged.x, drag.y - dragged.y);
+    // Generous: a point on a rotating shape can move a few times the pull. Beyond that
+    // the solver has jumped to a different solution branch, not followed the pointer.
+    const limit = pulled * 4 + 1e-6;
+    for (const [id, position] of Object.entries(result.points)) {
+      const before = this.#geometry.get(id);
+      if (before?.type !== 'point') continue;
+      if (Math.hypot(position.x - before.x, position.y - before.y) > limit) return true;
+    }
+    return false;
   }
 
   /**
@@ -436,15 +464,29 @@ export class Sketch {
 
   static fromJSON(data: SketchData): Sketch {
     const sketch = new Sketch(data.plane);
-    for (const entity of data.geometry) sketch.#geometry.set(entity.id, entity);
-    for (const constraint of data.constraints) sketch.#constraints.set(constraint.id, constraint);
+    sketch.replaceWith(data);
+    return sketch;
+  }
+
+  /**
+   * Become this data, in place.
+   *
+   * Undo restores sketches this way rather than swapping objects, because an open
+   * editing session holds the Sketch it is editing and must keep holding it.
+   */
+  replaceWith(data: SketchData): void {
+    this.#geometry.clear();
+    this.#constraints.clear();
+    this.#expressionErrors.clear();
+    this.#lastSolve = null;
+    for (const entity of data.geometry) this.#geometry.set(entity.id, structuredClone(entity));
+    for (const constraint of data.constraints) this.#constraints.set(constraint.id, structuredClone(constraint));
     // Keep minted ids clear of everything already present.
     const numbers = [...data.geometry, ...data.constraints]
       .map((item) => /^[a-z]+(\d+)$/.exec(item.id)?.[1])
       .filter((n): n is string => n !== undefined)
       .map(Number);
-    sketch.#nextId = numbers.length > 0 ? Math.max(...numbers) : 0;
-    return sketch;
+    this.#nextId = numbers.length > 0 ? Math.max(...numbers) : 0;
   }
 }
 

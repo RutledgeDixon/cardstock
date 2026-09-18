@@ -1,5 +1,5 @@
 import { type FeatureId, asFeatureId, type KernelPort, type SolverPort } from '@cardstock/types';
-import { Sketch, type SketchPlane } from './sketch/sketch.js';
+import { Sketch, type SketchData, type SketchPlane } from './sketch/sketch.js';
 import { ParameterTable, type Parameter } from './params/parameters.js';
 import type { FeatureRegistry } from './features/feature.js';
 import { type Feature } from './features/feature.js';
@@ -26,6 +26,8 @@ export interface DocumentSnapshot {
   readonly parameters: readonly Parameter[];
   readonly features: readonly Feature[];
   readonly meta: DocumentMeta;
+  /** Every sketch's geometry and constraints, by sketch id. */
+  readonly sketches: Readonly<Record<string, SketchData>>;
 }
 
 /** One input rebinding performed by a reorder. */
@@ -111,12 +113,27 @@ export class Document {
       parameters: this.parameters.all().map((p) => ({ ...p })),
       features: this.#features.map((f) => structuredClone(f)),
       meta: { ...this.#meta },
+      sketches: this.#sketchData(),
     };
   }
+
+  #sketchData(): Record<string, SketchData> {
+    return Object.fromEntries([...this.sketches].map(([id, sketch]) => [id, structuredClone(sketch.toJSON())]));
+  }
+
+  /**
+   * The sketches as they were after the last recorded edit.
+   *
+   * Sketch tools mutate a Sketch directly and tell the document afterwards, so by the
+   * time `markSketchChanged` runs the change has happened; the undo step has to be
+   * the state from BEFORE it, which is this. Refreshed whenever any edit is recorded.
+   */
+  #sketchBaseline: Record<string, SketchData> = {};
 
   // ------------------------------------------------------------------ editing
   #beginEdit(opts: EditOptions, defaultLabel: string): void {
     this.#history.record(this.snapshot(), opts.label ?? defaultLabel, opts.coalesceKey ?? null);
+    this.#sketchBaseline = this.#sketchData();
     this.#meta = { ...this.#meta, modified: new Date().toISOString() };
     this.#touch();
   }
@@ -445,6 +462,16 @@ export class Document {
     for (const p of snapshot.parameters) this.parameters.set(p);
     this.#features = snapshot.features.map((f) => structuredClone(f));
     this.#meta = { ...snapshot.meta };
+    // Sketches are restored IN PLACE: an open editing session holds its Sketch.
+    for (const [id, data] of Object.entries(snapshot.sketches)) {
+      const existing = this.sketches.get(id);
+      if (existing) existing.replaceWith(data);
+      else this.sketches.set(id, Sketch.fromJSON(data));
+    }
+    for (const id of [...this.sketches.keys()]) {
+      if (!(id in snapshot.sketches)) this.sketches.delete(id);
+    }
+    this.#sketchBaseline = this.#sketchData();
     // The graph shape may have changed arbitrarily, so rebuild everything. Geometry is
     // still cheap to recover: the content cache is warm for states we have visited.
     this.invalidateAll();
@@ -514,6 +541,7 @@ export class Document {
     }
 
     this.clearHistory();
+    this.#sketchBaseline = this.#sketchData();
     this.invalidateAll();
     this.#touch();
   }
@@ -578,8 +606,10 @@ export class Document {
     const sketch = new Sketch(plane);
     // The origin is fixed so a sketch is never free to float away from its own plane.
     sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
-    this.sketches.set(sketchId, sketch);
 
+    // The feature first, so the undo step recorded for it predates the sketch; then
+    // the sketch, and a fresh baseline so its first edit undoes to it being empty
+    // rather than to it not existing under a feature that still names it.
     const id = this.newFeatureId('sketch');
     this.addFeature(
       {
@@ -589,6 +619,8 @@ export class Document {
       undefined,
       { label: 'Add sketch', ...opts },
     );
+    this.sketches.set(sketchId, sketch);
+    this.#sketchBaseline = this.#sketchData();
     return { sketch, id };
   }
 
@@ -602,7 +634,20 @@ export class Document {
    * Deliberately does NOT record undo history: a drawing session is a stream of small
    * edits, and one history entry per click would bury everything else.
    */
-  markSketchChanged(featureId: FeatureId): void {
+  /**
+   * A sketch was edited through its own tools. Recorded for undo as the state before
+   * the edit (the kept baseline); rapid edits to one sketch coalesce into one step, so
+   * a drag or a run of clicks undoes as a whole.
+   */
+  markSketchChanged(featureId: FeatureId, label = 'Edit sketch'): void {
+    const before: DocumentSnapshot = {
+      parameters: this.parameters.all().map((p) => ({ ...p })),
+      features: this.#features.map((f) => structuredClone(f)),
+      meta: { ...this.#meta },
+      sketches: this.#sketchBaseline,
+    };
+    this.#history.record(before, label, `sketch:${featureId}`);
+    this.#sketchBaseline = this.#sketchData();
     this.#markDirty(featureNode(featureId));
     this.#meta = { ...this.#meta, modified: new Date().toISOString() };
     this.#touch();
