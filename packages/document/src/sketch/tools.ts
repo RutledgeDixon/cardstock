@@ -238,12 +238,16 @@ export class SketchTools {
    */
   #clickArc(at: Vec2): ToolResult {
     if (this.#anchors.length === 0) {
+      const existing = new Set(this.sketch.geometry.map((e) => e.id));
       const start = this.#placePoint(at);
       this.#anchors.push(start);
+      this.#arcSnappedStart = existing.has(start);
       return { created: [start], completed: false };
     }
     const axisA = this.#anchors[0]!;
+    const existing = new Set(this.sketch.geometry.map((e) => e.id));
     const axisB = this.#placePoint(at);
+    const snappedEnd = existing.has(axisB);
     if (axisB === axisA) return { created: [], completed: false };
     const a = this.#positionOf(axisA)!, b = this.#positionOf(axisB)!;
     const radius = Math.hypot(b.x - a.x, b.y - a.y) / 2;
@@ -259,9 +263,20 @@ export class SketchTools {
     this.sketch.addLine(centre, axisA, true, arc);
     this.sketch.addLine(centre, axisB, true, arc);
     const sweep = this.sketch.addConstraint({ type: 'arcAngle', entity: arc, axis, value: 180 });
+    // Clicking a point that was already there means "the arc ends HERE": tie the arc's
+    // end to it. Changing the sweep then moves the centre along the bisector to keep
+    // the ends where they are — which is what a tied end has to mean. A fresh click
+    // stays free, so the centre holds and the ends travel instead.
+    const ties: SketchEntityId[] = [];
+    if (this.#arcSnappedStart) ties.push(this.sketch.addConstraint({ type: 'coincident', a: start, b: axisA }));
+    if (snappedEnd) ties.push(this.sketch.addConstraint({ type: 'coincident', a: end, b: axisB }));
     this.#anchors = [];
-    return { created: [axisA, axisB, centre, start, end, arc, axis, sweep], completed: true };
+    this.#arcSnappedStart = false;
+    return { created: [axisA, axisB, centre, start, end, arc, axis, sweep, ...ties], completed: true };
   }
+
+  /** Whether the arc's first click landed on a point that already existed. */
+  #arcSnappedStart = false;
 
   #clickCircle(at: Vec2): ToolResult {
     if (this.#anchors.length === 0) {

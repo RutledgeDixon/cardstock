@@ -350,8 +350,9 @@ describe('arcs', () => {
     sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
     const tools = new SketchTools(sketch);
     tools.setTool('arc');
-    tools.click({ x: 0, y: 0 });
-    tools.click({ x: 40, y: 0 });
+    // Fresh clicks, clear of the origin: a click ON a point ties the arc's end to it.
+    tools.click({ x: 5, y: 5 });
+    tools.click({ x: 45, y: 5 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
     expect(arc.radius).toBe(20);
@@ -362,8 +363,8 @@ describe('arcs', () => {
 
     await sketch.solve(solver, {});
     expect(sketch.status).not.toBe('over-constrained');
-    // The axis ends and the centre are the free things: 5 DOF less the fixed origin's 2.
-    expect(sketch.dof).toBe(3);
+    // The axis ends and the centre along the bisector are the free things.
+    expect(sketch.dof).toBe(5);
 
     // Deleting the arc takes its axis and radii; nothing dotted is left behind.
     sketch.remove(arc.id);
@@ -376,8 +377,8 @@ describe('arcs', () => {
     const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
     const tools = new SketchTools(sketch);
     tools.setTool('arc');
-    tools.click({ x: 0, y: 0 });
-    tools.click({ x: 40, y: 0 });
+    tools.click({ x: 5, y: 5 });
+    tools.click({ x: 45, y: 5 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
     const centreBefore = { ...(sketch.entity(arc.centre) as { x: number; y: number }) };
@@ -400,5 +401,49 @@ describe('arcs', () => {
     const segment = (r * r / 2) * (Math.PI / 2 - 1);
     const volume = (await kernel.massProperties(result.states.get(extrude)!.handle!)).volume;
     expect(volume).toBeCloseTo(segment * 10, 1);
+  });
+});
+
+describe('arcs on existing points', () => {
+  it('ties its ends to the points it was clicked on, so the sweep moves the centre instead', async () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    const tools = new SketchTools(sketch);
+    // The right end of a stadium: two line ends, 20 apart.
+    tools.setTool('line');
+    tools.click({ x: 10, y: 10 }); tools.click({ x: 70, y: 10 });
+    tools.setTool('line');
+    tools.click({ x: 70, y: 30 }); tools.click({ x: 10, y: 30 });
+    tools.setTool('arc');
+    tools.click({ x: 70, y: 10 }); tools.click({ x: 70, y: 30 });
+    const arc = sketch.geometry.find((e) => e.type === 'arc')!;
+    if (arc.type !== 'arc') throw new Error('no arc');
+    const ties = sketch.constraints.filter((c) => c.type === 'coincident');
+    expect(ties).toHaveLength(2);
+    // Freshly drawn, nothing is redundant: the 180 is a real dimension, not a repeat.
+    await sketch.solve(solver, {});
+    expect(sketch.status).not.toBe('over-constrained');
+
+    // Pin the axis ends (the line ends the arc was clicked on) so only the arc can give.
+    const axisLine = sketch.entity(arc.axis!);
+    if (axisLine?.type !== 'line') throw new Error('no axis');
+    for (const id of [axisLine.p1, axisLine.p2]) {
+      const p = sketch.entity(id) as { x: number; y: number };
+      sketch.addConstraint({ type: 'lockX', point: id, value: p.x });
+      sketch.addConstraint({ type: 'lockY', point: id, value: p.y });
+    }
+    const sweep = sketch.constraints.find((c) => c.type === 'arcAngle')!;
+    sketch.removeConstraint(sweep.id);
+    sketch.addConstraint({ type: 'arcAngle', entity: arc.id, axis: arc.axis!, value: 90 });
+    await sketch.solve(solver, {});
+    expect(sketch.status).not.toBe('over-constrained');
+    const P = (id: string) => sketch.entity(id) as { x: number; y: number };
+    // Ends stayed on the line ends; the centre slid along the bisector.
+    expect(P(arc.start).x).toBeCloseTo(70, 4);
+    expect(P(arc.start).y).toBeCloseTo(10, 4);
+    expect(P(arc.end).y).toBeCloseTo(30, 4);
+    expect(P(arc.centre).y).toBeCloseTo(20, 4);
+    expect(P(arc.centre).x).toBeCloseTo(60, 3);
+    expect((sketch.entity(arc.id) as { radius: number }).radius).toBeCloseTo(10 * Math.SQRT2, 3);
   });
 });

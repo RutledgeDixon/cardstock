@@ -69,8 +69,17 @@ export class PlaneGcsSolver implements SolverPort {
       const line = request.geometry.find((e) => e.id === lineId);
       return line?.type === 'line' ? { p1: line.p1, p2: line.p2 } : null;
     };
+    const coincident = (a: string, b: string) => request.constraints.some((c) =>
+      c.type === 'coincident' && ((c.a === a && c.b === b) || (c.a === b && c.b === a)));
+    /** Whether an arc's ends are tied to its axis ends by coincident constraints. */
+    const tiedEnds = (arcId: string) => {
+      const arc = request.geometry.find((e) => e.id === arcId);
+      const axis = arc?.type === 'arc' && arc.axis ? lineEnds(arc.axis) : null;
+      if (arc?.type !== 'arc' || !axis) return { start: false, end: false };
+      return { start: coincident(arc.start, axis.p1), end: coincident(arc.end, axis.p2) };
+    };
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds));
+      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds, tiedEnds));
     }
     // External circles are fixed in every respect; the centre is a fixed point already,
     // the radius needs pinning here since a circle primitive has no fixed flag.
@@ -87,10 +96,16 @@ export class PlaneGcsSolver implements SolverPort {
         const axis = entity.axis ? request.geometry.find((e) => e.id === entity.axis) : undefined;
         if (axis?.type === 'line') {
           const radius = { o_id: entity.id, prop: 'radius' };
-          primitives.push(
-            { id: `${entity.id}#axisA`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p1, distance: radius },
-            { id: `${entity.id}#axisB`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p2, distance: radius },
-          );
+          // An axis end the arc's own end is tied to is on the circle already — the
+          // arc rules put it there — and saying so twice makes the solver see a
+          // conflict where there is only repetition.
+          const tied = tiedEnds(entity.id);
+          if (!tied.start) {
+            primitives.push({ id: `${entity.id}#axisA`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p1, distance: radius });
+          }
+          if (!tied.end) {
+            primitives.push({ id: `${entity.id}#axisB`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p2, distance: radius });
+          }
         }
       }
     }
@@ -183,6 +198,7 @@ const dim = (value: Dimension): number | string => value;
 function toGcsConstraints(
   c: SketchConstraint, lineStart: (lineId: string) => string, isArc: (id: string) => boolean,
   lineEnds: (lineId: string) => { p1: string; p2: string } | null,
+  tiedEnds: (arcId: string) => { start: boolean; end: boolean },
 ): unknown[] {
   switch (c.type) {
     case 'coincident':
@@ -234,10 +250,12 @@ function toGcsConstraints(
       const theta = (Math.abs(c.value) * Math.PI) / 180;
       const quarter = c.value < 0 ? Math.PI / 2 : -Math.PI / 2;
       // atan2(b − a) = start + incr  ⇒  start = α + quarter − θ/2  ⇒  incr = θ/2 − quarter
-      return [
-        { id: `${c.id}#start`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'start_angle' }, incrAngle: theta / 2 - quarter },
-        { id: `${c.id}#end`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'end_angle' }, incrAngle: -theta / 2 - quarter },
-      ];
+      const start = { id: `${c.id}#start`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'start_angle' }, incrAngle: theta / 2 - quarter };
+      const end = { id: `${c.id}#end`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'end_angle' }, incrAngle: -theta / 2 - quarter };
+      // With both ends tied to the axis ends, the end angle follows from the start
+      // angle and the geometry; saying it too would be one equation too many.
+      const tied = tiedEnds(c.entity);
+      return tied.start && tied.end ? [start] : [start, end];
     }
     case 'diameter':
       return isArc(c.entity)
