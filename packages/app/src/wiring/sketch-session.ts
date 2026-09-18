@@ -332,10 +332,20 @@ export class SketchSession {
           const arc = this.sketch.entity(c.entity!);
           if (arc?.type === 'arc') {
             const centre = positionOf(arc.centre);
+            const axis = lineOf(c.axis!);
             if (centre) {
-              let sweep = arc.endAngle - arc.startAngle;
-              while (sweep <= 0) sweep += Math.PI * 2;
-              text = `${round((sweep * 180) / Math.PI)}°`;
+              const sweep = arcSweepOf(arc);
+              // Which side of the axis: the arc's middle against the axis direction.
+              let side = 1;
+              if (axis) {
+                const midAngle = arc.startAngle + sweep / 2;
+                const m = { x: centre.x + arc.radius * Math.cos(midAngle) - axis.a.x, y: centre.y + arc.radius * Math.sin(midAngle) - axis.a.y };
+                const d = { x: axis.b.x - axis.a.x, y: axis.b.y - axis.a.y };
+                // Positive is the side a counter-clockwise arc from the axis start lands
+                // on: to the right of a→b, where the cross product is negative.
+                side = d.x * m.y - d.y * m.x < 0 ? 1 : -1;
+              }
+              text = `${round((side * sweep * 180) / Math.PI)}°`;
               drawing = draw.arcSweep(centre, arc.radius, arc.startAngle, sweep, upp);
             }
           }
@@ -449,6 +459,12 @@ export class SketchSession {
       const candidate = { id, distance, isPoint, external };
       if (!best) { best = candidate; return; }
       if (best.isPoint !== isPoint) { if (isPoint) best = candidate; return; }
+      // Where an arc's end sits on its axis end, the arc's end is the one meant: it is
+      // what a line drawn from there should follow when the sweep changes.
+      if (isPoint && Math.abs(distance - best.distance) < 1e-9) {
+        if (this.#isArcEnd(id) && !this.#isArcEnd(best.id)) best = candidate;
+        return;
+      }
       // The sketch's own geometry beats reference geometry lying on top of it: a line
       // drawn along an origin axis must still be pickable as itself.
       if (Math.abs(distance - best.distance) < 1e-9) {
@@ -479,6 +495,10 @@ export class SketchSession {
       }
     }
     return best ? (best as { id: string }).id : null;
+  }
+
+  #isArcEnd(id: string): boolean {
+    return this.sketch.geometry.some((e) => e.type === 'arc' && (e.start === id || e.end === id));
   }
 
   toggleSelection(id: string | null, additive: boolean): void {

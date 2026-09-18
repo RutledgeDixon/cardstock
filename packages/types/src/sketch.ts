@@ -44,6 +44,8 @@ export interface SketchLine {
   readonly construction?: boolean;
   /** See SketchPoint.external. */
   readonly external?: string;
+  /** Belongs to this entity — an arc's radii — and goes when it goes. */
+  readonly owner?: SketchEntityId;
 }
 
 export interface SketchCircle {
@@ -69,6 +71,13 @@ export interface SketchArc {
   readonly construction?: boolean;
   /** Arcs are never external; present so every geometry kind can be asked. */
   readonly external?: undefined;
+  /**
+   * The axis this arc was placed on: a construction line whose ends lie on the arc's
+   * circle, with the centre on its perpendicular bisector. The arc is symmetric about
+   * that bisector and its sweep is measured from it — so changing the sweep moves the
+   * arc's ends round the circle and leaves the centre and the axis where they are.
+   */
+  readonly axis?: SketchEntityId;
 }
 
 export type SketchGeometry = SketchPoint | SketchLine | SketchCircle | SketchArc;
@@ -103,8 +112,11 @@ export type SketchConstraint =
   /** From a point to a circle's rim. */
   | ({ readonly type: 'pointCircleDistance'; readonly point: SketchEntityId; readonly circle: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'radius'; readonly entity: SketchEntityId } & DimensionalBase)
-  /** How far round an arc goes, in degrees, counter-clockwise from its start. */
-  | ({ readonly type: 'arcAngle'; readonly entity: SketchEntityId } & DimensionalBase)
+  /**
+   * How far round an arc goes, in degrees, centred on its axis's bisector. Negative
+   * puts it on the other side of the axis.
+   */
+  | ({ readonly type: 'arcAngle'; readonly entity: SketchEntityId; readonly axis: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'diameter'; readonly entity: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'angle'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'lockX'; readonly point: SketchEntityId } & DimensionalBase)

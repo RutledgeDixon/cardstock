@@ -76,11 +76,16 @@ export class Sketch {
     return id;
   }
 
-  addLine(p1: SketchEntityId, p2: SketchEntityId, construction = false): SketchEntityId {
+  addLine(
+    p1: SketchEntityId, p2: SketchEntityId, construction = false, owner?: SketchEntityId,
+  ): SketchEntityId {
     this.#requirePoint(p1);
     this.#requirePoint(p2);
     const id = this.newId('l');
-    this.#geometry.set(id, { id, type: 'line', p1, p2, ...(construction ? { construction } : {}) });
+    this.#geometry.set(id, {
+      id, type: 'line', p1, p2,
+      ...(construction ? { construction } : {}), ...(owner ? { owner } : {}),
+    });
     return id;
   }
 
@@ -98,12 +103,15 @@ export class Sketch {
     centre: SketchEntityId, radius: number,
     start: SketchEntityId, end: SketchEntityId,
     startAngle: number, endAngle: number,
+    axis?: SketchEntityId,
   ): SketchEntityId {
     this.#requirePoint(centre);
     this.#requirePoint(start);
     this.#requirePoint(end);
     const id = this.newId('a');
-    this.#geometry.set(id, { id, type: 'arc', centre, radius, start, end, startAngle, endAngle });
+    this.#geometry.set(id, {
+      id, type: 'arc', centre, radius, start, end, startAngle, endAngle, ...(axis ? { axis } : {}),
+    });
     return id;
   }
 
@@ -176,6 +184,19 @@ export class Sketch {
     const removed = this.#geometry.get(id);
     if (!removed) return this.#constraints.delete(id);
     this.#geometry.delete(id);
+
+    // An arc takes its axis and radii with it; an axis takes its arc. They were made
+    // together and mean nothing apart.
+    if (removed.type === 'arc') {
+      for (const entity of [...this.#geometry.values()]) {
+        if (entity.type === 'line' && (entity.owner === id || entity.id === removed.axis)) this.remove(entity.id);
+      }
+    }
+    if (removed.type === 'line') {
+      for (const entity of [...this.#geometry.values()]) {
+        if (entity.type === 'arc' && entity.axis === id) this.remove(entity.id);
+      }
+    }
 
     // A point takes every curve built on it: a line with one end gone is not a line,
     // and handing the solver one is what produced "-1 DOF" — it could not find the
@@ -296,7 +317,7 @@ export class Sketch {
     // constrained in itself and tied to nothing moves as a whole, instead of the
     // solver quietly putting the one dragged point back because that was the smaller
     // change.
-    const geometry = drag ? this.#carried(drag) : this.geometry;
+    const geometry = this.#seedArcs(drag ? this.#carried(drag) : this.geometry, resolved);
 
     const result = await solver.solve({
       geometry,
@@ -307,6 +328,40 @@ export class Sketch {
     this.#lastSolve = result;
     if (result.status === 'solved' || result.status === 'converged') this.#applySolution(result);
     return result;
+  }
+
+  /**
+   * Start each arc with a sweep dimension where that dimension says it should be.
+   *
+   * The solver is iterative and a sweep typed from 180 to 90 asks the arc's ends to
+   * travel a long way round the circle; from the old positions it converges to a
+   * nearby non-solution instead. Placing the ends at the dimensioned angles first —
+   * a plain calculation from the axis and centre — hands it a guess that is already
+   * right, so it only has to settle whatever else the change touched.
+   */
+  #seedArcs(geometry: SketchGeometry[], constraints: SketchConstraint[]): SketchGeometry[] {
+    const byId = new Map(geometry.map((e) => [e.id, e] as const));
+    const out = new Map(byId);
+    for (const c of constraints) {
+      if (c.type !== 'arcAngle' || typeof c.value !== 'number' || c.reference) continue;
+      const arc = byId.get(c.entity), axis = byId.get(c.axis);
+      if (arc?.type !== 'arc' || axis?.type !== 'line') continue;
+      const a = byId.get(axis.p1), b = byId.get(axis.p2), centre = byId.get(arc.centre);
+      if (a?.type !== 'point' || b?.type !== 'point' || centre?.type !== 'point') continue;
+      const alpha = Math.atan2(b.y - a.y, b.x - a.x);
+      const theta = (Math.abs(c.value) * Math.PI) / 180;
+      const quarter = c.value < 0 ? Math.PI / 2 : -Math.PI / 2;
+      const start = alpha + quarter - theta / 2, end = alpha + quarter + theta / 2;
+      const radius = Math.hypot(a.x - centre.x, a.y - centre.y) || arc.radius;
+      out.set(arc.id, { ...arc, radius, startAngle: start, endAngle: end });
+      for (const [id, angle] of [[arc.start, start], [arc.end, end]] as const) {
+        const p = byId.get(id);
+        if (p?.type === 'point' && !p.fixed) {
+          out.set(id, { ...p, x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) });
+        }
+      }
+    }
+    return [...out.values()];
   }
 
   /** The geometry with the dragged point's connected component moved by the drag. */
@@ -396,7 +451,7 @@ export class Sketch {
 /** Every entity id a constraint refers to. */
 export function referencedIds(constraint: SketchConstraint): SketchEntityId[] {
   const c = constraint as Record<string, unknown>;
-  return ['a', 'b', 'line', 'point', 'entity', 'circle']
+  return ['a', 'b', 'line', 'point', 'entity', 'circle', 'axis']
     .map((key) => c[key])
     .filter((value): value is string => typeof value === 'string');
 }

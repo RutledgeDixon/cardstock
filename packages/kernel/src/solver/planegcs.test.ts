@@ -248,33 +248,72 @@ describe('distance dimensions between kinds', () => {
 });
 
 describe('arcs', () => {
-  const semicircle = (): SketchGeometry[] => [
-    { id: 'a', type: 'point', x: 0, y: 0, fixed: true },
-    { id: 'b', type: 'point', x: 40, y: 0 },
-    { id: 'c', type: 'point', x: 20, y: 0 },
-    { id: 'arc', type: 'arc', centre: 'c', radius: 20, start: 'a', end: 'b', startAngle: Math.PI, endAngle: 2 * Math.PI },
-  ];
+  /**
+   * A half circle on the axis a–b, as the tool makes it, with the ends placed
+   * roughly where a given sweep puts them — the Sketch does this seeding before every
+   * solve; here the constraints themselves are what is under test.
+   */
+  const onAxis = (sweepDeg = 180): SketchGeometry[] => {
+    const theta = (Math.abs(sweepDeg) * Math.PI) / 180;
+    const bisector = sweepDeg < 0 ? Math.PI / 2 : -Math.PI / 2;
+    const start = bisector - theta / 2, end = bisector + theta / 2;
+    const at = (angle: number) => ({ x: 20 + 20 * Math.cos(angle), y: 20 * Math.sin(angle) });
+    return [
+      { id: 'a', type: 'point', x: 0, y: 0, fixed: true },
+      { id: 'b', type: 'point', x: 40, y: 0, fixed: true },
+      { id: 'c', type: 'point', x: 20, y: 0 },
+      { id: 's', type: 'point', ...at(start) },
+      { id: 'e', type: 'point', ...at(end) },
+      { id: 'axis', type: 'line', p1: 'a', p2: 'b', construction: true },
+      { id: 'arc', type: 'arc', centre: 'c', radius: 20, start: 's', end: 'e', startAngle: start, endAngle: end, axis: 'axis' },
+    ];
+  };
 
   it('keeps its ends on the arc and reports its angles', async () => {
-    const result = await solver.solve({ geometry: semicircle(), parameters: {}, constraints: [] });
+    const result = await solver.solve({ geometry: onAxis(), parameters: {}, constraints: [
+      { id: 'sweep', type: 'arcAngle', entity: 'arc', axis: 'axis', value: 180 },
+    ] });
     expect(['solved', 'converged']).toContain(result.status);
-    expect(result.angles?.arc).toBeDefined();
     expect(result.angles!.arc!.end - result.angles!.arc!.start).toBeCloseTo(Math.PI, 6);
+    expect(result.points.c).toEqual({ x: 20, y: 0 });
   });
 
-  it('an arc-angle dimension changes the sweep, keeping the ends and the radius', async () => {
-    const result = await solver.solve({
-      geometry: semicircle(), parameters: {},
-      constraints: [
-        { id: 'r', type: 'radius', entity: 'arc', value: 20 },
-        { id: 'sweep', type: 'arcAngle', entity: 'arc', value: 90 },
-      ],
-    });
-    expect(['solved', 'converged']).toContain(result.status);
-    expect(result.angles!.arc!.end - result.angles!.arc!.start).toBeCloseTo(Math.PI / 2, 5);
+  it('changing the sweep moves the ends round the circle and leaves the centre alone', async () => {
+    const result = await solver.solve({ geometry: onAxis(90), parameters: {}, constraints: [
+      { id: 'sweep', type: 'arcAngle', entity: 'arc', axis: 'axis', value: 90 },
+    ] });
+    expect(result.status).toBe('solved');
+    expect(result.points.c!.x).toBeCloseTo(20, 5);
+    expect(result.points.c!.y).toBeCloseTo(0, 5);
     expect(result.radii.arc).toBeCloseTo(20, 5);
-    // The ends stayed on the arc: chord of a 90° arc of radius 20 is 20√2.
-    const chord = Math.hypot(result.points.b!.x - result.points.a!.x, result.points.b!.y - result.points.a!.y);
-    expect(chord).toBeCloseTo(20 * Math.SQRT2, 4);
+    expect(result.angles!.arc!.end - result.angles!.arc!.start).toBeCloseTo(Math.PI / 2, 5);
+    // Symmetric about the bisector, on the side a counter-clockwise arc from a lands
+    // on: below an axis that runs +x.
+    expect(result.points.s!.y).toBeCloseTo(result.points.e!.y, 5);
+    expect(result.points.s!.y).toBeLessThan(0);
+    expect(result.points.s!.x).toBeLessThan(result.points.e!.x);
+  });
+
+  it('a negative sweep puts the arc on the other side of the axis', async () => {
+    const result = await solver.solve({ geometry: onAxis(-90), parameters: {}, constraints: [
+      { id: 'sweep', type: 'arcAngle', entity: 'arc', axis: 'axis', value: -90 },
+    ] });
+    expect(result.status).toBe('solved');
+    expect(result.points.s!.y).toBeGreaterThan(0);
+    expect(result.points.e!.y).toBeCloseTo(result.points.s!.y, 5);
+    expect(result.points.c!.y).toBeCloseTo(0, 5);
+  });
+
+  it('the centre dragged along the bisector changes the radius, not the axis', async () => {
+    const result = await solver.solve({ geometry: onAxis(), parameters: {}, constraints: [
+      { id: 'sweep', type: 'arcAngle', entity: 'arc', axis: 'axis', value: 180 },
+    ], drag: { point: 'c', x: 20, y: -15 } });
+    expect(result.status).toBe('solved');
+    // A drag is a pull, not a pin: it lands near the pointer, on the bisector, and
+    // the radius follows the centre while the axis ends stay where they are.
+    expect(result.points.c!.x).toBeCloseTo(20, 3);
+    expect(result.points.c!.y).toBeLessThan(-10);
+    expect(result.radii.arc).toBeCloseTo(Math.hypot(20, result.points.c!.y), 3);
+    expect(result.points.a).toEqual({ x: 0, y: 0 });
   });
 });

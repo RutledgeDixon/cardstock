@@ -65,8 +65,12 @@ export class PlaneGcsSolver implements SolverPort {
       return line?.type === 'line' ? line.p1 : lineId;
     };
     const isArc = (id: string) => request.geometry.find((e) => e.id === id)?.type === 'arc';
+    const lineEnds = (lineId: string) => {
+      const line = request.geometry.find((e) => e.id === lineId);
+      return line?.type === 'line' ? { p1: line.p1, p2: line.p2 } : null;
+    };
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint, lineStart, isArc));
+      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds));
     }
     // External circles are fixed in every respect; the centre is a fixed point already,
     // the radius needs pinning here since a circle primitive has no fixed flag.
@@ -78,6 +82,16 @@ export class PlaneGcsSolver implements SolverPort {
       // alone leaves three points and three numbers with nothing tying them together.
       if (entity.type === 'arc') {
         primitives.push({ id: `${entity.id}#rules`, type: 'arc_rules', a_id: entity.id });
+        // An arc on an axis: both axis ends sit on its circle — which also keeps the
+        // centre on the axis's perpendicular bisector.
+        const axis = entity.axis ? request.geometry.find((e) => e.id === entity.axis) : undefined;
+        if (axis?.type === 'line') {
+          const radius = { o_id: entity.id, prop: 'radius' };
+          primitives.push(
+            { id: `${entity.id}#axisA`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p1, distance: radius },
+            { id: `${entity.id}#axisB`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p2, distance: radius },
+          );
+        }
       }
     }
 
@@ -168,6 +182,7 @@ const dim = (value: Dimension): number | string => value;
 
 function toGcsConstraints(
   c: SketchConstraint, lineStart: (lineId: string) => string, isArc: (id: string) => boolean,
+  lineEnds: (lineId: string) => { p1: string; p2: string } | null,
 ): unknown[] {
   switch (c.type) {
     case 'coincident':
@@ -208,14 +223,21 @@ function toGcsConstraints(
         ? [{ id: c.id, type: 'arc_radius', a_id: c.entity, radius: dim(c.value) }]
         : [{ id: c.id, type: 'circle_radius', c_id: c.entity, radius: dim(c.value) }];
     case 'arcAngle': {
-      // end − start = the sweep. Degrees at the surface, radians in the solver; a
-      // parameter NAME cannot be converted here, so it is passed through as given.
-      const value = typeof c.value === 'number' ? (c.value * Math.PI) / 180 : c.value;
-      return [{
-        id: c.id, type: 'difference',
-        param1: { o_id: c.entity, prop: 'start_angle' }, param2: { o_id: c.entity, prop: 'end_angle' },
-        difference: value,
-      }];
+      // The arc sits symmetric about its axis's perpendicular bisector: with the axis
+      // running a→b at angle α, the bisector points at α − 90° for a positive sweep —
+      // the side an arc drawn counter-clockwise from a lands on — and α + 90° for a
+      // negative one. The arc runs from bisector − |θ|/2 to bisector + |θ|/2. Both ends
+      // are tied to the axis direction through the arc's own angle parameters, so the
+      // sweep is a number the user owns and the centre never moves to honour it.
+      const axis = lineEnds(c.axis);
+      if (!axis || typeof c.value !== 'number') return [];
+      const theta = (Math.abs(c.value) * Math.PI) / 180;
+      const quarter = c.value < 0 ? Math.PI / 2 : -Math.PI / 2;
+      // atan2(b − a) = start + incr  ⇒  start = α + quarter − θ/2  ⇒  incr = θ/2 − quarter
+      return [
+        { id: `${c.id}#start`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'start_angle' }, incrAngle: theta / 2 - quarter },
+        { id: `${c.id}#end`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'end_angle' }, incrAngle: -theta / 2 - quarter },
+      ];
     }
     case 'diameter':
       return isArc(c.entity)

@@ -226,13 +226,15 @@ export class SketchTools {
   }
 
   /**
-   * An arc from two clicks: its ends.
+   * An arc from two clicks: the ends of its axis.
    *
-   * It starts as a semicircle — the two ends are a diameter, so the centre is their
-   * midpoint and the radius half their distance — running counter-clockwise from the
-   * first click. Dotted construction lines join the ends and the centre, so the chord
-   * and the radii can be constrained and dimensioned without being part of the
-   * profile; the sweep is a reference dimension, typed into to drive it.
+   * It starts as a half circle — the axis is a diameter, the centre its midpoint — and
+   * runs counter-clockwise from the first click. The arc's own ends are separate points
+   * that start on the axis ends and move round the circle when the sweep changes; the
+   * centre stays put unless it is dragged along the bisector or the axis is edited.
+   * The axis and the two radii are dotted construction lines to constrain against,
+   * and the sweep is a dimension from the start: type −90 to put a quarter circle on
+   * the other side of the axis.
    */
   #clickArc(at: Vec2): ToolResult {
     if (this.#anchors.length === 0) {
@@ -240,21 +242,25 @@ export class SketchTools {
       this.#anchors.push(start);
       return { created: [start], completed: false };
     }
-    const start = this.#anchors[0]!;
-    const end = this.#placePoint(at);
-    if (end === start) return { created: [], completed: false };
-    const a = this.#positionOf(start)!, b = this.#positionOf(end)!;
+    const axisA = this.#anchors[0]!;
+    const axisB = this.#placePoint(at);
+    if (axisB === axisA) return { created: [], completed: false };
+    const a = this.#positionOf(axisA)!, b = this.#positionOf(axisB)!;
     const radius = Math.hypot(b.x - a.x, b.y - a.y) / 2;
     if (radius < 1e-6) return { created: [], completed: false };
-    const centre = this.sketch.addPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
-    const startAngle = Math.atan2(a.y - (a.y + b.y) / 2, a.x - (a.x + b.x) / 2);
-    const arc = this.sketch.addArc(centre, radius, start, end, startAngle, startAngle + Math.PI);
-    const chord = this.sketch.addLine(start, end, true);
-    const r1 = this.sketch.addLine(centre, start, true);
-    const r2 = this.sketch.addLine(centre, end, true);
-    const sweep = this.sketch.addConstraint({ type: 'arcAngle', entity: arc, value: 180, reference: true } as never);
+    const centreAt = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const centre = this.sketch.addPoint(centreAt.x, centreAt.y);
+    // The arc's ends: their own points, sitting on the axis ends to begin with.
+    const start = this.sketch.addPoint(a.x, a.y);
+    const end = this.sketch.addPoint(b.x, b.y);
+    const startAngle = Math.atan2(a.y - centreAt.y, a.x - centreAt.x);
+    const axis = this.sketch.addLine(axisA, axisB, true);
+    const arc = this.sketch.addArc(centre, radius, start, end, startAngle, startAngle + Math.PI, axis);
+    this.sketch.addLine(centre, axisA, true, arc);
+    this.sketch.addLine(centre, axisB, true, arc);
+    const sweep = this.sketch.addConstraint({ type: 'arcAngle', entity: arc, axis, value: 180 });
     this.#anchors = [];
-    return { created: [start, end, centre, arc, chord, r1, r2, sweep], completed: true };
+    return { created: [axisA, axisB, centre, start, end, arc, axis, sweep], completed: true };
   }
 
   #clickCircle(at: Vec2): ToolResult {
