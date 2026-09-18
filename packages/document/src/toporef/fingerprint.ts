@@ -60,7 +60,55 @@ export function scoreMatch(
 
   const neighbours = neighbourSimilarity(reference.neighbourTypes, candidate.neighbourTypes);
 
-  return position * 0.45 + orientation * 0.3 + size * 0.15 + neighbours * 0.1;
+  // What the entity is attached to, by size: an edge between a small end face and
+  // the OUTER wall is not the edge between that end face and the INNER wall, however
+  // alike their positions look once the part has stretched. And curvature: an inner
+  // wall bends tighter than an outer one.
+  const attached = measureSimilarity(reference.neighbourMeasures, candidate.neighbourMeasures);
+  const bend = curvatureSimilarity(reference.curvature, candidate.curvature);
+  // How far out from the shape's centre: the signal that survives a stretch best.
+  const radial = reference.radialNormalised !== undefined && candidate.radialNormalised !== undefined
+    ? Math.max(0, 1 - Math.abs(reference.radialNormalised - candidate.radialNormalised) / 0.12)
+    : reference.radialNormalised === candidate.radialNormalised ? null : 0.75;
+
+  // A signal absent on both sides (a fingerprint from before it existed) is left out
+  // and the rest re-weighted, rather than counted as agreement it never measured.
+  const terms: [number | null, number][] = [
+    [position, 0.23], [orientation, 0.27], [size, 0.08], [neighbours, 0.08],
+    [attached, 0.12], [bend, 0.07], [radial, 0.15],
+  ];
+  let total = 0, weight = 0;
+  for (const [value, w] of terms) {
+    if (value === null) continue;
+    total += value * w;
+    weight += w;
+  }
+  return Math.round((total / weight) * 1e9) / 1e9;
+}
+
+/** 1 when the sorted lists of adjacent-face area ratios agree; falls off with the
+ *  mean relative difference. Absent on either side (older files) counts as neutral. */
+function measureSimilarity(a: readonly number[] | undefined, b: readonly number[] | undefined): number | null {
+  // Absent on both sides (a fingerprint from before this signal existed): not
+  // measured, so not counted; absent on one side only: mildly suspicious.
+  if (!a && !b) return null;
+  if (!a || !b) return 0.75;
+  if (a.length !== b.length) return 0.25;
+  if (a.length === 0) return 1;
+  let total = 0;
+  for (let i = 0; i < a.length; i++) {
+    const larger = Math.max(a[i]!, b[i]!);
+    total += larger > 0 ? Math.abs(a[i]! - b[i]!) / larger : 0;
+  }
+  return Math.max(0, 1 - (total / a.length) * 2);
+}
+
+function curvatureSimilarity(a: number | undefined, b: number | undefined): number | null {
+  if (a === undefined && b === undefined) return null;
+  if (a === undefined || b === undefined) return 0.75;
+  const larger = Math.max(a, b);
+  if (larger < 1e-12) return 1;
+  return Math.max(0, 1 - Math.abs(a - b) / larger);
 }
 
 /**

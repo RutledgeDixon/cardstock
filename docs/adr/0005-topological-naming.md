@@ -88,3 +88,16 @@ for regressions that are otherwise invisible, since a misattached reference stil
 and still looks fine. The net is verified sensitive: perturbing one expectation by the
 volume of a single fillet (155 mm³) fails the run. Regenerate with `npm run corpus` after
 a deliberate change, and read the diff.
+
+## Amendment: what a fingerprint knows about its surroundings
+
+Position within the bounding box was the dominant signal and it is also the one a
+stretch disturbs most: every entity's place in the box moves when one dimension grows.
+Two more signals were added that a stretch barely touches — how far the entity sits
+from the shape's centre (an outer wall stays outer), and for an edge the area ratios of
+the faces it joins (the edge on the inner wall belongs to a smaller face than the one
+on the outer). Curvature separates an inner cylinder from an outer one directly.
+Position now carries less weight and orientation slightly more. Signals a stored
+fingerprint predates are left out of its score and the remaining weights renormalised,
+so files written before this resolve exactly as they did; a signal present on one side
+only counts as mild doubt.

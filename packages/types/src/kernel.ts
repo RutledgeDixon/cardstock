@@ -102,6 +102,19 @@ export interface EntityFingerprint {
   readonly measure: number;
   /** Sorted geometry types of adjacent faces; distinguishes lookalikes. */
   readonly neighbourTypes: readonly string[];
+  /**
+   * Sorted area ratios of the adjacent faces (edges only). An inner and an outer
+   * wall edge look alike in every other way; the wall they belong to does not.
+   */
+  readonly neighbourMeasures?: readonly number[];
+  /** 1/radius for cylindrical faces and circular edges; 0 for flat and straight. */
+  readonly curvature?: number;
+  /**
+   * Distance from the shape's centre, as a fraction of its half-diagonal. Tells an
+   * outer wall from an inner one even when a stretch has shifted everything's place
+   * in the bounding box: outer stays further out.
+   */
+  readonly radialNormalised?: number;
 }
 
 export interface ShapeDescription {

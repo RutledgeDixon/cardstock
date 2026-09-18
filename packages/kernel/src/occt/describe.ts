@@ -56,6 +56,7 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
   // Edge -> adjacent faces. TopExp's MapShapesAndAncestors is not bound in this build
   // (ADR-0001), so the adjacency map is built by hand.
   const edgeNeighbours = new Map<number, string[]>();
+  const edgeNeighbourFaces = new Map<number, number[]>();
   const faceTypeByIndex: string[] = [];
   // Bucketed rather than a linear scan per edge: this loop runs once per edge per face,
   // so a linear findIndex made adjacency the single most expensive part of describing a
@@ -72,6 +73,9 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
       const list = edgeNeighbours.get(edgeIndex);
       if (list) list.push(type);
       else edgeNeighbours.set(edgeIndex, [type]);
+      const owners = edgeNeighbourFaces.get(edgeIndex);
+      if (owners) owners.push(faceIndex);
+      else edgeNeighbourFaces.set(edgeIndex, [faceIndex]);
     }
   });
 
@@ -113,8 +117,27 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
       }
     } catch { direction = null; }
 
-    return { area, centroid, direction, type: surfaceTypeName(oc, surface.GetType()) };
+    // Curvature tells an inner wall from an outer one of the same type.
+    let curvature = 0;
+    try {
+      if (surface.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) curvature = 1 / surface.Cylinder().Radius();
+      else if (surface.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) curvature = 1 / surface.Sphere().Radius();
+    } catch { curvature = 0; }
+
+    return { area, centroid, direction, type: surfaceTypeName(oc, surface.GetType()), curvature };
   });
+
+  // The shape's centre, area-weighted over its faces, and its half-diagonal: the
+  // frame for "how far out" an entity sits, which a stretch barely disturbs.
+  const centre = faceRaw.reduce(
+    (acc, f) => ({ x: acc.x + f.centroid.x * f.area, y: acc.y + f.centroid.y * f.area, z: acc.z + f.centroid.z * f.area }),
+    { x: 0, y: 0, z: 0 },
+  );
+  if (totalArea > 0) { centre.x /= totalArea; centre.y /= totalArea; centre.z /= totalArea; }
+  const halfDiagonal = Math.max(1e-9, Math.hypot(
+    bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z,
+  ) / 2);
+  const radial = (p: Vec3) => Math.hypot(p.x - centre.x, p.y - centre.y, p.z - centre.z) / halfDiagonal;
 
   const faces: EntityFingerprint[] = faceRaw.map((f, index) => ({
     kind: 'face',
@@ -126,6 +149,8 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
     measure: f.area,
     measureRatio: totalArea > 0 ? f.area / totalArea : 0,
     neighbourTypes: [],
+    curvature: f.curvature,
+    radialNormalised: radial(f.centroid),
   }));
 
   // --- edges
@@ -153,7 +178,12 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
       }
     } catch { direction = null; }
 
-    return { length, centroid, direction, type };
+    let curvature = 0;
+    try {
+      if (curve.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle) curvature = 1 / curve.Circle().Radius();
+    } catch { curvature = 0; }
+
+    return { length, centroid, direction, type, curvature };
   });
 
   const edges: EntityFingerprint[] = edgeRaw.map((e, index) => ({
@@ -166,6 +196,10 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
     measure: e.length,
     measureRatio: totalLength > 0 ? e.length / totalLength : 0,
     neighbourTypes: [...(edgeNeighbours.get(index) ?? [])].sort(),
+    neighbourMeasures: (edgeNeighbourFaces.get(index) ?? [])
+      .map((f) => faces[f]?.measureRatio ?? 0).sort((a, b) => a - b),
+    curvature: e.curvature,
+    radialNormalised: radial(e.centroid),
   }));
 
   // --- vertices
@@ -182,6 +216,7 @@ export function describeShape(oc: OpenCascadeInstance, shape: TopoDS_Shape): Sha
       measure: 0,
       measureRatio: 0,
       neighbourTypes: [],
+      radialNormalised: radial(centroid),
     };
   });
 
