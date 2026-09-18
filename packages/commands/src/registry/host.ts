@@ -65,7 +65,7 @@ export interface CommandHost {
   sketchConstraintBlocker(type: string): string | null;
   /** Leave sketch mode, rebuilding whatever the sketch feeds. */
   finishSketch(): Promise<void>;
-  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain'): void;
+  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain'): void;
   /** Extrude the sketch that was just finished. */
   extrudeSketch(): Promise<FeatureId | null>;
 

@@ -246,3 +246,35 @@ describe('distance dimensions between kinds', () => {
     expect(gap).toBeCloseTo(25, 4);
   });
 });
+
+describe('arcs', () => {
+  const semicircle = (): SketchGeometry[] => [
+    { id: 'a', type: 'point', x: 0, y: 0, fixed: true },
+    { id: 'b', type: 'point', x: 40, y: 0 },
+    { id: 'c', type: 'point', x: 20, y: 0 },
+    { id: 'arc', type: 'arc', centre: 'c', radius: 20, start: 'a', end: 'b', startAngle: Math.PI, endAngle: 2 * Math.PI },
+  ];
+
+  it('keeps its ends on the arc and reports its angles', async () => {
+    const result = await solver.solve({ geometry: semicircle(), parameters: {}, constraints: [] });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.angles?.arc).toBeDefined();
+    expect(result.angles!.arc!.end - result.angles!.arc!.start).toBeCloseTo(Math.PI, 6);
+  });
+
+  it('an arc-angle dimension changes the sweep, keeping the ends and the radius', async () => {
+    const result = await solver.solve({
+      geometry: semicircle(), parameters: {},
+      constraints: [
+        { id: 'r', type: 'radius', entity: 'arc', value: 20 },
+        { id: 'sweep', type: 'arcAngle', entity: 'arc', value: 90 },
+      ],
+    });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.angles!.arc!.end - result.angles!.arc!.start).toBeCloseTo(Math.PI / 2, 5);
+    expect(result.radii.arc).toBeCloseTo(20, 5);
+    // The ends stayed on the arc: chord of a 90° arc of radius 20 is 20√2.
+    const chord = Math.hypot(result.points.b!.x - result.points.a!.x, result.points.b!.y - result.points.a!.y);
+    expect(chord).toBeCloseTo(20 * Math.SQRT2, 4);
+  });
+});

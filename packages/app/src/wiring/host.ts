@@ -57,9 +57,9 @@ export interface HostDeps {
   dimensionSketchSelection: () => string | null;
   sketchDimensionBlocker: () => string | null;
   finishSketch: () => Promise<void>;
-  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain') => void;
+  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain') => void;
   sketching: () => boolean;
-  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain' | null;
+  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain' | null;
   sketchSelectionCount: () => number;
   analysis: () => 'none' | 'overhang' | 'thickness';
   buildVolume: () => boolean;

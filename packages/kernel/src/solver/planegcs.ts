@@ -64,14 +64,20 @@ export class PlaneGcsSolver implements SolverPort {
       const line = request.geometry.find((e) => e.id === lineId);
       return line?.type === 'line' ? line.p1 : lineId;
     };
+    const isArc = (id: string) => request.geometry.find((e) => e.id === id)?.type === 'arc';
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint, lineStart));
+      primitives.push(...toGcsConstraints(constraint, lineStart, isArc));
     }
     // External circles are fixed in every respect; the centre is a fixed point already,
     // the radius needs pinning here since a circle primitive has no fixed flag.
     for (const entity of request.geometry) {
       if (entity.type === 'circle' && entity.external) {
         primitives.push({ id: `${entity.id}#fixed`, type: 'circle_radius', c_id: entity.id, radius: entity.radius });
+      }
+      // An arc's ends are only ON the arc if the rules say so; pushing the primitive
+      // alone leaves three points and three numbers with nothing tying them together.
+      if (entity.type === 'arc') {
+        primitives.push({ id: `${entity.id}#rules`, type: 'arc_rules', a_id: entity.id });
       }
     }
 
@@ -91,6 +97,7 @@ export class PlaneGcsSolver implements SolverPort {
 
     const points: Record<string, Vec2> = {};
     const radii: Record<string, number> = {};
+    const angles: Record<string, { start: number; end: number }> = {};
     for (const entity of request.geometry) {
       if (entity.type === 'point') {
         const solved = this.gcs.sketch_index.get_sketch_point(entity.id);
@@ -101,6 +108,9 @@ export class PlaneGcsSolver implements SolverPort {
       } else if (entity.type === 'arc') {
         const solved = this.gcs.sketch_index.get_sketch_arc(entity.id);
         if (typeof solved?.radius === 'number') radii[entity.id] = solved.radius;
+        if (typeof solved?.start_angle === 'number' && typeof solved?.end_angle === 'number') {
+          angles[entity.id] = { start: solved.start_angle, end: solved.end_angle };
+        }
       }
     }
 
@@ -115,6 +125,7 @@ export class PlaneGcsSolver implements SolverPort {
       dof: this.gcs.gcs.dof(),
       points,
       radii,
+      angles,
       conflicting: mine(this.gcs.get_gcs_conflicting_constraints()),
       redundant: mine(this.gcs.get_gcs_redundant_constraints()),
     };
@@ -155,7 +166,9 @@ function toPrimitives(entity: SketchGeometry): unknown[] {
 /** A dimension is passed straight through: a number is a literal, a string a parameter. */
 const dim = (value: Dimension): number | string => value;
 
-function toGcsConstraints(c: SketchConstraint, lineStart: (lineId: string) => string): unknown[] {
+function toGcsConstraints(
+  c: SketchConstraint, lineStart: (lineId: string) => string, isArc: (id: string) => boolean,
+): unknown[] {
   switch (c.type) {
     case 'coincident':
       return [{ id: c.id, type: 'p2p_coincident', p1_id: c.a, p2_id: c.b }];
@@ -190,9 +203,24 @@ function toGcsConstraints(c: SketchConstraint, lineStart: (lineId: string) => st
     case 'pointCircleDistance':
       return [{ id: c.id, type: 'p2cdistance', p_id: c.point, c_id: c.circle, distance: dim(c.value) }];
     case 'radius':
-      return [{ id: c.id, type: 'circle_radius', c_id: c.entity, radius: dim(c.value) }];
+      // Arcs have their own radius constraint in GCS; a circle's does not apply to them.
+      return isArc(c.entity)
+        ? [{ id: c.id, type: 'arc_radius', a_id: c.entity, radius: dim(c.value) }]
+        : [{ id: c.id, type: 'circle_radius', c_id: c.entity, radius: dim(c.value) }];
+    case 'arcAngle': {
+      // end − start = the sweep. Degrees at the surface, radians in the solver; a
+      // parameter NAME cannot be converted here, so it is passed through as given.
+      const value = typeof c.value === 'number' ? (c.value * Math.PI) / 180 : c.value;
+      return [{
+        id: c.id, type: 'difference',
+        param1: { o_id: c.entity, prop: 'start_angle' }, param2: { o_id: c.entity, prop: 'end_angle' },
+        difference: value,
+      }];
+    }
     case 'diameter':
-      return [{ id: c.id, type: 'circle_diameter', c_id: c.entity, diameter: dim(c.value) }];
+      return isArc(c.entity)
+        ? [{ id: c.id, type: 'arc_diameter', a_id: c.entity, diameter: dim(c.value) }]
+        : [{ id: c.id, type: 'circle_diameter', c_id: c.entity, diameter: dim(c.value) }];
     case 'angle':
       return [{ id: c.id, type: 'l2l_angle_ll', l1_id: c.a, l2_id: c.b, angle: dim(c.value) }];
     case 'lockX':

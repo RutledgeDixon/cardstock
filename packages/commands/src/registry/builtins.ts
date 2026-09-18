@@ -127,6 +127,16 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: () => host.setSketchTool('circle'),
     },
     {
+      id: 'sketch.arc',
+      title: 'Arc',
+      hint: 'Click both ends; it starts as a half circle, then dimension its sweep or radius',
+      icon: '◠',
+      contexts: ['sketch'],
+      sector: { sketch: 7 },
+      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
+      run: () => host.setSketchTool('arc'),
+    },
+    {
       id: 'sketch.select',
       title: 'Select',
       icon: '⬉',

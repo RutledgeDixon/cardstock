@@ -366,6 +366,12 @@ export class Sketch {
         this.#geometry.set(id, { ...entity, radius });
       }
     }
+    for (const [id, angle] of Object.entries(result.angles ?? {})) {
+      const entity = this.#geometry.get(id);
+      if (entity?.type === 'arc') {
+        this.#geometry.set(id, { ...entity, startAngle: angle.start, endAngle: angle.end });
+      }
+    }
   }
 
   // ------------------------------------------------------------------ persistence

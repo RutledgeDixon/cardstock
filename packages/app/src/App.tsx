@@ -1458,7 +1458,7 @@ export function App() {
         <div className="sketchbar">
           <span className="sketchbar-title">Sketch</span>
           <span className="sketchbar-tools">
-            {(['line', 'rectangle', 'circle', 'dimension', 'select'] as const).map((tool) => (
+            {(['line', 'rectangle', 'circle', 'arc', 'dimension', 'select'] as const).map((tool) => (
               <button
                 key={tool}
                 type="button"
@@ -1655,6 +1655,7 @@ const TOOL_HINTS: Record<string, string> = {
   line: 'Connected lines: click each point; click the first again to close',
   rectangle: 'Click two opposite corners',
   circle: 'Click the centre, then the rim',
+  arc: 'Click both ends: a half circle to start; type into its sweep or radius to change it',
   dimension: 'Click two points for a length, or a circle for its radius',
   select: 'Click geometry to select; shift-click to add',
   constrain: 'Click geometry to gather a selection, then right-click for constraints and dimensions',
@@ -1667,7 +1668,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
   pointLineDistance: 'point to line', lineLineDistance: 'line to line',
   circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
-  radius: 'radius', diameter: 'diameter', angle: 'angle', lockX: 'lock x', lockY: 'lock y',
+  radius: 'radius', diameter: 'diameter', angle: 'angle', arcAngle: 'arc sweep', lockX: 'lock x', lockY: 'lock y',
 };
 
 /**

@@ -103,6 +103,8 @@ export type SketchConstraint =
   /** From a point to a circle's rim. */
   | ({ readonly type: 'pointCircleDistance'; readonly point: SketchEntityId; readonly circle: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'radius'; readonly entity: SketchEntityId } & DimensionalBase)
+  /** How far round an arc goes, in degrees, counter-clockwise from its start. */
+  | ({ readonly type: 'arcAngle'; readonly entity: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'diameter'; readonly entity: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'angle'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)
   | ({ readonly type: 'lockX'; readonly point: SketchEntityId } & DimensionalBase)
@@ -137,7 +139,7 @@ export type NewSketchConstraint =
 /** Constraints carrying a numeric value, which the UI shows as an editable dimension. */
 export const DIMENSIONAL_CONSTRAINTS: readonly SketchConstraintType[] = [
   'distance', 'pointLineDistance', 'lineLineDistance', 'circleLineDistance', 'pointCircleDistance',
-  'radius', 'diameter', 'angle', 'lockX', 'lockY',
+  'radius', 'diameter', 'angle', 'arcAngle', 'lockX', 'lockY',
 ];
 
 export const isDimensional = (type: SketchConstraintType): boolean =>
@@ -231,6 +233,8 @@ export interface SolveResult {
   readonly dof: number;
   readonly points: Readonly<Record<SketchEntityId, Vec2>>;
   readonly radii: Readonly<Record<SketchEntityId, number>>;
+  /** Solved arc extents, radians counter-clockwise. */
+  readonly angles?: Readonly<Record<SketchEntityId, { readonly start: number; readonly end: number }>>;
   /** Constraint ids that contradict each other. Actionable: these are what to delete. */
   readonly conflicting: readonly string[];
   /** Constraint ids that add nothing. Harmless, but worth flagging as clutter. */

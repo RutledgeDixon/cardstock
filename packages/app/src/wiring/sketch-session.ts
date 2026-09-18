@@ -135,7 +135,8 @@ export class SketchSession {
       return kinds[0] === 'circle' || kinds[0] === 'arc' ? null : 'Select a circle, or two things to measure between';
     }
     if (ids.length !== 2) return 'Select two things to measure between';
-    if (kinds.some((k) => k === 'arc' || k === undefined)) return 'Arcs cannot be dimensioned yet';
+    if (kinds.some((k) => k === undefined)) return 'Select two things to measure between';
+    if (kinds.some((k) => k === 'arc')) return 'An arc is dimensioned by its radius and sweep; pick it alone';
     const [a, b] = ids.map((id) => this.sketch.entity(id)!);
     const endOf = (point: SketchGeometry, line: SketchGeometry) =>
       point.type === 'point' && line.type === 'line' && (line.p1 === point.id || line.p2 === point.id);
@@ -317,9 +318,26 @@ export class SketchSession {
           if (k) {
             const measured = constraint.type === 'radius' ? k.radius : k.radius * 2;
             text = `${constraint.type === 'radius' ? 'R' : '⌀'}${round(measured)}`;
+            const entity = this.sketch.entity(c.entity!);
+            const through = entity?.type === 'arc'
+              ? entity.startAngle + arcSweepOf(entity) / 2
+              : Math.PI / 4;
             drawing = constraint.type === 'radius'
-              ? draw.radius(k.centre, k.radius, upp)
+              ? draw.radius(k.centre, k.radius, upp, through)
               : draw.diameter(k.centre, k.radius, upp);
+          }
+          break;
+        }
+        case 'arcAngle': {
+          const arc = this.sketch.entity(c.entity!);
+          if (arc?.type === 'arc') {
+            const centre = positionOf(arc.centre);
+            if (centre) {
+              let sweep = arc.endAngle - arc.startAngle;
+              while (sweep <= 0) sweep += Math.PI * 2;
+              text = `${round((sweep * 180) / Math.PI)}°`;
+              drawing = draw.arcSweep(centre, arc.radius, arc.startAngle, sweep, upp);
+            }
           }
           break;
         }
@@ -526,7 +544,7 @@ export class SketchSession {
       return null;
     }
     const preview = this.tools.preview(at);
-    this.view.setPreview(preview.segments, preview.circle);
+    this.view.setPreview(preview.segments, preview.circle, preview.arc);
 
     // Show WHERE the click would land when it would join an existing vertex. The tools
     // have always reported this and nothing drew it, so connecting to a point and
@@ -582,6 +600,12 @@ function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
 
 /** Dimensions are shown to a tenth of a millimetre; more digits are noise on a label. */
 const round = (value: number): number => Math.round(value * 10) / 10;
+/** An arc's sweep in (0, 2π], counter-clockwise from its start. */
+const arcSweepOf = (arc: { startAngle: number; endAngle: number }) => {
+  let sweep = arc.endAngle - arc.startAngle;
+  while (sweep <= 0) sweep += Math.PI * 2;
+  return sweep;
+};
 const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 /** Perpendicular distance from a point to the infinite line through a and b. */
 const pointToLine = (p: Vec2, a: Vec2, b: Vec2) => {

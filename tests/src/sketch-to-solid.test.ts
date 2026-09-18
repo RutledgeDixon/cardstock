@@ -343,3 +343,57 @@ describe('deleting and dragging', () => {
     expect((result as { reason: string }).reason).toMatch(/already an end/);
   });
 });
+
+describe('arcs', () => {
+  it('two clicks make a half circle with dotted axes and a reference sweep', async () => {
+    const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
+    sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
+    const tools = new SketchTools(sketch);
+    tools.setTool('arc');
+    tools.click({ x: 0, y: 0 });
+    tools.click({ x: 40, y: 0 });
+    const arc = sketch.geometry.find((e) => e.type === 'arc')!;
+    expect(arc).toMatchObject({ radius: 20 });
+    const construction = sketch.geometry.filter((e) => e.type === 'line' && e.construction && !e.external);
+    expect(construction).toHaveLength(3); // chord and two radii
+    const sweep = sketch.constraints.find((c) => c.type === 'arcAngle')!;
+    expect(sweep).toMatchObject({ value: 180, reference: true });
+
+    await sketch.solve(solver, {});
+    expect(sketch.status).not.toBe('over-constrained');
+    const solved = sketch.entity(arc.id) as { startAngle: number; endAngle: number };
+    expect(solved.endAngle - solved.startAngle).toBeCloseTo(Math.PI, 5);
+  });
+
+  it('typing a sweep drives it, and the D-shape extrudes with the right volume', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const tools = new SketchTools(sketch);
+    tools.setTool('arc');
+    tools.click({ x: 0, y: 0 });
+    tools.click({ x: 40, y: 0 });
+    // Close it with a real line along the chord.
+    const arc = sketch.geometry.find((e) => e.type === 'arc')!;
+    if (arc.type !== 'arc') throw new Error('no arc');
+    sketch.addLine(arc.end, arc.start);
+    // Drive the sweep to a quarter turn with the ends fixed: radius grows to 20√2.
+    const sweep = sketch.constraints.find((c) => c.type === 'arcAngle')!;
+    sketch.removeConstraint(sweep.id);
+    sketch.addConstraint({ type: 'arcAngle', entity: arc.id, value: 90 });
+    sketch.addConstraint({ type: 'lockX', point: arc.start, value: 0 });
+    sketch.addConstraint({ type: 'lockY', point: arc.start, value: 0 });
+    sketch.addConstraint({ type: 'lockX', point: arc.end, value: 40 });
+    sketch.addConstraint({ type: 'lockY', point: arc.end, value: 0 });
+    const extrude = asFeatureId('d');
+    doc.addFeature({ id: extrude, type: 'extrude', name: 'D', values: { distance: '10' }, inputs: { profile: id } });
+    const result = await doc.recompute();
+    expect(result.states.get(id)?.message).toBeUndefined();
+    expect(result.states.get(extrude)?.status).toBe('ok');
+    const r = (sketch.entity(arc.id) as { radius: number }).radius;
+    expect(r).toBeCloseTo(20 * Math.SQRT2, 3);
+    // A circular segment of 90°: r²/2·(π/2 − 1), extruded 10.
+    const segment = (r * r / 2) * (Math.PI / 2 - 1);
+    const volume = (await kernel.massProperties(result.states.get(extrude)!.handle!)).volume;
+    expect(volume).toBeCloseTo(segment * 10, 1);
+  });
+});

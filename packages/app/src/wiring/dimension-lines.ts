@@ -140,9 +140,10 @@ export function circleToLine(centre: Vec2, radius: number, a: Vec2, b: Vec2, uni
   return drawing;
 }
 
-/** A radius: a leader from the centre out through the rim, arrow at the rim, value beyond. */
-export function radius(centre: Vec2, r: number, unitsPerPixel: number): DimensionDrawing {
-  const dir = unit({ x: 1, y: 1 });
+/** A radius: a leader from the centre out through the rim, arrow at the rim, value beyond.
+ *  `through` is the angle the leader leaves at — the middle of an arc, or 45° for a circle. */
+export function radius(centre: Vec2, r: number, unitsPerPixel: number, through = Math.PI / 4): DimensionDrawing {
+  const dir = { x: Math.cos(through), y: Math.sin(through) };
   const rim = add(centre, mul(dir, r));
   const end = add(rim, mul(dir, DIMENSION_STYLE.radiusLead * unitsPerPixel));
   return {
@@ -156,6 +157,31 @@ export function diameter(centre: Vec2, r: number, unitsPerPixel: number): Dimens
   const dir = unit({ x: 1, y: 1 });
   const drawing = linear(sub(centre, mul(dir, r)), add(centre, mul(dir, r)), unitsPerPixel, null);
   return { segments: drawing.segments, anchor: add(centre, mul(perp(dir), 10 * unitsPerPixel)) };
+}
+
+/** An arc's sweep: a concentric arc just outside it, arrows at both ends, value at the middle. */
+export function arcSweep(centre: Vec2, r: number, start: number, sweep: number, unitsPerPixel: number): DimensionDrawing {
+  const rr = r + DIMENSION_STYLE.offset * 0.6 * unitsPerPixel;
+  const steps = 24;
+  const at = (k: number): Vec2 => {
+    const th = start + (sweep * k) / steps;
+    return add(centre, { x: rr * Math.cos(th), y: rr * Math.sin(th) });
+  };
+  const segments: Segment[] = [];
+  for (let k = 0; k < steps; k++) segments.push({ from: at(k), to: at(k + 1) });
+  const tangent = (th: number, sign: number): Vec2 => ({ x: -Math.sin(th) * sign, y: Math.cos(th) * sign });
+  segments.push(...arrowhead(at(0), tangent(start, -1), DIMENSION_STYLE.arrow * unitsPerPixel));
+  segments.push(...arrowhead(at(steps), tangent(start + sweep, 1), DIMENSION_STYLE.arrow * unitsPerPixel));
+  // Extension ticks from the arc's ends out to the dimension arc.
+  for (const th of [start, start + sweep]) {
+    segments.push({
+      from: add(centre, { x: (r + DIMENSION_STYLE.gap * unitsPerPixel) * Math.cos(th), y: (r + DIMENSION_STYLE.gap * unitsPerPixel) * Math.sin(th) }),
+      to: add(centre, { x: (rr + DIMENSION_STYLE.overshoot * unitsPerPixel) * Math.cos(th), y: (rr + DIMENSION_STYLE.overshoot * unitsPerPixel) * Math.sin(th) }),
+    });
+  }
+  const midAngle = start + sweep / 2;
+  const labelR = rr + 12 * unitsPerPixel;
+  return { segments, anchor: add(centre, { x: labelR * Math.cos(midAngle), y: labelR * Math.sin(midAngle) }) };
 }
 
 /** The angle between two lines: an arc about their intersection, arrows at both ends. */

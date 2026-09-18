@@ -36,12 +36,24 @@ const positionOf = (geometry: readonly SketchGeometry[], id: string): Vec2 | nul
   return entity?.type === 'point' ? { x: entity.x, y: entity.y } : null;
 };
 
-/** Shoelace area; its sign gives the winding direction. */
+/**
+ * Signed area; its sign gives the winding direction.
+ *
+ * Shoelace over the chords, plus the circular segment each arc bulges out by — without
+ * that an arc closed by its chord has no area at all, and a D-shape is not a region.
+ * A reversed arc carries a negative sweep, so its bulge subtracts, as it should.
+ */
 export function signedArea(segments: readonly ProfileSegment[]): number {
   let total = 0;
   for (const segment of segments) {
     if (segment.kind === 'circle') return Math.PI * segment.radius ** 2;
     total += segment.from.x * segment.to.y - segment.to.x * segment.from.y;
+    if (segment.kind === 'arc') {
+      let sweep = segment.endAngle - segment.startAngle;
+      while (sweep > Math.PI * 2) sweep -= Math.PI * 2;
+      while (sweep < -Math.PI * 2) sweep += Math.PI * 2;
+      total += segment.radius ** 2 * (sweep - Math.sin(sweep));
+    }
   }
   return total / 2;
 }

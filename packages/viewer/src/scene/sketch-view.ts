@@ -102,9 +102,14 @@ export class SketchView {
     this.#selectedLines.material.linewidth = SELECTED_LINE_WIDTH;
 
     this.#construction.material.color = new Color(colours.construction);
-    this.#construction.material.linewidth = LINE_WIDTH * 0.7;
+    this.#construction.material.linewidth = LINE_WIDTH * 0.6;
     this.#construction.material.transparent = true;
-    this.#construction.material.opacity = 0.75;
+    this.#construction.material.opacity = 0.85;
+    // Dotted, the drafting convention for lines that guide rather than bound.
+    this.#construction.material.dashed = true;
+    this.#construction.material.dashSize = 1.2;
+    this.#construction.material.gapSize = 1.0;
+    this.#construction.material.dashScale = 1;
 
     this.#preview.material.color = new Color(colours.preview);
     this.#preview.material.linewidth = LINE_WIDTH;
@@ -297,6 +302,7 @@ export class SketchView {
   setPreview(
     segments: readonly { from: Vec2; to: Vec2 }[],
     circle?: { centre: Vec2; radius: number },
+    arc?: { centre: Vec2; radius: number; start: number; end: number },
   ): void {
     const flat: number[] = [];
     for (const segment of segments) {
@@ -307,7 +313,15 @@ export class SketchView {
     setSegments(this.#preview, flat);
 
     const ring: number[] = [];
-    if (circle && circle.radius > 1e-9) {
+    if (arc && arc.radius > 1e-9) {
+      let to = arc.end;
+      while (to <= arc.start) to += Math.PI * 2;
+      for (let i = 0; i <= ARC_SEGMENTS; i++) {
+        const angle = arc.start + ((to - arc.start) * i) / ARC_SEGMENTS;
+        const p = this.toWorld({ x: arc.centre.x + arc.radius * Math.cos(angle), y: arc.centre.y + arc.radius * Math.sin(angle) });
+        ring.push(p.x, p.y, p.z);
+      }
+    } else if (circle && circle.radius > 1e-9) {
       for (let i = 0; i <= ARC_SEGMENTS; i++) {
         const angle = (Math.PI * 2 * i) / ARC_SEGMENTS;
         const world = this.toWorld({

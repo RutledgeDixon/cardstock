@@ -26,7 +26,7 @@ const SNAP_PIXELS = 12;
  * picked, which needs screen-space hit testing this class deliberately knows nothing
  * about. They are listed here so the tool set is one enumeration rather than two.
  */
-export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'constrain';
+export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain';
 
 /** What to draw as feedback before the click lands. */
 export interface ToolPreview {
@@ -34,6 +34,8 @@ export interface ToolPreview {
   /** Rubber-band geometry, in sketch coordinates. */
   readonly segments: readonly { from: Vec2; to: Vec2 }[];
   readonly circle?: { readonly centre: Vec2; readonly radius: number };
+  /** A rubber-band arc, counter-clockwise from `start` to `end` about `centre`. */
+  readonly arc?: { readonly centre: Vec2; readonly radius: number; readonly start: number; readonly end: number };
   /** The point this click would snap to, so the viewer can highlight it. */
   readonly snapPoint: SketchEntityId | null;
   /** Named so the user can see what is about to be assumed. */
@@ -108,6 +110,15 @@ export class SketchTools {
     if (this.#kind === 'select' || this.#kind === 'dimension' || this.#kind === 'constrain') {
       return { kind: this.#kind, segments: [], snapPoint, inference: null };
     }
+    if (this.#kind === 'arc' && anchor) {
+      const centre = { x: (anchor.x + position.x) / 2, y: (anchor.y + position.y) / 2 };
+      const start = Math.atan2(anchor.y - centre.y, anchor.x - centre.x);
+      return {
+        kind: this.#kind, segments: [{ from: anchor, to: position }],
+        arc: { centre, radius: Math.hypot(position.x - anchor.x, position.y - anchor.y) / 2, start, end: start + Math.PI },
+        snapPoint, inference: null,
+      };
+    }
     if (this.#kind === 'circle' && anchor) {
       return {
         kind: this.#kind,
@@ -154,6 +165,7 @@ export class SketchTools {
       case 'line': return this.#clickLine(at);
       case 'rectangle': return this.#clickRectangle(at);
       case 'circle': return this.#clickCircle(at);
+      case 'arc': return this.#clickArc(at);
     }
   }
 
@@ -211,6 +223,38 @@ export class SketchTools {
 
     this.#anchors = [];
     return { created: [first, b, corner, d, ...lines], completed: true };
+  }
+
+  /**
+   * An arc from two clicks: its ends.
+   *
+   * It starts as a semicircle — the two ends are a diameter, so the centre is their
+   * midpoint and the radius half their distance — running counter-clockwise from the
+   * first click. Dotted construction lines join the ends and the centre, so the chord
+   * and the radii can be constrained and dimensioned without being part of the
+   * profile; the sweep is a reference dimension, typed into to drive it.
+   */
+  #clickArc(at: Vec2): ToolResult {
+    if (this.#anchors.length === 0) {
+      const start = this.#placePoint(at);
+      this.#anchors.push(start);
+      return { created: [start], completed: false };
+    }
+    const start = this.#anchors[0]!;
+    const end = this.#placePoint(at);
+    if (end === start) return { created: [], completed: false };
+    const a = this.#positionOf(start)!, b = this.#positionOf(end)!;
+    const radius = Math.hypot(b.x - a.x, b.y - a.y) / 2;
+    if (radius < 1e-6) return { created: [], completed: false };
+    const centre = this.sketch.addPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
+    const startAngle = Math.atan2(a.y - (a.y + b.y) / 2, a.x - (a.x + b.x) / 2);
+    const arc = this.sketch.addArc(centre, radius, start, end, startAngle, startAngle + Math.PI);
+    const chord = this.sketch.addLine(start, end, true);
+    const r1 = this.sketch.addLine(centre, start, true);
+    const r2 = this.sketch.addLine(centre, end, true);
+    const sweep = this.sketch.addConstraint({ type: 'arcAngle', entity: arc, value: 180, reference: true } as never);
+    this.#anchors = [];
+    return { created: [start, end, centre, arc, chord, r1, r2, sweep], completed: true };
   }
 
   #clickCircle(at: Vec2): ToolResult {
