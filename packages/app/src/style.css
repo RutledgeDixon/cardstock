@@ -154,6 +154,11 @@ button:disabled { cursor: default; }
 .status-right { flex: 0 0 auto; margin-left: auto; }
 .status-error { color: var(--danger); max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
 .status-busy { color: var(--accent); }
+.status-stop {
+  margin-left: 8px; padding: 0 7px; font-size: 10px; color: var(--danger);
+  border: 1px solid #5a3a32; border-radius: 4px; background: #2a1f1d;
+}
+.status-stop:hover { background: #3a2a28; }
 .dim { color: var(--dim); }
 .sel { color: var(--select); }
 b { color: var(--accent); font-weight: 600; }

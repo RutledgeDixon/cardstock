@@ -6,7 +6,7 @@ import {
   type ProfileSpec, type Vec3,
   type ExportFormat, type ExportOptions, type ExportResult, type MeshStats,
   type OrientationOptions, type OrientationSuggestion, type FaceOutline,
-  KernelError,
+  KernelError, KernelTimeoutError,
 } from '@cardstock/types';
 import { isKernelReady, type KernelMethod, type KernelResponse } from './protocol.js';
 
@@ -17,16 +17,65 @@ import { isKernelReady, type KernelMethod, type KernelResponse } from './protoco
  * tell which it is talking to — which is exactly what made Phase 2 testable and what
  * lets Phase 3 be a swap rather than a rewrite.
  */
-export class WorkerKernel implements KernelPort {
-  #pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-  #nextId = 0;
-  #ready: Promise<number>;
+/** How long a single kernel call may run before the worker is stopped and restarted. */
+export const DEFAULT_CALL_TIMEOUT_MS = 30_000;
 
-  constructor(private readonly worker: Worker) {
+/** Calls that legitimately take a while on a big input get a longer leash. */
+const LONG_CALLS: ReadonlySet<KernelMethod> = new Set<KernelMethod>([
+  'importStl', 'importStep', 'exportModel', 'exportStl', 'meshStats', 'scoreOrientations',
+]);
+
+export interface WorkerKernelOptions {
+  /** Per-call limit; long imports and exports get four times this. */
+  readonly timeoutMs?: number;
+  /**
+   * Called after the worker has been replaced — every shape handle the caller holds is
+   * now dead, and whatever owns the geometry cache must rebuild from nothing.
+   */
+  readonly onRestart?: (reason: KernelError) => void;
+  /** Called when a call finished but took longer than `slowMs` (default 5 s). */
+  readonly onSlow?: (method: KernelMethod, ms: number) => void;
+  readonly slowMs?: number;
+}
+
+interface Pending {
+  readonly method: KernelMethod;
+  readonly resolve: (v: unknown) => void;
+  readonly reject: (e: Error) => void;
+  readonly started: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+export class WorkerKernel implements KernelPort {
+  #pending = new Map<number, Pending>();
+  #nextId = 0;
+  #ready!: Promise<number>;
+  #worker!: Worker;
+  #detach: (() => void) | null = null;
+  readonly #timeoutMs: number;
+  readonly #onRestart: ((reason: KernelError) => void) | undefined;
+  readonly #onSlow: ((method: KernelMethod, ms: number) => void) | undefined;
+  readonly #slowMs: number;
+  /** Restarts so far; the boot promise of a dead worker is never awaited. */
+  #epoch = 0;
+
+  constructor(
+    private readonly spawn: () => Worker,
+    options: WorkerKernelOptions = {},
+  ) {
+    this.#timeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+    this.#onRestart = options.onRestart;
+    this.#onSlow = options.onSlow;
+    this.#slowMs = options.slowMs ?? 5000;
+    this.#attach(spawn());
+  }
+
+  #attach(worker: Worker): void {
+    this.#worker = worker;
     let resolveReady: (bootMs: number) => void;
     this.#ready = new Promise<number>((resolve) => { resolveReady = resolve; });
 
-    worker.addEventListener('message', (event: MessageEvent<KernelResponse | unknown>) => {
+    const onMessage = (event: MessageEvent<KernelResponse | unknown>) => {
       if (isKernelReady(event.data)) {
         resolveReady(event.data.bootMs);
         return;
@@ -36,25 +85,96 @@ export class WorkerKernel implements KernelPort {
       const pending = this.#pending.get(response.id);
       if (!pending) return;
       this.#pending.delete(response.id);
+      if (pending.timer) clearTimeout(pending.timer);
+      const took = performance.now() - pending.started;
+      if (took > this.#slowMs) this.#onSlow?.(pending.method, took);
       if (response.ok) pending.resolve(response.value);
       else pending.reject(new KernelError(response.error.message, response.error.operation ?? 'kernel'));
-    });
+    };
+    const onError = (event: ErrorEvent) => {
+      this.#failAll(new Error(`geometry worker failed: ${event.message}`));
+    };
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    this.#detach = () => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+    };
+  }
 
-    worker.addEventListener('error', (event) => {
-      const error = new Error(`geometry worker failed: ${event.message}`);
-      for (const pending of this.#pending.values()) pending.reject(error);
-      this.#pending.clear();
-    });
+  #failAll(error: Error): void {
+    for (const pending of this.#pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#pending.clear();
   }
 
   /** Resolves with the worker's WASM boot time once geometry is available. */
   whenReady(): Promise<number> { return this.#ready; }
 
+  /** How many times the worker has been replaced. */
+  get restarts(): number { return this.#epoch; }
+
+  /**
+   * Stop whatever the worker is doing, right now.
+   *
+   * OCCT cannot be interrupted from outside, so the only way to get out of a fillet that
+   * is never going to finish is to kill the thread it runs on. Every call in flight
+   * rejects; the one named in `culprit` (or the oldest, when a timer fired) rejects with
+   * a KernelTimeoutError so its feature is remembered as one not to retry. A fresh
+   * worker is booted, and `onRestart` tells the owner that all its handles are gone.
+   */
+  abort(reason = 'stopped'): void {
+    const oldest = this.#pending.values().next().value as Pending | undefined;
+    this.#restart(oldest?.method ?? 'kernel', reason);
+  }
+
+  #restart(method: string, why: string): void {
+    this.#epoch++;
+    this.#detach?.();
+    this.#worker.terminate();
+
+    const culprit = new KernelTimeoutError(
+      `${method} ${why} — the geometry engine was restarted`, method,
+    );
+    const rest = new KernelError('the geometry engine was restarted', method);
+    let first = true;
+    for (const pending of this.#pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(first ? culprit : rest);
+      first = false;
+    }
+    this.#pending.clear();
+
+    this.#attach(this.spawn());
+    this.#onRestart?.(culprit);
+  }
+
   #call<T>(method: KernelMethod, ...args: unknown[]): Promise<T> {
     const id = this.#nextId++;
+    const epoch = this.#epoch;
     return new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      this.worker.postMessage({ id, method, args });
+      const pending: Pending = {
+        method, resolve: resolve as (v: unknown) => void, reject, timer: null, started: performance.now(),
+      };
+      this.#pending.set(id, pending);
+      this.#worker.postMessage({ id, method, args });
+
+      // The clock starts once the worker is up, so a slow first load of the WASM module
+      // is never mistaken for a hung operation.
+      const limit = this.#timeoutMs * (LONG_CALLS.has(method) ? 4 : 1);
+      void this.#ready.then(() => {
+        if (this.#epoch !== epoch || !this.#pending.has(id)) return;
+        pending.timer = setTimeout(() => {
+          if (!this.#pending.has(id)) return;
+          console.warn(`[kernel] ${method} exceeded ${limit / 1000}s; restarting the geometry worker`, args);
+          // Reorder so the call that overran is the one blamed.
+          this.#pending.delete(id);
+          this.#pending = new Map([[id, pending], ...this.#pending]);
+          this.#restart(method, `took longer than ${Math.round(limit / 1000)} s`);
+        }, limit);
+      });
     });
   }
 
@@ -153,19 +273,16 @@ export class WorkerKernel implements KernelPort {
   release(shape: ShapeHandle) { return this.#call<void>('release', shape); }
 
   terminate(): void {
-    this.worker.terminate();
-    for (const pending of this.#pending.values()) {
-      pending.reject(new Error('geometry worker terminated'));
-    }
-    this.#pending.clear();
+    this.#detach?.();
+    this.#worker.terminate();
+    this.#failAll(new Error('geometry worker terminated'));
   }
 }
 
 /** Spawn the geometry worker and wrap it. */
-export function createWorkerKernel(): WorkerKernel {
-  const worker = new Worker(new URL('../worker/kernel.worker.ts', import.meta.url), {
-    type: 'module',
-    name: 'cardstock-geometry',
-  });
-  return new WorkerKernel(worker);
+export function createWorkerKernel(options: WorkerKernelOptions = {}): WorkerKernel {
+  return new WorkerKernel(() => new Worker(
+    new URL('../worker/kernel.worker.ts', import.meta.url),
+    { type: 'module', name: 'cardstock-geometry' },
+  ), options);
 }

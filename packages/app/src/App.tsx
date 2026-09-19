@@ -142,6 +142,16 @@ export function App() {
   const repaint = useCallback(() => forceRender((n) => n + 1), []);
   /** Bumped per rebuild, so a superseded run can tell and stand down. */
   const rebuildGeneration = useRef(0);
+  /** Seconds the current rebuild has been running; drives the Stop button. */
+  const [busySeconds, setBusySeconds] = useState(0);
+  const busySince = useRef<number | null>(null);
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const since = busySince.current;
+      setBusySeconds(since === null ? 0 : Math.floor((performance.now() - since) / 1000));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   const [focused, setFocused] = useState<FeatureId | null>(null);
   const [radial, setRadial] = useState<{
@@ -257,7 +267,20 @@ export function App() {
     if (core.current) return activate(core.current.viewer, canvas);
 
     const viewer = new Viewer(canvas);
-    const kernel = createWorkerKernel();
+    // OCCT cannot be interrupted, so a fillet that will never finish is stopped by
+    // killing the worker (WorkerKernel's watchdog, or the status bar's Stop). Every
+    // handle is dead after that; the document forgets them and rebuilds from scratch,
+    // and the feature that hung is remembered as one not to try again unchanged.
+    const kernel = createWorkerKernel({
+      onRestart: (reason) => {
+        notify(reason.message, 'error');
+        void doc.resetGeometry().then(() => runRebuild());
+      },
+      // A call that finished but crawled is worth a word: it is the clue when someone
+      // reports "it sat on rebuilding for ages", and there is no console to read on
+      // the desktop.
+      onSlow: (method, ms) => notify(`${method} took ${(ms / 1000).toFixed(1)} s`),
+    });
     // The constraint solver runs on the main thread: it boots in ~13ms and solves a
     // sketch in under a millisecond (ADR-0003), so a worker hop would cost more than it
     // saves and would put a round trip in the middle of dragging.
@@ -1321,6 +1344,8 @@ export function App() {
         cached={report.cached}
         error={report.error}
         busy={!ready || state.busy}
+        busySeconds={busySeconds}
+        onStop={() => core.current?.kernel.abort('was stopped')}
         {...(estimates ? {
           print: `${estimates.cm3.toFixed(1)} cm³ · ${estimates.grams.toFixed(0)} g · ${estimates.metres.toFixed(1)} m solid`,
         } : {})}
@@ -1618,6 +1643,7 @@ export function App() {
     const superseded = () => rebuildGeneration.current !== generation;
 
     c.busy = true;
+    busySince.current ??= performance.now();
     repaint();
     try {
       const result = await rebuild(
@@ -1646,7 +1672,7 @@ export function App() {
     } finally {
       // Only the newest run owns the busy flag: an older one clearing it would report
       // the model settled while the current rebuild is still going.
-      if (!superseded()) { c.busy = false; repaint(); }
+      if (!superseded()) { c.busy = false; busySince.current = null; setBusySeconds(0); repaint(); }
     }
   }
 

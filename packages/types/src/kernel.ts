@@ -358,3 +358,17 @@ export class KernelError extends Error {
     this.name = 'KernelError';
   }
 }
+
+/**
+ * A kernel call that ran past its time limit and was stopped, taking the worker with it.
+ *
+ * Distinct from an ordinary failure because the caller should not try the same thing
+ * again: the inputs that hung once will hang next time, and every rebuild in between
+ * would wait the full limit to find out.
+ */
+export class KernelTimeoutError extends KernelError {
+  constructor(message: string, operation: string) {
+    super(message, operation);
+    this.name = 'KernelTimeoutError';
+  }
+}

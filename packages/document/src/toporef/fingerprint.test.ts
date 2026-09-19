@@ -76,6 +76,19 @@ describe('bestMatch never guesses', () => {
     }
   });
 
+  it('breaks a near-tie in favour of the candidate sitting where the pick was', () => {
+    // A clip with a 3 mm wall on a 70 mm part, cut 1 mm shallower than when the fillet
+    // was placed: the outer and inner wall edges both moved a little, score within the
+    // margin of each other, and the fillet was declared ambiguous. The outer edge is a
+    // fiftieth of the box from the pick; the inner one is three times further.
+    const picked = fp({ centroidNormalised: { x: 0.019, y: 0, z: 0.5 } });
+    const result = bestMatch(picked, [
+      at({ x: 0.026, y: 0.036, z: 0.5 }, 1),  // outer wall, moved by the cut
+      at({ x: 0.076, y: 0.036, z: 0.5 }, 12), // inner wall, 3.6 mm over
+    ]);
+    expect(result).toMatchObject({ ok: true, index: 1 });
+  });
+
   it('refuses when nothing is close enough', () => {
     const result = bestMatch(fp(), [at({ x: 1, y: 1, z: 1 }, 5, { direction: { x: 1, y: 0, z: 0 } })]);
     expect(result.ok).toBe(false);

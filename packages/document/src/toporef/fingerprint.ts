@@ -10,6 +10,9 @@ import { DEFAULT_THRESHOLDS, type MatchThresholds, type Resolution } from './typ
  */
 
 const distance = (a: Vec3, b: Vec3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+/** Distance between two entities' positions within their bounding boxes, 0..√3. */
+export const positionError = (a: EntityFingerprint, b: EntityFingerprint): number =>
+  distance(a.centroidNormalised, b.centroidNormalised);
 const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 
 /** Multiset similarity, 0..1. */
@@ -39,8 +42,7 @@ export function scoreMatch(
 
   // Position within the bounding box. The dominant signal: it is invariant to the
   // resize that breaks index-based references in the first place.
-  const positionError = distance(reference.centroidNormalised, candidate.centroidNormalised);
-  const position = Math.max(0, 1 - positionError / 0.35);
+  const position = Math.max(0, 1 - positionError(reference, candidate) / 0.35);
 
   // Orientation. Survives resizing exactly, and separates the six faces of a box.
   let orientation = 0.5;
@@ -150,7 +152,8 @@ export function bestMatch(
     };
   }
 
-  if (runnerUp && winner.score - runnerUp.score < thresholds.margin) {
+  if (runnerUp && winner.score - runnerUp.score < thresholds.margin
+    && !clearlyCloser(reference, candidates, winner.index, runnerUp.index)) {
     return {
       ok: false,
       reason:
@@ -161,4 +164,28 @@ export function bestMatch(
   }
 
   return { ok: true, index: winner.index, method: 'fingerprint', confidence: winner.score };
+}
+
+/**
+ * Near-tie breaker. Position falls off over a third of the bounding box, which is
+ * right for a resize but too gentle to separate the inner and outer edges of a 3 mm
+ * wall on a 70 mm part: nudge the part by a millimetre and the two score within the
+ * margin of each other, and a fillet that plainly belongs on the outer edge is
+ * declared ambiguous. When everything else is a wash, the candidate sitting where the
+ * pick was made — within a tenth of the box, and clearly nearer than the next one — is the one the user meant.
+ */
+function clearlyCloser(
+  reference: EntityFingerprint,
+  candidates: readonly EntityFingerprint[],
+  winnerIndex: number,
+  runnerUpIndex: number,
+): boolean {
+  const winner = candidates.find((c) => c.index === winnerIndex);
+  const runnerUp = candidates.find((c) => c.index === runnerUpIndex);
+  if (!winner || !runnerUp) return false;
+  const near = positionError(reference, winner);
+  const far = positionError(reference, runnerUp);
+  // Two entities at the SAME spot (a symmetric part) stay ambiguous: the runner-up must
+  // be measurably further away, not merely no closer.
+  return near < 0.1 && far - near >= 0.02 && near * 1.5 <= far;
 }

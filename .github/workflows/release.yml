@@ -68,7 +68,11 @@ jobs:
           releaseBody: |
             Test build. Download the installer for your system:
             - Windows: the `-setup.exe` (or the `.msi`)
-            - Linux: the `.AppImage` (make it executable) or the `.deb` / `.rpm`
+            - Linux: the `.deb` / `.rpm`, or the `.AppImage` (make it executable)
+
+            Updating: run the new installer over the old one — it replaces the previous
+            version, no uninstall needed. The `.AppImage` is a single file with no
+            installer, so with that one just replace the old file.
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}

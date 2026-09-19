@@ -456,6 +456,23 @@ export class Document {
     this.#dirty.clear();
   }
 
+  /**
+   * The kernel has been replaced and every shape handle is dead: forget them all and
+   * rebuild from nothing next time. Queued behind the run in flight, so a rebuild that
+   * is still winding down cannot cache a handle after the cache was cleared.
+   */
+  resetGeometry(): Promise<void> {
+    this.#running?.cancel();
+    const previous = this.#inFlight;
+    const run = (async () => {
+      await previous;
+      await this.engine.reset();
+      this.invalidateAll();
+    })();
+    this.#inFlight = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
   // ------------------------------------------------------------------ undo
   #restore(snapshot: DocumentSnapshot): void {
     this.parameters.clear();

@@ -5,7 +5,12 @@
  */
 export function StatusBar({
   hover, filter, selectionCount, rebuildMs, meshMs, triangles, faces, cached, error, busy, print, warning,
+  busySeconds, onStop,
 }: {
+  /** How long the current rebuild has been running; past a few seconds a Stop appears. */
+  busySeconds?: number;
+  /** Kill the geometry engine mid-operation. Only offered while a rebuild is running long. */
+  onStop?: () => void;
   /** Volume, mass and filament as a solid; shown when known. */
   print?: string;
   /** Something the printer will object to — the part not fitting the bed. */
@@ -24,7 +29,19 @@ export function StatusBar({
   return (
     <div className="status" role="status">
       <span className="status-left">
-        {busy ? <span className="status-busy">rebuilding…</span> : hover ?? <span className="dim">point at the model</span>}
+        {busy ? (
+          <span className="status-busy">
+            rebuilding…{busySeconds !== undefined && busySeconds >= 3 ? ` ${busySeconds}s` : ''}
+            {onStop && busySeconds !== undefined && busySeconds >= 3 && (
+              <button
+                type="button" className="status-stop" onClick={onStop}
+                title="Stop the geometry engine and mark the feature that is taking too long"
+              >
+                Stop
+              </button>
+            )}
+          </span>
+        ) : hover ?? <span className="dim">point at the model</span>}
         {selectionCount > 0 && <span className="sel"> · {selectionCount} selected</span>}
       </span>
 

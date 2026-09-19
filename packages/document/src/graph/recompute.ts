@@ -1,7 +1,7 @@
 import type {
   FeatureId, KernelPort, ShapeDescription, ShapeHandle, ShapeHistory,
 } from '@cardstock/types';
-import type { SolverPort } from '@cardstock/types';
+import { KernelTimeoutError, type SolverPort } from '@cardstock/types';
 import { resolveTopoRef, type HistoryStep } from '../toporef/resolver.js';
 import type { Sketch } from '../sketch/sketch.js';
 import type { TopoRef } from '../toporef/types.js';
@@ -88,6 +88,12 @@ export class RecomputeEngine {
   readonly #cache = new Map<string, ShapeHandle>();
   /** Fingerprints per shape handle. Only fetched for features that reference topology. */
   readonly #descriptions = new Map<string, ShapeDescription>();
+  /**
+   * Content hashes whose build ran past the kernel's time limit, with the message.
+   * Deliberately survives reset(): the whole point is not to sit through the limit
+   * again on every rebuild until the inputs actually change.
+   */
+  readonly #timedOut = new Map<string, string>();
   /** Insertion-ordered hashes, for LRU-ish eviction. */
   #previous: Map<FeatureId, FeatureState> | null = null;
 
@@ -345,6 +351,13 @@ export class RecomputeEngine {
       reused.push(feature.id);
       return { id: feature.id, status: 'ok', handle: hit, hash, cached: true, fellBack: false };
     }
+    const hung = this.#timedOut.get(hash);
+    if (hung) {
+      return {
+        id: feature.id, status: 'error', handle: primary, hash: primaryHash,
+        cached: false, fellBack: primary !== null, message: hung,
+      };
+    }
 
     // --- actually build it
     //
@@ -372,10 +385,14 @@ export class RecomputeEngine {
     } catch (e) {
       // Local failure: keep the last good shape flowing downstream so the rest of the
       // model still builds, and flag this feature precisely.
+      const message = e instanceof Error ? e.message : String(e);
+      if (e instanceof KernelTimeoutError) {
+        if (this.#timedOut.size >= 64) this.#timedOut.delete(this.#timedOut.keys().next().value!);
+        this.#timedOut.set(hash, `${message} (change its inputs to try again)`);
+      }
       return {
         id: feature.id, status: 'error', handle: primary, hash: primaryHash,
-        cached: false, fellBack: primary !== null,
-        message: e instanceof Error ? e.message : String(e),
+        cached: false, fellBack: primary !== null, message,
       };
     } finally {
       // Whatever this feature ended up publishing is kept; everything else it made goes.

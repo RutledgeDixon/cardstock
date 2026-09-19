@@ -40,7 +40,9 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["card"],
+        "ext": [
+          "card"
+        ],
         "name": "CARDstock part",
         "description": "CARDstock part",
         "mimeType": "application/x-cardstock",
@@ -48,8 +50,18 @@
       }
     ],
     "linux": {
-      "deb": { "depends": [] },
-      "appimage": { "bundleMediaFramework": false }
+      "deb": {
+        "depends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "allowDowngrades": true,
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }

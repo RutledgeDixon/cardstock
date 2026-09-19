@@ -85,6 +85,13 @@ builds its own installer; there is no cross-compiling. Windows and macOS install
 unsigned until a code-signing certificate is configured, so those systems will warn on
 first run.
 
+Installing a newer build over an older one replaces it: the Windows setup detects the
+existing install and upgrades it in place (the product name and identifier are what
+tie the two together — keep `productName` and `identifier` in `tauri.conf.json`
+stable), and `.deb`/`.rpm` upgrade through the package manager. The `.AppImage` has no
+installer; a new one is just a new file. An in-app updater would need the release
+assets to be publicly fetchable, which a private repository's are not.
+
 ## Status
 
 **Phases 0–9 complete.** `npm run dev` gives a working parametric modeller: sketches
