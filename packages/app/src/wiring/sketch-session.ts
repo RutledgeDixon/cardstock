@@ -435,11 +435,18 @@ export class SketchSession {
   // ------------------------------------------------------------------ dragging
   #dragging: string | null = null;
 
-  /** Begin dragging the point under the cursor, if there is one. */
+  /**
+   * Begin dragging the point under the cursor, if there is one.
+   *
+   * Points only. Whether the point can actually go anywhere is the solver's answer,
+   * not ours: the DOF reading can be a solve behind, and refusing a drag on a stale
+   * zero would make a perfectly movable sketch feel dead. A point with nothing to give
+   * simply does not move.
+   */
   beginDrag(): boolean {
     const id = this.pick();
     const entity = id ? this.sketch.entity(id) : null;
-    if (entity?.type !== 'point' || entity.fixed) return false;
+    if (entity?.type !== 'point' || entity.fixed || entity.external) return false;
     this.#dragging = entity.id;
     return true;
   }

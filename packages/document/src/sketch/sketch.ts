@@ -314,13 +314,11 @@ export class Sketch {
       return typeof value !== 'string' && !(c as { reference?: boolean }).reference;
     });
 
-    // A drag pulls everything connected to the point along with it, as the initial
-    // guess. The solver then settles whatever is tied down back where it belongs — a
-    // rectangle pinned to the origin stretches exactly as before — but a shape that is
-    // constrained in itself and tied to nothing moves as a whole, instead of the
-    // solver quietly putting the one dragged point back because that was the smaller
-    // change.
-    const geometry = this.#seedArcs(drag ? this.#carried(drag) : this.geometry, resolved);
+    // The drag itself is handled by the solver, which pins the point under the cursor
+    // and moves as little else as it can (see the adapter). Nothing is pre-moved here:
+    // an earlier version translated everything connected to the point first, and the
+    // far side of a part slid along with an arc end that had no business moving it.
+    const geometry = this.#seedArcs(this.geometry, resolved, drag?.point);
 
     const result = await solver.solve({
       geometry,
@@ -332,10 +330,12 @@ export class Sketch {
       // A drag may only land somewhere NEAR. The solver, asked to move one point,
       // sometimes finds a valid configuration a long way off — everything flung
       // out of view — or "converges" to something that is not a solution at all.
-      // Neither is a drag. If any point would move further than the pointer did
-      // (with room for the shape to swing), the sketch stays as it is; the next pointer
-      // move tries again from where it was. It is fine to hop to a nearby valid place;
-      // it is never fine to explode.
+      // Neither is a drag, and neither is a pull the constraints simply forbid: a point
+      // with nothing left to give makes the pinned system conflicting, the solve fails,
+      // and the sketch must stay exactly as it was. If any point would move further than
+      // the pointer did (with room for the shape to swing), the sketch stays as it is;
+      // the next pointer move tries again from where it was. It is fine to hop to a
+      // nearby valid place; it is never fine to explode.
       if (result.status !== 'solved' || this.#dragTooFar(drag, result)) {
         this.#lastSolve = { ...result, status: 'solved', points: {}, radii: {}, angles: {} };
         return this.#lastSolve;
@@ -370,7 +370,12 @@ export class Sketch {
    * a plain calculation from the axis and centre — hands it a guess that is already
    * right, so it only has to settle whatever else the change touched.
    */
-  #seedArcs(geometry: SketchGeometry[], constraints: SketchConstraint[]): SketchGeometry[] {
+  #seedArcs(
+    geometry: SketchGeometry[],
+    constraints: SketchConstraint[],
+    /** The point under the cursor, which is being placed by the drag, not by a guess. */
+    dragged?: SketchEntityId,
+  ): SketchGeometry[] {
     const byId = new Map(geometry.map((e) => [e.id, e] as const));
     const out = new Map(byId);
     for (const c of constraints) {
@@ -387,55 +392,12 @@ export class Sketch {
       out.set(arc.id, { ...arc, radius, startAngle: start, endAngle: end });
       for (const [id, angle] of [[arc.start, start], [arc.end, end]] as const) {
         const p = byId.get(id);
-        if (p?.type === 'point' && !p.fixed) {
+        if (p?.type === 'point' && !p.fixed && id !== dragged) {
           out.set(id, { ...p, x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) });
         }
       }
     }
     return [...out.values()];
-  }
-
-  /** The geometry with the dragged point's connected component moved by the drag. */
-  #carried(drag: { point: SketchEntityId; x: number; y: number }): SketchGeometry[] {
-    const dragged = this.#geometry.get(drag.point);
-    if (dragged?.type !== 'point') return this.geometry;
-    const dx = drag.x - dragged.x, dy = drag.y - dragged.y;
-
-    // Connectivity: curves join their points; constraints join what they name.
-    const links = new Map<SketchEntityId, Set<SketchEntityId>>();
-    const join = (ids: SketchEntityId[]) => {
-      for (const a of ids) for (const b of ids) {
-        if (a === b) continue;
-        let set = links.get(a);
-        if (!set) { set = new Set(); links.set(a, set); }
-        set.add(b);
-      }
-    };
-    for (const e of this.#geometry.values()) {
-      if (e.type === 'line') join([e.id, e.p1, e.p2]);
-      else if (e.type === 'circle') join([e.id, e.centre]);
-      else if (e.type === 'arc') join([e.id, e.centre, e.start, e.end]);
-    }
-    for (const c of this.#constraints.values()) join(referencedIds(c));
-
-    const component = new Set<SketchEntityId>([drag.point]);
-    const queue = [drag.point];
-    while (queue.length > 0) {
-      const id = queue.pop()!;
-      const entity = this.#geometry.get(id);
-      // Anchors are reached but not crossed: what is tied to the origin is not
-      // thereby tied to everything else the origin touches.
-      if (entity?.type === 'point' && (entity.fixed || entity.external) && id !== drag.point) continue;
-      for (const next of links.get(id) ?? []) {
-        if (!component.has(next)) { component.add(next); queue.push(next); }
-      }
-    }
-
-    return this.geometry.map((e) => (
-      e.type === 'point' && component.has(e.id) && !e.fixed && !e.external
-        ? { ...e, x: e.x + dx, y: e.y + dy }
-        : e
-    ));
   }
 
   /** Write solved positions back, so the stored sketch matches what is on screen. */

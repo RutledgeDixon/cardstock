@@ -36,7 +36,40 @@ export class PlaneGcsSolver implements SolverPort {
     return new PlaneGcsSolver(gcs);
   }
 
+  /**
+   * Solve, and when the caller is dragging, follow the pointer with the least movement
+   * everywhere else.
+   *
+   * Two attempts, because neither way of expressing a drag is right on its own:
+   *
+   * - PINNED. The dragged point becomes a fixed point at the cursor, so the solver has
+   *   to satisfy everything else around it, and DogLeg starting from the sketch's
+   *   current positions moves as little as it can. This is what a drag should feel
+   *   like, and it is what an earlier version could not do — it merely SUGGESTED the
+   *   new position, which the solver was free to undo, so the caller compensated by
+   *   translating everything connected to the point first. The solver then settled on
+   *   the nearest solution to that displaced state, and geometry with nothing to do
+   *   with the drag kept the offset: pull an arc's end, and the far side of the part
+   *   slid sideways.
+   *
+   * - SEEDED. A pin fails whenever the point cannot actually reach the cursor — the
+   *   free end of a horizontal line dragged upwards, or a sketch with no freedom left
+   *   at all — because a fixed point turns "it cannot go there" into a contradiction.
+   *   So that case falls back to offering the cursor as the initial guess and letting
+   *   the constraints pull it back onto what is reachable: the end of that horizontal
+   *   line follows in x and stays put in y, and a finished sketch does not move at all.
+   *
+   * The pin is tried first and kept only if it solved cleanly, which means the drag is
+   * crisp exactly when the freedom to be crisp exists.
+   */
   async solve(request: SolveRequest): Promise<SolveResult> {
+    if (!request.drag) return this.#attempt(request, 'seed');
+    const pinned = await this.#attempt(request, 'pin');
+    if (pinned.status === 'solved' && pinned.conflicting.length === 0) return pinned;
+    return this.#attempt(request, 'seed');
+  }
+
+  async #attempt(request: SolveRequest, mode: 'pin' | 'seed'): Promise<SolveResult> {
     this.gcs.clear_data();
 
     const primitives: unknown[] = [];
@@ -46,18 +79,12 @@ export class PlaneGcsSolver implements SolverPort {
       primitives.push({ type: 'param', name, value });
     }
 
-    // A drag moves the point's INITIAL GUESS, it does not add a constraint.
-    //
-    // Constraining the dragged point would over-constrain any sketch that is already
-    // fully defined, so dragging a finished rectangle would report a conflict instead of
-    // simply not moving. Seeding the guess lets the solver absorb the pull into whatever
-    // freedom actually exists — which is what "pull, not pin" has to mean.
     const dragged = request.drag;
     for (const entity of request.geometry) {
-      const seeded = dragged && entity.type === 'point' && entity.id === dragged.point
-        ? { ...entity, x: dragged.x, y: dragged.y }
+      const moved = dragged && entity.type === 'point' && entity.id === dragged.point
+        ? { ...entity, x: dragged.x, y: dragged.y, ...(mode === 'pin' ? { fixed: true } : {}) }
         : entity;
-      primitives.push(...toPrimitives(seeded));
+      primitives.push(...toPrimitives(moved));
     }
 
     const lineStart = (lineId: string) => {

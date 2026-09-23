@@ -107,3 +107,40 @@ on every rebuild before solving, keyed so a corner stays the same entity when th
 changes: a point coincident with it follows, and a constraint against an edge that no
 longer exists fails loudly like any reference to deleted geometry. External geometry is
 drawn muted, is pickable, cannot be dragged or deleted, and is never part of a profile.
+
+## Amendment: what a drag is allowed to move
+
+Dragging is the one place where a constraint solver's freedom works against it. Every
+configuration satisfying the rules is equally valid, so "which one" is a question the
+constraints do not answer, and the answer a user expects is: the one nearest where the
+sketch already was.
+
+The first implementation could not express that. It offered the cursor position as the
+dragged point's initial *guess*, and a guess is only a suggestion — the solver would
+undo it whenever putting the point back was the smaller change, so a rigid but
+untethered shape barely followed the pointer. The compensation was to translate the
+point's whole connected component — everything the constraint graph could reach —
+before solving, and that is what made dragging feel unpredictable: the solver then
+settled on the nearest solution to a state in which the entire sketch had already
+moved, so geometry with no relationship to the drag kept the offset. Pull the end of an
+arc and the far side of the part slid sideways with it.
+
+The drag is now expressed as a **pin**: the dragged point becomes a fixed point at the
+cursor, and DogLeg, starting from the sketch's current positions, moves the minimum it
+can around it. That is the whole rule — a free point moves alone, a point tied to a
+line brings the line, a rigid floating sketch translates entire — and none of it is
+special-cased; it falls out of least-squares from where the sketch already was.
+
+A pin fails when the point cannot reach the cursor at all: the free end of a horizontal
+line dragged upwards, or a sketch with no freedom left, both turn "it cannot go there"
+into a contradiction. So a failed pin falls back to the old seeded guess **without any
+pre-translation**, which lets the constraints pull the point back onto what is
+reachable — that end tracks in x and stays put in y, and a finished sketch does not move
+at all. Two attempts, each well under a millisecond, and the crisp one is used exactly
+when the freedom for it exists.
+
+Two guards remain outside the solver: only points are draggable (never lines, never
+curves), and a solved result in which any point moved more than a few times the
+pointer's own travel is discarded as a jump to another solution branch rather than a
+drag. Whether a point can move is left to the solver rather than read from the DOF
+count, which can be a solve behind.
