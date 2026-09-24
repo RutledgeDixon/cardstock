@@ -1,3 +1,4 @@
+import type { SketchToolKind } from '@cardstock/types';
 import { asFeatureId, type EntityRef, type FeatureId } from '@cardstock/types';
 import type { Document, TopoRef } from '@cardstock/document';
 import type { Viewer } from '@cardstock/viewer';
@@ -59,9 +60,9 @@ export interface HostDeps {
   addSketchSweep: () => string | null;
   sketchSweepBlocker: () => string | null;
   finishSketch: () => Promise<void>;
-  setSketchTool: (tool: 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain') => void;
+  setSketchTool: (tool: SketchToolKind) => void;
   sketching: () => boolean;
-  sketchTool: () => 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain' | null;
+  sketchTool: () => SketchToolKind | null;
   sketchSelectionCount: () => number;
   analysis: () => 'none' | 'overhang' | 'thickness';
   buildVolume: () => boolean;

@@ -1,4 +1,5 @@
 import type { ProfileSegment, SketchGeometry, Vec2 } from '@cardstock/types';
+import { TOLERANCE, curvePieces, positionKey as key } from './split.js';
 
 /**
  * Turn solved sketch geometry into closed loops a kernel can make faces from.
@@ -27,15 +28,6 @@ export interface ProfileResult {
   readonly openChains: readonly { readonly segments: readonly ProfileSegment[]; readonly reason: string }[];
 }
 
-const TOLERANCE = 1e-6;
-const key = (p: Vec2): string =>
-  `${Math.round(p.x / TOLERANCE)},${Math.round(p.y / TOLERANCE)}`;
-
-const positionOf = (geometry: readonly SketchGeometry[], id: string): Vec2 | null => {
-  const entity = geometry.find((e) => e.id === id);
-  return entity?.type === 'point' ? { x: entity.x, y: entity.y } : null;
-};
-
 /**
  * Signed area; its sign gives the winding direction.
  *
@@ -61,61 +53,35 @@ export function signedArea(segments: readonly ProfileSegment[]): number {
 export function buildProfile(geometry: readonly SketchGeometry[]): ProfileResult {
   const loops: ProfileLoop[] = [];
   const chainable: ProfileSegment[] = [];
-  const points = geometry.filter((e): e is Extract<SketchGeometry, { type: 'point' }> => e.type === 'point');
 
   for (const entity of geometry) {
     // Points have no construction flag; only curves do.
-    if (entity.type !== 'point' && entity.construction) continue;
+    if (entity.type === 'point' || entity.construction) continue;
 
-    if (entity.type === 'circle') {
-      const centre = positionOf(geometry, entity.centre);
-      if (!centre) continue;
-      // Points sitting on the rim cut it up: a circle with a chord across it is two
-      // regions, and it can only come out that way if the rim is two arcs that the
-      // chord's ends can be joined to.
-      const cuts = anglesOn(points, centre, entity.radius);
-      if (cuts.length < 2) {
-        const segment: ProfileSegment = { kind: 'circle', centre, radius: entity.radius };
-        loops.push({ segments: [segment], closed: true, signedArea: signedArea([segment]) });
+    // Cut by whatever touches it. Without this the tracer, which turns corners only
+    // where segments share an end, treated a curve as a wall: a chord across a circle
+    // enclosed nothing and a line running into the middle of another left both open.
+    const pieces = curvePieces(geometry, entity);
+    if (pieces.length === 0) continue;
+
+    if (entity.type === 'circle' && pieces.length === 1) {
+      const segment: ProfileSegment = {
+        kind: 'circle', centre: centreOf(pieces[0]!, entity.radius), radius: entity.radius,
+      };
+      loops.push({ segments: [segment], closed: true, signedArea: signedArea([segment]) });
+      continue;
+    }
+
+    for (const piece of pieces) {
+      if (entity.type === 'line' || !piece.angles) {
+        chainable.push({ kind: 'line', from: piece.from, to: piece.to });
         continue;
       }
-      for (let i = 0; i < cuts.length; i++) {
-        const from = cuts[i]!;
-        const to = (cuts[(i + 1) % cuts.length]! > from ? cuts[(i + 1) % cuts.length]! : cuts[(i + 1) % cuts.length]! + Math.PI * 2);
-        chainable.push(arcSegment(centre, entity.radius, from, to));
-      }
-      continue;
-    }
-
-    if (entity.type === 'line') {
-      const from = positionOf(geometry, entity.p1);
-      const to = positionOf(geometry, entity.p2);
-      // A zero-length line contributes nothing and would create a self-loop in the graph.
-      if (!from || !to || key(from) === key(to)) continue;
-      // Split where something else touches it. Without this a line that ends part-way
-      // along another closes nothing: the tracer only turns corners at shared ends, so
-      // a T-junction left both regions open.
-      let previous = from;
-      for (const cut of pointsAlong(points, from, to)) {
-        chainable.push({ kind: 'line', from: previous, to: cut });
-        previous = cut;
-      }
-      chainable.push({ kind: 'line', from: previous, to });
-      continue;
-    }
-
-    if (entity.type === 'arc') {
-      const centre = positionOf(geometry, entity.centre);
-      const from = positionOf(geometry, entity.start);
-      const to = positionOf(geometry, entity.end);
-      if (!centre || !from || !to) continue;
-      const ends = [entity.startAngle, entity.endAngle] as const;
-      let previous = ends[0];
-      for (const cut of anglesBetween(points, centre, entity.radius, ends[0], ends[1])) {
-        chainable.push(arcSegment(centre, entity.radius, previous, cut));
-        previous = cut;
-      }
-      chainable.push(arcSegment(centre, entity.radius, previous, ends[1]));
+      chainable.push({
+        kind: 'arc', centre: centreOf(piece, entity.radius), radius: entity.radius,
+        from: piece.from, to: piece.to,
+        startAngle: piece.angles.start, endAngle: piece.angles.end,
+      });
     }
   }
 
@@ -206,97 +172,10 @@ export function buildProfile(geometry: readonly SketchGeometry[]): ProfileResult
   return { loops, openChains };
 }
 
-/**
- * Where points lie ON a curve, in the order the curve passes them.
- *
- * This is what makes a curve divisible. The face tracer turns corners only where
- * segments share an END, so a curve that another one merely touches part-way along was
- * an uncrossable wall: a chord drawn across a circle enclosed nothing, and a line
- * running into the middle of another left both sides open. Cutting each curve at the
- * points that sit on it turns those touches into real corners, and everything else —
- * winding, nesting, holes — follows as before.
- *
- * Positions are compared at the same tolerance that decides whether two ends meet, so
- * a point close enough to close a loop is close enough to cut one.
- */
-const on = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y) <= TOLERANCE;
-
-/** Points strictly between `from` and `to` on the straight line through them. */
-function pointsAlong(
-  points: readonly { x: number; y: number }[], from: Vec2, to: Vec2,
-): Vec2[] {
-  const dx = to.x - from.x, dy = to.y - from.y;
-  const length = Math.hypot(dx, dy);
-  if (length <= TOLERANCE) return [];
-  const found: { at: number; point: Vec2 }[] = [];
-  for (const p of points) {
-    if (on(p, from) || on(p, to)) continue;
-    // Distance from the infinite line, then position along it.
-    if (Math.abs(dx * (from.y - p.y) - dy * (from.x - p.x)) / length > TOLERANCE) continue;
-    const at = ((p.x - from.x) * dx + (p.y - from.y) * dy) / (length * length);
-    if (at <= 0 || at >= 1) continue;
-    found.push({ at, point: { x: p.x, y: p.y } });
-  }
-  // Two points in the same place cut the line once. A sketch routinely has several —
-  // the origin and a point drawn on it, or two ends held together by a coincident —
-  // and cutting twice leaves a zero-length piece, which is a self-loop in the graph
-  // and stops the trace dead: the whole profile came back empty.
-  const sorted = found.sort((a, b) => a.at - b.at).map((f) => f.point);
-  return sorted.filter((point, i) => i === 0 || key(point) !== key(sorted[i - 1]!));
-}
-
-/** The angles, sorted, at which points sit on a full circle. */
-function anglesOn(
-  points: readonly { x: number; y: number }[], centre: Vec2, radius: number,
-): number[] {
-  const angles = points
-    .filter((p) => Math.abs(Math.hypot(p.x - centre.x, p.y - centre.y) - radius) <= TOLERANCE)
-    .map((p) => normaliseAngle(Math.atan2(p.y - centre.y, p.x - centre.x)));
-  const cuts = dedupeAngles(angles.sort((a, b) => a - b));
-  // A cut at 0 and another a hair short of 2π are the same place on the rim.
-  if (cuts.length > 1 && Math.PI * 2 - cuts[cuts.length - 1]! + cuts[0]! < 1e-9) cuts.pop();
-  return cuts;
-}
-
-/** The angles at which points sit strictly inside an arc's own sweep, in sweep order. */
-function anglesBetween(
-  points: readonly { x: number; y: number }[],
-  centre: Vec2, radius: number, startAngle: number, endAngle: number,
-): number[] {
-  const sweep = endAngle - startAngle;
-  if (Math.abs(sweep) <= TOLERANCE) return [];
-  const found: number[] = [];
-  for (const p of points) {
-    if (Math.abs(Math.hypot(p.x - centre.x, p.y - centre.y) - radius) > TOLERANCE) continue;
-    // How far round from the start, measured the way this arc turns.
-    const offset = normaliseAngle((Math.atan2(p.y - centre.y, p.x - centre.x) - startAngle) * Math.sign(sweep));
-    if (offset <= TOLERANCE || offset >= Math.abs(sweep) - TOLERANCE) continue;
-    found.push(startAngle + offset * Math.sign(sweep));
-  }
-  const order = (a: number, b: number) => (sweep > 0 ? a - b : b - a);
-  return dedupeAngles(found.sort(order));
-}
-
-/** 0..2π. */
-function normaliseAngle(angle: number): number {
-  let a = angle % (Math.PI * 2);
-  if (a < 0) a += Math.PI * 2;
-  return a;
-}
-
-/** Two points at the same place on a curve cut it once, not twice — a second cut at the
- *  same angle would be a zero-length segment and a self-loop in the graph. */
-function dedupeAngles(sorted: readonly number[]): number[] {
-  const out: number[] = [];
-  for (const angle of sorted) {
-    if (out.length === 0 || Math.abs(angle - out[out.length - 1]!) > 1e-9) out.push(angle);
-  }
-  return out;
-}
-
-function arcSegment(centre: Vec2, radius: number, startAngle: number, endAngle: number): ProfileSegment {
-  const at = (angle: number) => ({ x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) });
-  return { kind: 'arc', centre, radius, from: at(startAngle), to: at(endAngle), startAngle, endAngle };
+/** A piece's centre, recovered from its start point and the angle it starts at. */
+function centreOf(piece: { from: Vec2; angles: { start: number } | null }, radius: number): Vec2 {
+  const start = piece.angles!.start;
+  return { x: piece.from.x - radius * Math.cos(start), y: piece.from.y - radius * Math.sin(start) };
 }
 
 /** Direction a segment leaves its start point in. */

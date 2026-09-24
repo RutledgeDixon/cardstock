@@ -349,3 +349,24 @@ describe('equal', () => {
     expect(result.radii.arc).toBeCloseTo(5, 5);
   });
 });
+
+describe('geometry order', () => {
+  it('solves a curve whose points are declared after it', async () => {
+    // Trimming rewrites a circle into an arc in place, and the arc then references rim
+    // points added after it. GCS resolves an id as the primitive is pushed, so the
+    // solve failed with "sketch object p2 not found" until points went first.
+    const result = await solver.solve({
+      geometry: [
+        { id: 'c', type: 'point', x: 0, y: 0, fixed: true },
+        { id: 'arc', type: 'arc', centre: 'c', radius: 10, start: 'p1', end: 'p2', startAngle: 0, endAngle: Math.PI },
+        { id: 'p1', type: 'point', x: 10, y: 0 },
+        { id: 'p2', type: 'point', x: -10, y: 0 },
+      ],
+      constraints: [{ id: 'r', type: 'radius', entity: 'arc', value: 10 }],
+      parameters: {},
+    });
+    expect(result.status).toBe('solved');
+    expect(result.message).toBeUndefined();
+    expect(result.radii.arc).toBeCloseTo(10, 6);
+  });
+});

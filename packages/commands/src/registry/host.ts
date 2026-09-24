@@ -1,4 +1,4 @@
-import type { EntityRef, FeatureId } from '@cardstock/types';
+import type { EntityRef, FeatureId, SketchToolKind } from '@cardstock/types';
 import type { CommandState } from './command.js';
 
 /**
@@ -65,7 +65,7 @@ export interface CommandHost {
   sketchConstraintBlocker(type: string): string | null;
   /** Leave sketch mode, rebuilding whatever the sketch feeds. */
   finishSketch(): Promise<void>;
-  setSketchTool(tool: 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain'): void;
+  setSketchTool(tool: SketchToolKind): void;
   /** Extrude the sketch that was just finished. */
   extrudeSketch(): Promise<FeatureId | null>;
 

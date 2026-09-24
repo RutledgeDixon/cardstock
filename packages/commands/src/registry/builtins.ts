@@ -137,6 +137,18 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: () => host.setSketchTool('arc'),
     },
     {
+      id: 'sketch.trim',
+      title: 'Trim',
+      hint: 'Click a piece of a curve to take it away; the rest keeps its dimensions',
+      icon: '✂',
+      contexts: ['sketch'],
+      // No ring sector: the sketch ring's eight are spoken for, and the sketch bar
+      // carries every drawing tool anyway. `t` is the muscle memory that matters.
+      keys: ['t'],
+      enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
+      run: () => host.setSketchTool('trim'),
+    },
+    {
       id: 'sketch.select',
       title: 'Select',
       icon: '⬉',

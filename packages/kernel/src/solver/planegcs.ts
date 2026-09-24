@@ -79,8 +79,18 @@ export class PlaneGcsSolver implements SolverPort {
       primitives.push({ type: 'param', name, value });
     }
 
+    // Points first, then everything built on them.
+    //
+    // GCS resolves an id as the primitive is pushed, so a curve whose points come later
+    // in the list fails with "sketch object pN not found". Declaration order used to be
+    // good enough only because geometry was appended in the order it was drawn; the
+    // moment an entity is rewritten in place — a circle trimmed into an arc, which then
+    // references the rim points that were added after it — the order stops holding.
+    // Sorting by kind here makes the adapter independent of it.
     const dragged = request.drag;
-    for (const entity of request.geometry) {
+    const byKind = [...request.geometry].sort((a, b) =>
+      Number(b.type === 'point') - Number(a.type === 'point'));
+    for (const entity of byKind) {
       const moved = dragged && entity.type === 'point' && entity.id === dragged.point
         ? { ...entity, x: dragged.x, y: dragged.y, ...(mode === 'pin' ? { fixed: true } : {}) }
         : entity;

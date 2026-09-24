@@ -1529,7 +1529,7 @@ export function App() {
         <div className="sketchbar">
           <span className="sketchbar-title">Sketch</span>
           <span className="sketchbar-tools">
-            {(['line', 'rectangle', 'circle', 'arc', 'select'] as const).map((tool) => (
+            {(['line', 'rectangle', 'circle', 'arc', 'trim', 'select'] as const).map((tool) => (
               <button
                 key={tool}
                 type="button"

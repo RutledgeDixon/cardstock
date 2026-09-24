@@ -1,4 +1,4 @@
-import type { EntityKind, FeatureId } from '@cardstock/types';
+import type { EntityKind, FeatureId, SketchToolKind } from '@cardstock/types';
 
 /**
  * Every user-invocable action is one Command.
@@ -45,7 +45,7 @@ export interface CommandState {
   /** A sketch is open for editing; most modelling commands stand aside while it is. */
   readonly sketching: boolean;
   /** Active drawing tool, when sketching. */
-  readonly sketchTool: 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain' | null;
+  readonly sketchTool: SketchToolKind | null;
   /**
    * Sketch entities selected, when sketching.
    *

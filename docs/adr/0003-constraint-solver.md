@@ -175,7 +175,25 @@ deduplicated by position: a sketch has coincident points everywhere, and cutting
 one place leaves a zero-length piece, which is a self-loop in the graph that stops the
 trace dead.
 
-One thing this does NOT yet change is what a click selects. Picking a rim still selects
-the whole circle, so a constraint placed on it applies to the whole circle. Splitting the
-selection too would mean deciding what a constraint on one piece means for the rest,
-which is a question about the model, not about picking.
+**Trimming is what the division is for.** The Trim tool takes away the piece of curve
+under the cursor, and the surviving piece KEEPS THE CURVE'S IDENTITY — the same entity
+id — so every constraint already placed on it goes on applying. A radius dimension on a
+circle carries over to the arc the circle became with nothing to change, because the
+solver routes a radius by what an entity IS rather than by what it was; the same turned
+out to be true of tangency and the two circle-distance constraints, which PlaneGCS
+accepts against an arc. The sweep is the deliberate exception and is left unconstrained:
+a circle never had one, and an arc's old sweep measured a piece that no longer exists, so
+carrying either forward would fight the trim that was just asked for. A curve nothing
+touches has no pieces to choose between, so trimming it removes it — which is the answer
+a user expects from clicking a lone circle with the tool.
+
+Rewriting an entity in place turned up a latent trap worth recording: GCS resolves an id
+as each primitive is pushed, so a curve whose points appear later in the list failed with
+"sketch object pN not found". Declaration order held only as long as geometry was
+appended in the order it was drawn, which stops being true the moment a circle becomes an
+arc referencing rim points added after it. The adapter now pushes points before anything
+built on them, and no longer depends on the order at all.
+
+One thing this does NOT change is what a click SELECTS. Picking a rim still selects the
+whole curve, so a constraint placed on it applies to the whole curve — which is right,
+because after a trim the piece and the curve are the same thing.

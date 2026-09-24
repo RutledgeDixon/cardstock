@@ -1,4 +1,4 @@
-import type { SketchEntityId, Vec2 } from '@cardstock/types';
+import type { SketchEntityId, SketchGeometry, SketchToolKind, Vec2 } from '@cardstock/types';
 import type { Sketch } from './sketch.js';
 import {
   DEFAULT_INFERENCE, type InferenceOptions, inferForNewLine, snapToAxis, snapToPoint,
@@ -22,11 +22,12 @@ const SNAP_PIXELS = 12;
  */
 
 /**
- * `select` and `dimension` create no geometry — they act on entities the caller has
- * picked, which needs screen-space hit testing this class deliberately knows nothing
- * about. They are listed here so the tool set is one enumeration rather than two.
+ * The tools this class implements. Defined in `@cardstock/types` so the registry and
+ * the shell name the same set; `select`, `dimension` and `constrain` reach this class
+ * only to be ignored, because they act on entities the caller picked with screen-space
+ * hit testing this class deliberately knows nothing about.
  */
-export type ToolKind = 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'dimension' | 'constrain';
+export type ToolKind = SketchToolKind;
 
 /** What to draw as feedback before the click lands. */
 export interface ToolPreview {
@@ -166,7 +167,61 @@ export class SketchTools {
       case 'rectangle': return this.#clickRectangle(at);
       case 'circle': return this.#clickCircle(at);
       case 'arc': return this.#clickArc(at);
+      case 'trim': return this.#clickTrim(at);
     }
+  }
+
+  /**
+   * Take away the piece of curve under the cursor.
+   *
+   * The piece is whatever lies between the points sitting on that curve — the same
+   * division the profile builder traces — so trimming a circle that two lines touch
+   * leaves the arc between them, and the radius dimension on it carries straight over.
+   * A curve nothing touches has no pieces to choose between and simply goes.
+   */
+  #clickTrim(at: Vec2): ToolResult {
+    const curve = this.#curveNear(at);
+    if (!curve) return { created: [], completed: false };
+    this.sketch.trim(curve, at);
+    return { created: [], completed: true };
+  }
+
+  /** The curve within snapping distance of `at`, nearest first. */
+  #curveNear(at: Vec2): SketchEntityId | null {
+    let best: { id: SketchEntityId; distance: number } | null = null;
+    for (const entity of this.sketch.geometry) {
+      if (entity.type === 'point' || entity.external) continue;
+      const distance = this.#distanceToCurve(entity, at);
+      if (distance === null || distance > this.options.snapDistance) continue;
+      if (!best || distance < best.distance) best = { id: entity.id, distance };
+    }
+    return best?.id ?? null;
+  }
+
+  #distanceToCurve(entity: SketchGeometry, at: Vec2): number | null {
+    if (entity.type === 'line') {
+      const a = this.#positionOf(entity.p1), b = this.#positionOf(entity.p2);
+      if (!a || !b) return null;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-9) return null;
+      const t = Math.max(0, Math.min(1, ((at.x - a.x) * dx + (at.y - a.y) * dy) / (length * length)));
+      return Math.hypot(at.x - (a.x + dx * t), at.y - (a.y + dy * t));
+    }
+    if (entity.type === 'point') return null;
+    const centre = this.#positionOf(entity.centre);
+    if (!centre) return null;
+    const radial = Math.abs(Math.hypot(at.x - centre.x, at.y - centre.y) - entity.radius);
+    if (entity.type === 'circle') return radial;
+    // On an arc only where the arc actually runs; past its ends, measure to the end.
+    const sweep = entity.endAngle - entity.startAngle;
+    const direction = Math.sign(sweep) || 1;
+    let offset = ((Math.atan2(at.y - centre.y, at.x - centre.x) - entity.startAngle) * direction) % (Math.PI * 2);
+    if (offset < 0) offset += Math.PI * 2;
+    if (offset <= Math.abs(sweep)) return radial;
+    const end = (angle: number) => ({ x: centre.x + entity.radius * Math.cos(angle), y: centre.y + entity.radius * Math.sin(angle) });
+    const s = end(entity.startAngle), e = end(entity.endAngle);
+    return Math.min(Math.hypot(at.x - s.x, at.y - s.y), Math.hypot(at.x - e.x, at.y - e.y));
   }
 
   // ------------------------------------------------------------------ tools

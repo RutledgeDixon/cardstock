@@ -76,6 +76,18 @@ export interface SketchArc {
 export type SketchGeometry = SketchPoint | SketchLine | SketchCircle | SketchArc;
 
 /**
+ * The sketch tools, named in one place.
+ *
+ * `select`, `dimension` and `constrain` create no geometry — they act on what the user
+ * has already picked — but they are listed here so the tool set is one enumeration
+ * rather than one per layer: the document implements them, the command registry offers
+ * them, and the shell draws them, and all three used to carry their own copy of this
+ * union for a new tool to be forgotten from.
+ */
+export type SketchToolKind =
+  | 'select' | 'line' | 'rectangle' | 'circle' | 'arc' | 'trim' | 'dimension' | 'constrain';
+
+/**
  * A dimension: either a literal, or the name of a document parameter.
  *
  * Naming a parameter is what makes a sketch follow the rest of the model — the same

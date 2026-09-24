@@ -1,8 +1,9 @@
 import type { ExternalItem } from './external.js';
 import type {
-  NewSketchConstraint, SketchConstraint, SketchEntityId, SketchGeometry,
+  NewSketchConstraint, SketchArc, SketchConstraint, SketchEntityId, SketchGeometry,
   SolveResult, SolverPort, Vec2,
 } from '@cardstock/types';
+import { type CurvePiece, curvePieces, distanceToPiece } from './split.js';
 import type { TopoRef } from '../toporef/types.js';
 import { evaluate, parse, referencedNames } from '../params/expression.js';
 
@@ -252,6 +253,84 @@ export class Sketch {
   }
 
   removeConstraint(id: string): boolean { return this.#constraints.delete(id); }
+
+  /**
+   * Cut a curve at the points on it and throw away the piece under `near`.
+   *
+   * This is what splitting a curve is FOR: a circle with two points on it is two arcs,
+   * and trimming one leaves the other. The surviving piece KEEPS THE CURVE'S IDENTITY —
+   * same entity id — so every constraint placed on it still applies: a radius dimension
+   * on a circle goes on measuring the arc it became, because the solver already routes a
+   * radius by what the entity is rather than by what it was.
+   *
+   * The sweep is the exception, and is deliberately left unconstrained. A circle never
+   * had one, and an arc's old sweep measured a piece that no longer exists; carrying
+   * either forward would fight the trim the user just asked for. Dimension the remainder
+   * afterwards if it should be pinned.
+   *
+   * A curve nothing touches has no pieces to choose between, so trimming it removes it —
+   * which is the same answer a user expects from clicking a lone circle with the trim
+   * tool.
+   */
+  trim(id: SketchEntityId, near: Vec2): boolean {
+    const curve = this.#geometry.get(id);
+    if (!curve || curve.type === 'point') return false;
+
+    const pieces = curvePieces(this.geometry, curve);
+    if (pieces.length <= 1) return this.remove(id);
+
+    const centre = curve.type === 'line' ? null : this.#pointAt(curve.centre);
+    let cut = 0;
+    for (let i = 1; i < pieces.length; i++) {
+      if (distanceToPiece(pieces[i]!, near, centre) < distanceToPiece(pieces[cut]!, near, centre)) cut = i;
+    }
+    const remaining = pieces.filter((_, i) => i !== cut);
+    if (remaining.length === 0) return this.remove(id);
+
+    // The curve becomes its first surviving piece; any others are new entities. A
+    // circle becomes an arc, which is what a trimmed circle is.
+    const shared = {
+      ...(curve.construction ? { construction: true } : {}),
+      ...(curve.type === 'line' && curve.owner ? { owner: curve.owner } : {}),
+    };
+    const endsOf = (piece: CurvePiece) => ({
+      from: piece.fromId ?? this.addPoint(piece.from.x, piece.from.y),
+      to: piece.toId ?? this.addPoint(piece.to.x, piece.to.y),
+    });
+
+    const [kept, ...extras] = remaining;
+    const ends = endsOf(kept!);
+    this.#geometry.set(id, curve.type === 'line'
+      ? { id, type: 'line', p1: ends.from, p2: ends.to, ...shared }
+      : {
+          id, type: 'arc', centre: curve.centre, radius: curve.radius,
+          start: ends.from, end: ends.to,
+          startAngle: kept!.angles!.start, endAngle: kept!.angles!.end, ...shared,
+        });
+
+    for (const piece of extras) {
+      const more = endsOf(piece);
+      if (curve.type === 'line') this.addLine(more.from, more.to, !!curve.construction);
+      else {
+        const extra = this.addArc(
+          curve.centre, curve.radius, more.from, more.to, piece.angles!.start, piece.angles!.end,
+        );
+        if (curve.construction) {
+          this.#geometry.set(extra, { ...(this.#geometry.get(extra) as SketchArc), construction: true });
+        }
+      }
+    }
+
+    for (const constraint of [...this.#constraints.values()]) {
+      if (constraint.type === 'sweep' && constraint.entity === id) this.#constraints.delete(constraint.id);
+    }
+    return true;
+  }
+
+  #pointAt(id: SketchEntityId): Vec2 | null {
+    const entity = this.#geometry.get(id);
+    return entity?.type === 'point' ? { x: entity.x, y: entity.y } : null;
+  }
 
   /**
    * Parameter names any dimension references.
