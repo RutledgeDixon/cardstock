@@ -18,7 +18,7 @@ import type { SketchData } from '../sketch/sketch.js';
  *       from its own file; the migration adds an empty table, which is honest about
  *       what those files contain. Also the optional thumbnail and camera on meta.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export interface DocumentFile {
   readonly schemaVersion: number;
@@ -66,7 +66,73 @@ export type Migration = (doc: Record<string, unknown>) => Record<string, unknown
 export const MIGRATIONS = new Map<number, Migration>([
   // 1 -> 2: sketches were never written, so there are none to recover.
   [1, (doc) => ({ ...doc, schemaVersion: 2, sketches: {} })],
+  // 2 -> 3: arcs lost their axis, and `arcAngle` became a plain signed `sweep`.
+  [2, (doc) => ({ ...doc, schemaVersion: 3, sketches: dropArcAxes(doc.sketches) })],
 ]);
+
+/**
+ * Turn v2 arcs into v3 ones.
+ *
+ * A v2 arc was built on an AXIS: a construction line between its two ends, with the
+ * sweep measured from that line's perpendicular bisector and its sign saying which side
+ * of the line the bulge fell on. A v3 arc measures its sweep against itself — end angle
+ * minus start angle, signed — so the axis reference goes.
+ *
+ * The axis LINE stays, as an ordinary construction line. It is a real line between two
+ * real points and a file may well have constraints on it (the riser clip holds one
+ * vertical); silently deleting it would take those with it. It is now just a line, and
+ * deletable like any other.
+ *
+ * The sweep's new value is read from the arc's own stored angles rather than converted
+ * from the old number, because the angles are what the file actually drew — no sign
+ * convention to re-derive, and an arc that was showing 90° on the other side of its
+ * axis comes back as −90° without anyone having to reason about it. An expression is
+ * left alone: its magnitude is unchanged and only the solver can say what it evaluates
+ * to.
+ */
+const omitAxis = <T extends { axis?: unknown }>(value: T): Omit<T, 'axis'> => {
+  const copy = { ...value };
+  delete copy.axis;
+  return copy;
+};
+
+function dropArcAxes(sketches: unknown): unknown {
+  if (typeof sketches !== 'object' || sketches === null) return sketches;
+  const degrees = (radians: number) => Math.round((radians * 180) / Math.PI * 1e6) / 1e6;
+  const out: Record<string, unknown> = {};
+  for (const [id, raw] of Object.entries(sketches as Record<string, unknown>)) {
+    const sketch = raw as { geometry?: unknown[]; constraints?: unknown[] };
+    const geometry = Array.isArray(sketch.geometry) ? sketch.geometry : [];
+    const arcs = new Map<string, { startAngle: number; endAngle: number }>();
+    for (const entity of geometry) {
+      const e = entity as { id?: string; type?: string; startAngle?: number; endAngle?: number };
+      if (e.type === 'arc' && typeof e.id === 'string') {
+        arcs.set(e.id, { startAngle: e.startAngle ?? 0, endAngle: e.endAngle ?? 0 });
+      }
+    }
+    out[id] = {
+      ...sketch,
+      geometry: geometry.map((entity) => {
+        const e = entity as { type?: string; axis?: unknown };
+        if (e.type !== 'arc' || e.axis === undefined) return entity;
+        return omitAxis(e);
+      }),
+      constraints: (Array.isArray(sketch.constraints) ? sketch.constraints : []).map((constraint) => {
+        const c = constraint as { type?: string; entity?: string; axis?: unknown; value?: unknown };
+        if (c.type !== 'arcAngle') return constraint;
+        const drawn = typeof c.entity === 'string' ? arcs.get(c.entity) : undefined;
+        return {
+          ...omitAxis(c),
+          type: 'sweep',
+          value: drawn && typeof c.value === 'number'
+            ? degrees(drawn.endAngle - drawn.startAngle)
+            : c.value,
+        };
+      }),
+    };
+  }
+  return out;
+}
 
 export class DocumentFormatError extends Error {
   constructor(message: string) {

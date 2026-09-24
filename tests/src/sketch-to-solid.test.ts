@@ -345,34 +345,30 @@ describe('deleting and dragging', () => {
 });
 
 describe('arcs', () => {
-  it('two clicks make a half circle on an axis, with dotted radii and a driving sweep', async () => {
+  it('two clicks make a half circle on those two points, with a driving sweep', async () => {
     const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
     sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
     const tools = new SketchTools(sketch);
     tools.setTool('arc');
-    // Fresh clicks, clear of the origin: a click ON a point ties the arc's end to it.
     tools.click({ x: 5, y: 5 });
     tools.click({ x: 45, y: 5 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
     expect(arc.radius).toBe(20);
-    expect(arc.axis).toBeDefined();
-    const construction = sketch.geometry.filter((e) => e.type === 'line' && e.construction && !e.external);
-    expect(construction).toHaveLength(3); // axis and two radii
-    expect(sketch.constraints.find((c) => c.type === 'arcAngle')).toMatchObject({ value: 180 });
+    // Three points and the arc: the two clicked ends and a centre. No axis, no radii —
+    // an arc used to arrive with three construction lines holding its sweep up.
+    expect(sketch.geometry.filter((e) => e.type === 'line' && !e.external)).toHaveLength(0);
+    expect(sketch.constraints.find((c) => c.type === 'sweep')).toMatchObject({ value: 180 });
 
     await sketch.solve(solver, {});
     expect(sketch.status).not.toBe('over-constrained');
-    // The axis ends and the centre along the bisector are the free things.
-    expect(sketch.dof).toBe(5);
 
-    // Deleting the arc takes its axis and radii; nothing dotted is left behind.
+    // Deleting the arc leaves no scaffolding and no dangling sweep.
     sketch.remove(arc.id);
-    expect(sketch.geometry.filter((e) => e.type === 'line' && e.construction && !e.external)).toHaveLength(0);
-    expect(sketch.constraints.filter((c) => c.type === 'arcAngle')).toHaveLength(0);
+    expect(sketch.constraints.filter((c) => c.type === 'sweep')).toHaveLength(0);
   });
 
-  it('a driven sweep keeps the centre and axis; the D-shape extrudes with the right volume', async () => {
+  it('a driven sweep reshapes it, and the D-shape extrudes with the right volume', async () => {
     const doc = new Document(kernel, undefined, solver);
     const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
     const tools = new SketchTools(sketch);
@@ -381,10 +377,15 @@ describe('arcs', () => {
     tools.click({ x: 45, y: 5 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
-    const centreBefore = { ...(sketch.entity(arc.centre) as { x: number; y: number }) };
-    const sweep = sketch.constraints.find((c) => c.type === 'arcAngle')!;
+    // Hold the two ends the user clicked, then ask for a quarter instead of a half.
+    for (const end of [arc.start, arc.end]) {
+      const p = sketch.entity(end) as { x: number; y: number };
+      sketch.addConstraint({ type: 'lockX', point: end, value: p.x });
+      sketch.addConstraint({ type: 'lockY', point: end, value: p.y });
+    }
+    const sweep = sketch.constraints.find((c) => c.type === 'sweep')!;
     sketch.removeConstraint(sweep.id);
-    sketch.addConstraint({ type: 'arcAngle', entity: arc.id, axis: arc.axis!, value: 90 });
+    sketch.addConstraint({ type: 'sweep', entity: arc.id, value: 90 });
     // Close the quarter arc with a real line between its ends.
     sketch.addLine(arc.end, arc.start);
     const extrude = asFeatureId('d');
@@ -392,12 +393,12 @@ describe('arcs', () => {
     const result = await doc.recompute();
     expect(result.states.get(id)?.message).toBeUndefined();
     expect(result.states.get(extrude)?.status).toBe('ok');
-    const centreAfter = sketch.entity(arc.centre) as { x: number; y: number };
-    expect(centreAfter.x).toBeCloseTo(centreBefore.x, 5);
-    expect(centreAfter.y).toBeCloseTo(centreBefore.y, 5);
+    // The ends held, so the chord is still 40 and the radius grew to suit the sweep.
+    const P = (pid: string) => sketch.entity(pid) as { x: number; y: number };
+    expect(Math.hypot(P(arc.end).x - P(arc.start).x, P(arc.end).y - P(arc.start).y)).toBeCloseTo(40, 4);
     const r = (sketch.entity(arc.id) as { radius: number }).radius;
-    expect(r).toBeCloseTo(20, 3);
-    // A circular segment of 90° of radius 20, extruded 10.
+    expect(r).toBeCloseTo(20 / Math.sin(Math.PI / 4), 3);
+    // A circular segment of 90 degrees of radius r, extruded 10.
     const segment = (r * r / 2) * (Math.PI / 2 - 1);
     const volume = (await kernel.massProperties(result.states.get(extrude)!.handle!)).volume;
     expect(volume).toBeCloseTo(segment * 10, 1);
@@ -405,7 +406,7 @@ describe('arcs', () => {
 });
 
 describe('arcs on existing points', () => {
-  it('ties its ends to the points it was clicked on, so the sweep moves the centre instead', async () => {
+  it('uses the points it was clicked on as its own ends, with nothing stacked', async () => {
     const sketch = new Sketch({ kind: 'origin', plane: 'xy' });
     sketch.addPoint(0, 0, { fixed: true, id: 'origin' });
     const tools = new SketchTools(sketch);
@@ -414,40 +415,39 @@ describe('arcs on existing points', () => {
     tools.click({ x: 10, y: 10 }); tools.click({ x: 70, y: 10 });
     tools.setTool('line');
     tools.click({ x: 70, y: 30 }); tools.click({ x: 10, y: 30 });
+    const before = sketch.geometry.filter((e) => e.type === 'point').length;
     tools.setTool('arc');
     tools.click({ x: 70, y: 10 }); tools.click({ x: 70, y: 30 });
     const arc = sketch.geometry.find((e) => e.type === 'arc')!;
     if (arc.type !== 'arc') throw new Error('no arc');
-    // The line ends ARE the arc's ends: one point each, nothing stacked.
-    const axisLineNow = sketch.entity(arc.axis!);
-    if (axisLineNow?.type !== 'line') throw new Error('no axis');
-    expect(arc.start).toBe(axisLineNow.p1);
-    expect(arc.end).toBe(axisLineNow.p2);
+
+    // The line ends ARE the arc's ends: one new point (the centre), nothing stacked
+    // and no coincident constraints standing in for identity.
+    expect(sketch.geometry.filter((e) => e.type === 'point')).toHaveLength(before + 1);
     expect(sketch.constraints.filter((c) => c.type === 'coincident')).toHaveLength(0);
+    const ends = new Set([arc.start, arc.end]);
+    const lineEnds = sketch.geometry.flatMap((e) => (e.type === 'line' && !e.external ? [e.p1, e.p2] : []));
+    expect(lineEnds.filter((p) => ends.has(p))).toHaveLength(2);
+
     // Freshly drawn, nothing is redundant: the 180 is a real dimension, not a repeat.
     await sketch.solve(solver, {});
     expect(sketch.status).not.toBe('over-constrained');
 
-    // Pin the axis ends (the line ends the arc was clicked on) so only the arc can give.
-    const axisLine = sketch.entity(arc.axis!);
-    if (axisLine?.type !== 'line') throw new Error('no axis');
-    for (const id of [axisLine.p1, axisLine.p2]) {
+    // Hold the line ends, then ask for a quarter: the ends stay, the centre moves out.
+    for (const id of [arc.start, arc.end]) {
       const p = sketch.entity(id) as { x: number; y: number };
       sketch.addConstraint({ type: 'lockX', point: id, value: p.x });
       sketch.addConstraint({ type: 'lockY', point: id, value: p.y });
     }
-    const sweep = sketch.constraints.find((c) => c.type === 'arcAngle')!;
+    const sweep = sketch.constraints.find((c) => c.type === 'sweep')!;
     sketch.removeConstraint(sweep.id);
-    sketch.addConstraint({ type: 'arcAngle', entity: arc.id, axis: arc.axis!, value: 90 });
+    sketch.addConstraint({ type: 'sweep', entity: arc.id, value: 90 });
     await sketch.solve(solver, {});
     expect(sketch.status).not.toBe('over-constrained');
     const P = (id: string) => sketch.entity(id) as { x: number; y: number };
-    // Ends stayed on the line ends; the centre slid along the bisector.
     expect(P(arc.start).x).toBeCloseTo(70, 4);
     expect(P(arc.start).y).toBeCloseTo(10, 4);
     expect(P(arc.end).y).toBeCloseTo(30, 4);
-    expect(P(arc.centre).y).toBeCloseTo(20, 4);
-    expect(P(arc.centre).x).toBeCloseTo(60, 3);
     expect((sketch.entity(arc.id) as { radius: number }).radius).toBeCloseTo(10 * Math.SQRT2, 3);
   });
 });

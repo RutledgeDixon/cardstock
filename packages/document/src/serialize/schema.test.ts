@@ -105,8 +105,50 @@ describe('schema version 2', () => {
       features: [{ id: 'f1', type: 'box', name: 'B', values: {}, inputs: {} }],
     };
     const file = migrate(v1);
-    expect(file.schemaVersion).toBe(2);
+    expect(file.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(file.sketches).toEqual({});
+  });
+
+  it('turns a version-2 arc axis into a signed sweep, keeping the axis line', () => {
+    // The riser clip holds its arc axes vertical, so deleting the lines on the way past
+    // would take real constraints with them. Only the ARC's reference to one goes.
+    const v2 = {
+      schemaVersion: 2,
+      meta: { name: 'clip', created: 'x', modified: 'y', units: 'mm', application: 'CARDstock' },
+      parameters: [],
+      features: [{ id: 's1', type: 'sketch', name: 'S', values: {}, inputs: {} }],
+      sketches: {
+        s1: {
+          plane: { kind: 'origin', plane: 'xy' },
+          geometry: [
+            { id: 'p1', type: 'point', x: 0, y: 0 },
+            { id: 'p2', type: 'point', x: 0, y: 20 },
+            { id: 'c', type: 'point', x: 0, y: 10 },
+            { id: 'l1', type: 'line', p1: 'p1', p2: 'p2', construction: true },
+            {
+              id: 'a1', type: 'arc', centre: 'c', radius: 10, start: 'p1', end: 'p2',
+              // Drawn clockwise: the v2 file said "90 on the other side of the axis".
+              startAngle: 0, endAngle: -Math.PI / 2, axis: 'l1',
+            },
+          ],
+          constraints: [
+            { id: 'k1', type: 'vertical', line: 'l1' },
+            { id: 'k2', type: 'arcAngle', entity: 'a1', axis: 'l1', value: 90 },
+          ],
+        },
+      },
+    };
+    const file = migrate(v2);
+    const sketch = file.sketches!.s1 as { geometry: Record<string, unknown>[]; constraints: Record<string, unknown>[] };
+    const arc = sketch.geometry.find((e) => e.id === 'a1')!;
+    expect(arc.axis).toBeUndefined();
+    // The axis line and the constraint on it survive.
+    expect(sketch.geometry.find((e) => e.id === 'l1')).toBeDefined();
+    expect(sketch.constraints.find((c) => c.id === 'k1')).toMatchObject({ type: 'vertical', line: 'l1' });
+    // The sweep comes back signed, read from the angles the file actually drew.
+    expect(sketch.constraints.find((c) => c.id === 'k2')).toEqual({
+      id: 'k2', type: 'sweep', entity: 'a1', value: -90,
+    });
   });
 
   it('refuses a feature that names a sketch the file does not carry', () => {

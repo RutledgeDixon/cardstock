@@ -194,12 +194,15 @@ function endDirection(segment: Extract<ProfileSegment, { from: Vec2 }>): Vec2 {
   return arcTangent(segment, segment.to, arcTurnsLeft(segment));
 }
 
-/** True when the arc sweeps counter-clockwise from its start to its end. */
+/**
+ * True when the arc sweeps counter-clockwise from its start to its end.
+ *
+ * Read from the raw angles. Folding the sweep into (−π, π] first made a major arc — say
+ * 270° counter-clockwise — report as turning right, and the tangent it handed the face
+ * tracer then pointed the wrong way at both of its ends.
+ */
 function arcTurnsLeft(segment: Extract<ProfileSegment, { kind: 'arc' }>): boolean {
-  let sweep = segment.endAngle - segment.startAngle;
-  while (sweep <= -Math.PI) sweep += Math.PI * 2;
-  while (sweep > Math.PI) sweep -= Math.PI * 2;
-  return sweep > 0;
+  return segment.endAngle - segment.startAngle > 0;
 }
 
 function arcTangent(segment: Extract<ProfileSegment, { kind: 'arc' }>, at: Vec2, ccw: boolean): Vec2 {
@@ -273,12 +276,21 @@ export function profileRegions(loops: readonly ProfileLoop[]): ProfileLoop[][] {
   return regions;
 }
 
-/** A point strictly inside the loop: just left of its first edge's midpoint — loops
- *  are counter-clockwise, so the interior is on the left. A vertex would not do: two
- *  loops sharing a corner would each test as inside the other. */
+/** A point strictly inside the loop and just inside its BOUNDARY: for a polyline, just
+ *  left of the first edge's midpoint (loops are counter-clockwise, so the interior is
+ *  on the left); for a circle, just inside the rim.
+ *
+ *  Hugging the boundary is the whole point. A vertex would not do — two loops sharing a
+ *  corner would each test as inside the other — and neither would a circle's centre:
+ *  two CONCENTRIC circles both contain each other's centre, so each was the other's
+ *  parent, neither was an outer loop, and a pair of rings reported that it enclosed no
+ *  region at all. Sampled at the rim instead, the small circle is inside the big one
+ *  and the big one is outside the small, which is what the eye says. */
 function samplePoint(loop: ProfileLoop): Vec2 {
   const first = loop.segments[0]!;
-  if (first.kind === 'circle') return first.centre;
+  if (first.kind === 'circle') {
+    return { x: first.centre.x + first.radius * (1 - 1e-6), y: first.centre.y };
+  }
   const mid = { x: (first.from.x + first.to.x) / 2, y: (first.from.y + first.to.y) / 2 };
   const d = normalise({ x: first.to.x - first.from.x, y: first.to.y - first.from.y });
   const inset = 1e-4;

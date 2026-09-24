@@ -106,14 +106,13 @@ export class Sketch {
     centre: SketchEntityId, radius: number,
     start: SketchEntityId, end: SketchEntityId,
     startAngle: number, endAngle: number,
-    axis?: SketchEntityId,
   ): SketchEntityId {
     this.#requirePoint(centre);
     this.#requirePoint(start);
     this.#requirePoint(end);
     const id = this.newId('a');
     this.#geometry.set(id, {
-      id, type: 'arc', centre, radius, start, end, startAngle, endAngle, ...(axis ? { axis } : {}),
+      id, type: 'arc', centre, radius, start, end, startAngle, endAngle,
     });
     return id;
   }
@@ -188,16 +187,11 @@ export class Sketch {
     if (!removed) return this.#constraints.delete(id);
     this.#geometry.delete(id);
 
-    // An arc takes its axis and radii with it; an axis takes its arc. They were made
-    // together and mean nothing apart.
-    if (removed.type === 'arc') {
+    // Anything built as part of this entity goes with it: construction lines an arc
+    // owns mean nothing once the arc is gone.
+    if (removed.type !== 'point') {
       for (const entity of [...this.#geometry.values()]) {
-        if (entity.type === 'line' && (entity.owner === id || entity.id === removed.axis)) this.remove(entity.id);
-      }
-    }
-    if (removed.type === 'line') {
-      for (const entity of [...this.#geometry.values()]) {
-        if (entity.type === 'arc' && entity.axis === id) this.remove(entity.id);
+        if (entity.type === 'line' && entity.owner === id) this.remove(entity.id);
       }
     }
 
@@ -364,11 +358,14 @@ export class Sketch {
   /**
    * Start each arc with a sweep dimension where that dimension says it should be.
    *
-   * The solver is iterative and a sweep typed from 180 to 90 asks the arc's ends to
+   * The solver is iterative, and a sweep typed from 180 to 90 asks the arc's ends to
    * travel a long way round the circle; from the old positions it converges to a
-   * nearby non-solution instead. Placing the ends at the dimensioned angles first —
-   * a plain calculation from the axis and centre — hands it a guess that is already
+   * nearby non-solution instead. Rotating the ends to the dimensioned sweep first —
+   * a plain calculation about the arc's own centre — hands it a guess that is already
    * right, so it only has to settle whatever else the change touched.
+   *
+   * The sweep is shared out evenly about the arc's middle, so the arc opens and closes
+   * symmetrically rather than swinging one end round the other.
    */
   #seedArcs(
     geometry: SketchGeometry[],
@@ -379,21 +376,23 @@ export class Sketch {
     const byId = new Map(geometry.map((e) => [e.id, e] as const));
     const out = new Map(byId);
     for (const c of constraints) {
-      if (c.type !== 'arcAngle' || typeof c.value !== 'number' || c.reference) continue;
-      const arc = byId.get(c.entity), axis = byId.get(c.axis);
-      if (arc?.type !== 'arc' || axis?.type !== 'line') continue;
-      const a = byId.get(axis.p1), b = byId.get(axis.p2), centre = byId.get(arc.centre);
-      if (a?.type !== 'point' || b?.type !== 'point' || centre?.type !== 'point') continue;
-      const alpha = Math.atan2(b.y - a.y, b.x - a.x);
-      const theta = (Math.abs(c.value) * Math.PI) / 180;
-      const quarter = c.value < 0 ? Math.PI / 2 : -Math.PI / 2;
-      const start = alpha + quarter - theta / 2, end = alpha + quarter + theta / 2;
-      const radius = Math.hypot(a.x - centre.x, a.y - centre.y) || arc.radius;
-      out.set(arc.id, { ...arc, radius, startAngle: start, endAngle: end });
+      if (c.type !== 'sweep' || typeof c.value !== 'number' || c.reference) continue;
+      const arc = byId.get(c.entity);
+      if (arc?.type !== 'arc') continue;
+      const centre = byId.get(arc.centre);
+      if (centre?.type !== 'point') continue;
+      const wanted = (c.value * Math.PI) / 180;
+      const middle = (arc.startAngle + arc.endAngle) / 2;
+      const start = middle - wanted / 2, end = middle + wanted / 2;
+      out.set(arc.id, { ...arc, startAngle: start, endAngle: end });
       for (const [id, angle] of [[arc.start, start], [arc.end, end]] as const) {
         const p = byId.get(id);
         if (p?.type === 'point' && !p.fixed && id !== dragged) {
-          out.set(id, { ...p, x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) });
+          out.set(id, {
+            ...p,
+            x: centre.x + arc.radius * Math.cos(angle),
+            y: centre.y + arc.radius * Math.sin(angle),
+          });
         }
       }
     }

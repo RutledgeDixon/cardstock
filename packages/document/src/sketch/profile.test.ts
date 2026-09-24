@@ -176,3 +176,31 @@ describe('signed area', () => {
     expect(signedArea([])).toBe(0);
   });
 });
+
+describe('rings', () => {
+  const circle = (id: string, cx: number, cy: number, r: number) => [
+    { id: `${id}c`, type: 'point', x: cx, y: cy },
+    { id, type: 'circle', centre: `${id}c`, radius: r },
+  ];
+
+  it('makes a ring from two concentric circles, not nothing at all', () => {
+    // Containment used to be tested from a circle's CENTRE, and concentric circles each
+    // contain the other's centre — so each was the other's parent, neither was an outer
+    // loop, and a pair of rings reported "the sketch encloses no region".
+    const { loops } = buildProfile([...circle('big', 0, 0, 23), ...circle('small', 0, 0, 16.5)] as never);
+    const regions = profileRegions(loops);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toHaveLength(2);
+    expect(Math.abs(regions[0]![0]!.signedArea)).toBeGreaterThan(Math.abs(regions[0]![1]!.signedArea));
+  });
+
+  it('keeps two rings side by side apart', () => {
+    const { loops } = buildProfile([
+      ...circle('bigL', 0, 0, 23), ...circle('smallL', 0, 0, 16.5),
+      ...circle('bigR', 60, 0, 23), ...circle('smallR', 60, 0, 16.5),
+    ] as never);
+    const regions = profileRegions(loops);
+    expect(regions).toHaveLength(2);
+    for (const region of regions) expect(region).toHaveLength(2);
+  });
+});

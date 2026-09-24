@@ -97,20 +97,8 @@ export class PlaneGcsSolver implements SolverPort {
       const line = request.geometry.find((e) => e.id === lineId);
       return line?.type === 'line' ? { p1: line.p1, p2: line.p2 } : null;
     };
-    const coincident = (a: string, b: string) => request.constraints.some((c) =>
-      c.type === 'coincident' && ((c.a === a && c.b === b) || (c.a === b && c.b === a)));
-    /** Whether an arc's ends are tied to its axis ends by coincident constraints. */
-    const tiedEnds = (arcId: string) => {
-      const arc = request.geometry.find((e) => e.id === arcId);
-      const axis = arc?.type === 'arc' && arc.axis ? lineEnds(arc.axis) : null;
-      if (arc?.type !== 'arc' || !axis) return { start: false, end: false };
-      return {
-        start: arc.start === axis.p1 || coincident(arc.start, axis.p1),
-        end: arc.end === axis.p2 || coincident(arc.end, axis.p2),
-      };
-    };
     for (const constraint of request.constraints) {
-      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds, tiedEnds, typeOf));
+      primitives.push(...toGcsConstraints(constraint, lineStart, isArc, lineEnds, typeOf));
     }
     // External circles are fixed in every respect; the centre is a fixed point already,
     // the radius needs pinning here since a circle primitive has no fixed flag.
@@ -122,22 +110,6 @@ export class PlaneGcsSolver implements SolverPort {
       // alone leaves three points and three numbers with nothing tying them together.
       if (entity.type === 'arc') {
         primitives.push({ id: `${entity.id}#rules`, type: 'arc_rules', a_id: entity.id });
-        // An arc on an axis: both axis ends sit on its circle — which also keeps the
-        // centre on the axis's perpendicular bisector.
-        const axis = entity.axis ? request.geometry.find((e) => e.id === entity.axis) : undefined;
-        if (axis?.type === 'line') {
-          const radius = { o_id: entity.id, prop: 'radius' };
-          // An axis end the arc's own end is tied to is on the circle already — the
-          // arc rules put it there — and saying so twice makes the solver see a
-          // conflict where there is only repetition.
-          const tied = tiedEnds(entity.id);
-          if (!tied.start) {
-            primitives.push({ id: `${entity.id}#axisA`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p1, distance: radius });
-          }
-          if (!tied.end) {
-            primitives.push({ id: `${entity.id}#axisB`, type: 'p2p_distance', p1_id: entity.centre, p2_id: axis.p2, distance: radius });
-          }
-        }
       }
     }
 
@@ -229,7 +201,6 @@ const dim = (value: Dimension): number | string => value;
 function toGcsConstraints(
   c: SketchConstraint, lineStart: (lineId: string) => string, isArc: (id: string) => boolean,
   lineEnds: (lineId: string) => { p1: string; p2: string } | null,
-  tiedEnds: (arcId: string) => { start: boolean; end: boolean },
   typeOf: (id: string) => string | undefined,
 ): unknown[] {
   switch (c.type) {
@@ -280,24 +251,25 @@ function toGcsConstraints(
       return isArc(c.entity)
         ? [{ id: c.id, type: 'arc_radius', a_id: c.entity, radius: dim(c.value) }]
         : [{ id: c.id, type: 'circle_radius', c_id: c.entity, radius: dim(c.value) }];
-    case 'arcAngle': {
-      // The arc sits symmetric about its axis's perpendicular bisector: with the axis
-      // running a→b at angle α, the bisector points at α − 90° for a positive sweep —
-      // the side an arc drawn counter-clockwise from a lands on — and α + 90° for a
-      // negative one. The arc runs from bisector − |θ|/2 to bisector + |θ|/2. Both ends
-      // are tied to the axis direction through the arc's own angle parameters, so the
-      // sweep is a number the user owns and the centre never moves to honour it.
-      const axis = lineEnds(c.axis);
-      if (!axis || typeof c.value !== 'number') return [];
-      const theta = (Math.abs(c.value) * Math.PI) / 180;
-      const quarter = c.value < 0 ? Math.PI / 2 : -Math.PI / 2;
-      // atan2(b − a) = start + incr  ⇒  start = α + quarter − θ/2  ⇒  incr = θ/2 − quarter
-      const start = { id: `${c.id}#start`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'start_angle' }, incrAngle: theta / 2 - quarter };
-      const end = { id: `${c.id}#end`, type: 'p2p_angle_incr_angle', p1_id: axis.p1, p2_id: axis.p2, angle: { o_id: c.entity, prop: 'end_angle' }, incrAngle: -theta / 2 - quarter };
-      // With both ends tied to the axis ends, the end angle follows from the start
-      // angle and the geometry; saying it too would be one equation too many.
-      const tied = tiedEnds(c.entity);
-      return tied.start && tied.end ? [start] : [start, end];
+    case 'sweep': {
+      // How far round the arc goes: its end angle minus its start angle, which is the
+      // arc's own definition of itself and needs nothing else to measure against.
+      //
+      // This used to be an angle from an AXIS — a construction line between the arc's
+      // ends, with the centre on its perpendicular bisector — which took two equations
+      // tying both ends to the axis direction, a pair of distance constraints holding
+      // the axis ends on the circle, a rule for when the arc's ends WERE the axis ends
+      // (say it twice and the solver sees a conflict), and a sign convention for which
+      // side of the axis the bulge fell on. All of it to express one number the arc
+      // already carries. The sign of the sweep now says which way round it goes, which
+      // is the same thing the side-of-the-axis rule was for.
+      if (typeof c.value !== 'number') return [];
+      return [{
+        id: c.id, type: 'difference',
+        param1: { o_id: c.entity, prop: 'start_angle' },
+        param2: { o_id: c.entity, prop: 'end_angle' },
+        difference: (c.value * Math.PI) / 180,
+      }];
     }
     case 'diameter':
       return isArc(c.entity)

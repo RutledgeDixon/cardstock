@@ -35,15 +35,15 @@ function railsAndArc() {
   const left = sketch.addLine(bl, tl);
   const bottom = sketch.addLine(bl, bs);
   const top = sketch.addLine(tl, ts);
-  const axis = sketch.addLine(bs, ts, true);
-  const arc = sketch.addArc(centre, 10, bs, ts, -Math.PI / 2, Math.PI / 2, axis);
+  // A plain construction line across the arc's ends, to hold the cap square-on.
+  const cap = sketch.addLine(bs, ts, true);
+  const arc = sketch.addArc(centre, 10, bs, ts, -Math.PI / 2, Math.PI / 2);
 
   sketch.addConstraint({ type: 'vertical', line: left });
   sketch.addConstraint({ type: 'horizontal', line: bottom });
   sketch.addConstraint({ type: 'parallel', a: bottom, b: top });
-  sketch.addConstraint({ type: 'arcAngle', entity: arc, axis, value: 180 });
-  // The arc caps the rails square-on, as the tool draws it.
-  sketch.addConstraint({ type: 'vertical', line: axis });
+  sketch.addConstraint({ type: 'sweep', entity: arc, value: 180 });
+  sketch.addConstraint({ type: 'vertical', line: cap });
   // The left side is where it is; without this the whole thing is free to wander and
   // every drag is a translation.
   sketch.addConstraint({ type: 'lockX', point: bl, value: 0 });

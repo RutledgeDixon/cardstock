@@ -1748,7 +1748,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
   pointLineDistance: 'point to line', lineLineDistance: 'line to line',
   circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
-  radius: 'radius', diameter: 'diameter', angle: 'angle', arcAngle: 'arc sweep', lockX: 'lock x', lockY: 'lock y',
+  radius: 'radius', diameter: 'diameter', angle: 'angle', sweep: 'arc sweep', lockX: 'lock x', lockY: 'lock y',
 };
 
 /**

@@ -133,33 +133,27 @@ export class SketchSession {
     if (ids.length !== 1) return 'Select one arc';
     const arc = this.sketch.entity(ids[0]!);
     if (arc?.type !== 'arc') return 'Select one arc';
-    if (!arc.axis) return 'This arc has no axis to measure from';
-    if (this.sketch.constraints.some((c) => c.type === 'arcAngle' && c.entity === arc.id)) {
+    if (this.sketch.constraints.some((c) => c.type === 'sweep' && c.entity === arc.id)) {
       return 'This arc already has a sweep; edit or delete that one';
     }
     return null;
   }
 
-  /** Add a sweep dimension to the selected arc, at its current (signed) sweep. */
+  /**
+   * Add a sweep dimension to the selected arc, at its current sweep.
+   *
+   * Signed, because the sign IS the direction: an arc and its mirror image about the
+   * chord are the same two ends swept the other way, so typing a minus flips it. Which
+   * side of an axis the bulge fell on used to decide that, and the axis is gone.
+   */
   addSweep(): { placed: string | null; reason: string | null } {
     const reason = this.sweepBlocker();
     if (reason) return { placed: null, reason };
     const arc = this.sketch.entity([...this.selected][0]!);
-    if (arc?.type !== 'arc' || !arc.axis) return { placed: null, reason: 'Select one arc' };
-    const P = (id: string) => this.sketch.entity(id);
-    const centre = P(arc.centre), axis = P(arc.axis);
-    let side = 1;
-    if (centre?.type === 'point' && axis?.type === 'line') {
-      const a = P(axis.p1), b = P(axis.p2);
-      if (a?.type === 'point' && b?.type === 'point') {
-        const midAngle = arc.startAngle + arcSweepOf(arc) / 2;
-        const m = { x: centre.x + arc.radius * Math.cos(midAngle) - a.x, y: centre.y + arc.radius * Math.sin(midAngle) - a.y };
-        const d = { x: b.x - a.x, y: b.y - a.y };
-        side = d.x * m.y - d.y * m.x < 0 ? 1 : -1;
-      }
-    }
-    const value = round((side * arcSweepOf(arc) * 180) / Math.PI);
-    const placed = this.#addDimension({ type: 'arcAngle', entity: arc.id, axis: arc.axis, value });
+    if (arc?.type !== 'arc') return { placed: null, reason: 'Select one arc' };
+    const placed = this.#addDimension({
+      type: 'sweep', entity: arc.id, value: round((arcSweepOf(arc) * 180) / Math.PI),
+    });
     this.selected.clear();
     this.view.setSelection(this.selected);
     return { placed, reason: null };
@@ -366,24 +360,13 @@ export class SketchSession {
           }
           break;
         }
-        case 'arcAngle': {
+        case 'sweep': {
           const arc = this.sketch.entity(c.entity!);
           if (arc?.type === 'arc') {
             const centre = positionOf(arc.centre);
-            const axis = lineOf(c.axis!);
             if (centre) {
               const sweep = arcSweepOf(arc);
-              // Which side of the axis: the arc's middle against the axis direction.
-              let side = 1;
-              if (axis) {
-                const midAngle = arc.startAngle + sweep / 2;
-                const m = { x: centre.x + arc.radius * Math.cos(midAngle) - axis.a.x, y: centre.y + arc.radius * Math.sin(midAngle) - axis.a.y };
-                const d = { x: axis.b.x - axis.a.x, y: axis.b.y - axis.a.y };
-                // Positive is the side a counter-clockwise arc from the axis start lands
-                // on: to the right of a→b, where the cross product is negative.
-                side = d.x * m.y - d.y * m.x < 0 ? 1 : -1;
-              }
-              text = `${round((side * sweep * 180) / Math.PI)}°`;
+              text = `${round((sweep * 180) / Math.PI)}°`;
               drawing = draw.arcSweep(centre, arc.radius, arc.startAngle, sweep, upp);
             }
           }
@@ -504,12 +487,6 @@ export class SketchSession {
       const candidate = { id, distance, isPoint, external };
       if (!best) { best = candidate; return; }
       if (best.isPoint !== isPoint) { if (isPoint) best = candidate; return; }
-      // Where an arc's end sits on its axis end, the arc's end is the one meant: it is
-      // what a line drawn from there should follow when the sweep changes.
-      if (isPoint && Math.abs(distance - best.distance) < 1e-9) {
-        if (this.#isArcEnd(id) && !this.#isArcEnd(best.id)) best = candidate;
-        return;
-      }
       // The sketch's own geometry beats reference geometry lying on top of it: a line
       // drawn along an origin axis must still be pickable as itself.
       if (Math.abs(distance - best.distance) < 1e-9) {
@@ -540,10 +517,6 @@ export class SketchSession {
       }
     }
     return best ? (best as { id: string }).id : null;
-  }
-
-  #isArcEnd(id: string): boolean {
-    return this.sketch.geometry.some((e) => e.type === 'arc' && (e.start === id || e.end === id));
   }
 
   /** Light the entities a constraint ties, while it is pointed at in the list. */
@@ -681,9 +654,18 @@ function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
 /** Dimensions are shown to a tenth of a millimetre; more digits are noise on a label. */
 const round = (value: number): number => Math.round(value * 10) / 10;
 /** An arc's sweep in (0, 2π], counter-clockwise from its start. */
+/**
+ * An arc's sweep, SIGNED: negative means it runs clockwise.
+ *
+ * The sign is the arc's identity, not a detail — the same two ends swept the other way
+ * is the mirror image — so it must survive being read back. This used to normalise into
+ * (0, 2π], which threw the direction away, and the direction then had to be recovered
+ * from which side of the arc's axis the bulge fell on.
+ */
 const arcSweepOf = (arc: { startAngle: number; endAngle: number }) => {
   let sweep = arc.endAngle - arc.startAngle;
-  while (sweep <= 0) sweep += Math.PI * 2;
+  while (sweep > Math.PI * 2) sweep -= Math.PI * 2;
+  while (sweep < -Math.PI * 2) sweep += Math.PI * 2;
   return sweep;
 };
 const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
