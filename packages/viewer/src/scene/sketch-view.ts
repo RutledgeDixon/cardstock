@@ -276,9 +276,10 @@ export class SketchView {
 
       const centre = positionOf(entity.centre);
       if (!centre) continue;
+      // Drawn in the direction the arc actually sweeps. Forcing `to` above `from` drew
+      // a clockwise arc the long way round: a −90° sweep came out as 270° of circle.
       const from = entity.type === 'circle' ? 0 : entity.startAngle;
-      let to = entity.type === 'circle' ? Math.PI * 2 : entity.endAngle;
-      while (to <= from) to += Math.PI * 2;
+      const to = entity.type === 'circle' ? Math.PI * 2 : entity.endAngle;
 
       let previous: Vec2 | null = null;
       for (let i = 0; i <= ARC_SEGMENTS; i++) {

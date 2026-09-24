@@ -144,3 +144,38 @@ curves), and a solved result in which any point moved more than a few times the
 pointer's own travel is discarded as a jump to another solution branch rather than a
 drag. Whether a point can move is left to the solver rather than read from the DOF
 count, which can be a solve behind.
+
+## Amendment: arcs measure themselves, and curves are divisible
+
+Two changes that both come of asking geometry to say what it is rather than propping it
+up with extra geometry.
+
+**An arc's sweep is its own.** An arc used to be built on an AXIS: a construction line
+between its two ends, two radii hung off the centre, and a sweep measured from the axis's
+perpendicular bisector. That needed a sign convention for which side of the axis the
+bulge fell on, a rule for when the arc's ends WERE the axis ends (state it twice and the
+solver reports a conflict), two distance constraints holding the axis ends on the circle,
+cascade rules so deleting either took the other, and a pick tie-break for the points that
+ended up stacked. All to express one number the arc already carries. The sweep is now
+`end angle − start angle`, solved as a plain difference of the arc's own two angle
+parameters, and its SIGN is the direction — which is exactly what the side-of-the-axis
+rule was standing in for. Drawing an arc is two clicks, each taking an existing point or
+making one, with a driving sweep of 180°; add a radius dimension too and the ends give
+instead. Schema 3 migrates v2 files, reading the new signed value from the angles the
+file actually drew so no old convention has to be re-derived, and leaving the axis line
+in place as an ordinary construction line because files hold constraints on it.
+
+**A curve is cut by the points that lie on it.** The face tracer turns corners only where
+segments share an end, so a curve another one merely touched part-way along was a wall:
+a chord across a circle enclosed nothing, and a line running into the middle of another
+left both sides open — a limitation a test recorded rather than fixed. Each curve is now
+split at the points sitting on it, at the same tolerance that decides whether two ends
+meet, and the regions follow from the existing trace with nothing else changed. Cuts are
+deduplicated by position: a sketch has coincident points everywhere, and cutting twice in
+one place leaves a zero-length piece, which is a self-loop in the graph that stops the
+trace dead.
+
+One thing this does NOT yet change is what a click selects. Picking a rim still selects
+the whole circle, so a constraint placed on it applies to the whole circle. Splitting the
+selection too would mean deciding what a constraint on one piece means for the rest,
+which is a question about the model, not about picking.

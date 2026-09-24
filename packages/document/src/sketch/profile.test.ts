@@ -132,11 +132,43 @@ describe('profiles that are not closed', () => {
       ...rectangle(),
       point('m1', 20, 0), point('m2', 20, 20), line('split', 'm1', 'm2'),
     ];
-    // The split's ends sit on the rectangle's edges but are not vertices of them, so
-    // the rectangle's lines must be broken there for the graph to see the junction.
+    // The divider's ends sit part-way along the rectangle's top and bottom rather than
+    // at its corners. The tracer turns corners only where segments share an end, so
+    // those edges have to be cut at the touch for the junction to exist at all —
+    // without that the divider dangled and the rectangle stayed one region.
     const { loops } = buildProfile(geometry);
-    // Not split: the mid-points do not break l1/l3, so the divider dangles. Documented.
-    expect(loops).toHaveLength(1);
+    expect(loops).toHaveLength(2);
+    expect(profileRegions(loops)).toHaveLength(2);
+    for (const loop of loops) expect(loop.signedArea).toBeCloseTo(400, 6);
+  });
+
+  it('a chord across a circle cuts it into two regions', () => {
+    // The rim is one curve with no ends of its own, so it can only be crossed if the
+    // points on it break it into arcs.
+    const geometry: SketchGeometry[] = [
+      point('c', 0, 0), { id: 'ring', type: 'circle', centre: 'c', radius: 10 } as SketchGeometry,
+      point('l', -10, 0), point('r', 10, 0), line('chord', 'l', 'r'),
+    ];
+    const { loops } = buildProfile(geometry);
+    expect(loops).toHaveLength(2);
+    for (const loop of loops) expect(loop.signedArea).toBeCloseTo((Math.PI * 100) / 2, 4);
+    expect(profileRegions(loops)).toHaveLength(2);
+  });
+
+  it('cuts once where several points sit in the same place', () => {
+    // A real sketch has coincident points everywhere — the origin and something drawn
+    // on it, or two ends held together. Cutting a curve at each of them separately
+    // leaves a zero-length piece, which is a self-loop in the graph: the trace stopped
+    // dead and the whole profile came back empty.
+    const geometry: SketchGeometry[] = [
+      point('c', 0, 0), { id: 'ring', type: 'circle', centre: 'c', radius: 20 } as SketchGeometry,
+      point('origin', 0, 0), // in the same place as the circle's centre, and on the chord
+      point('l', -20, 0), point('r', 20, 0), line('chord', 'l', 'r'),
+    ];
+    const { loops, openChains } = buildProfile(geometry);
+    expect(openChains).toEqual([]);
+    expect(loops).toHaveLength(2);
+    for (const loop of loops) expect(loop.signedArea).toBeCloseTo((Math.PI * 400) / 2, 4);
   });
 
   it('handles an empty sketch', () => {
