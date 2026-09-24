@@ -550,6 +550,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: async () => { await host.addSolidFeature('hole'); },
     },
     {
+      id: 'feature.text',
+      title: 'Text',
+      hint: 'Raise or sink a label on the selected face; a negative depth engraves it',
+      icon: 'A',
+      contexts: ['face', 'always'],
+      toolbar: { order: 35 },
+      enabled: (s) => (s.selectionKind === 'face' && s.selectionCount > 0
+        ? true : 'Select the face to put text on'),
+      run: async () => { await host.addSolidFeature('text'); },
+    },
+    {
       id: 'pattern.new',
       title: 'Pattern',
       hint: 'Repeat the body in a row or around an axis',

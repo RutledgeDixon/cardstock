@@ -80,6 +80,8 @@ export {
   holeDiameter, type Fastener, type HoleFit,
 } from './features/fasteners.js';
 export { importFeature, IMPORT_EXTENSIONS, type ImportFormat } from './features/import-feature.js';
+export { textFeature } from './features/text-feature.js';
+export { TEXT_FONTS, fontLabel, textLayout, type TextLayout } from './features/text-outline.js';
 export { bytesToBase64, base64ToBytes } from './util/base64.js';
 export {
   DEFAULT_PRINTER, profileEnvironment, normaliseProfile, fitsBed, printEstimates,

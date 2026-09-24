@@ -92,6 +92,15 @@ export interface FeatureDefinition {
    * variants stay in the panel where they belong rather than becoming toolbar buttons.
    */
   readonly choiceKeys?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Settings that are free text rather than a number or a choice.
+   *
+   * The label on a printed part is the whole point of the Text feature and cannot be
+   * an expression: "M3" would not parse as one, and "8" would quietly become the
+   * number eight. Declared so the panel offers a plain box and the evaluator leaves it
+   * alone.
+   */
+  readonly textKeys?: readonly string[];
   compute(ctx: ComputeContext): Promise<GeometryResult>;
 }
 

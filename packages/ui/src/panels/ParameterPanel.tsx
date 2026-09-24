@@ -21,6 +21,13 @@ export interface FieldSpec {
    * wants a number is a mistake the UI shouldn't allow in the first place.
    */
   readonly choices?: readonly string[];
+  /**
+   * When true the field is free text, not an expression.
+   *
+   * What a label says is not a quantity: "M3" does not evaluate, and "8" is not the
+   * number eight. Typed straight through, and committed as it is.
+   */
+  readonly text?: boolean;
 }
 
 export function ParameterPanel({
@@ -45,7 +52,30 @@ export function ParameterPanel({
 
       {fields.length > 0 && (
         <section>
-          {fields.map((field) => (field.choices ? (
+          {fields.map((field) => (field.text ? (
+            // Keyed on the value as well as the field, so the box picks up a change
+            // made anywhere else — an undo, a redo, a different feature focused.
+            // An uncontrolled input reads its default once and then never again, and
+            // the label went on showing what it used to say.
+            <div className="field" key={`${field.key}:${field.value}`}>
+              <label htmlFor={`f-${field.key}`}>{field.label}</label>
+              <div className="field-body">
+                <input
+                  id={`f-${field.key}`}
+                  type="text"
+                  defaultValue={field.value}
+                  spellCheck={false}
+                  onBlur={(e) => onCommit(field.key, e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    // The camera lives on the same keys as the alphabet; a label being
+                    // typed must not orbit the model.
+                    e.stopPropagation();
+                  }}
+                />
+              </div>
+            </div>
+          ) : field.choices ? (
             <div className="field" key={field.key}>
               <label htmlFor={`f-${field.key}`}>{field.label}</label>
               <div className="field-body">

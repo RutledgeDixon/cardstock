@@ -198,7 +198,7 @@ export function createHost(deps: HostDeps): CommandHost {
      * Kept as data so a new feature needs an entry here rather than a new code path.
      */
     async addSolidFeature(type) {
-      const needsFaces = new Set(['shell', 'draft']);
+      const needsFaces = new Set(['shell', 'draft', 'text']);
 
       const target = targetFeature();
       if (target.reason) { deps.notify(target.reason, 'error'); return null; }
@@ -238,6 +238,14 @@ export function createHost(deps: HostDeps): CommandHost {
         },
         extrude: { distance: '10' },
         draft: { angle: '3', pullZ: '1', neutralZ: box ? round(box.min.z) : '0' },
+        // A label reads well at about a sixth of the part, and 1mm proud is a depth a
+        // printer resolves. Negative would sink it instead, which is the same field.
+        text: {
+          text: 'CARDstock', font: 'sans', angle: '0',
+          // Sized off the part, but on the small side: a label is read, not admired,
+          // and one that overhangs the face it sits on is worse than one that is small.
+          size: round(Math.max(3, Math.min(12, size / 10))), depth: '1',
+        },
         sweep: {},
         loft: { ruled: '0' },
       };
@@ -251,7 +259,10 @@ export function createHost(deps: HostDeps): CommandHost {
       const picked = viewer.selection.selected.filter((r) => r.kind === 'face');
       if (needsFaces.has(type)) {
         if (picked.length === 0) {
-          deps.notify('Select the faces to open first', 'error');
+          deps.notify(
+            type === 'text' ? 'Select the face to put text on' : 'Select the faces to open first',
+            'error',
+          );
           return null;
         }
         const refs = await deps.captureRefs(source, 'face', picked.map((f) => f.index));

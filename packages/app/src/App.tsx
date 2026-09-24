@@ -62,6 +62,9 @@ const FIELD_LABELS: Record<string, string> = {
 
   'shell.thickness': 'wall thickness',
 
+  'text.text': 'label', 'text.font': 'font', 'text.size': 'cap height',
+  'text.depth': 'depth (negative engraves)', 'text.angle': 'angle on the face',
+
   'draft.angle': 'taper \u00b0', 'draft.neutralZ': 'pivot height',
   'draft.pullX': 'pull x', 'draft.pullY': 'pull y', 'draft.pullZ': 'pull z',
 
@@ -1054,19 +1057,25 @@ export function App() {
     if (!focusedFeature) return [];
     const { type, values } = focusedFeature;
     const declared = focusedDefinition
-      ? [...Object.keys(focusedDefinition.choiceKeys ?? {}), ...focusedDefinition.valueKeys]
+      ? [
+          ...(focusedDefinition.textKeys ?? []),
+          ...Object.keys(focusedDefinition.choiceKeys ?? {}),
+          ...focusedDefinition.valueKeys,
+        ]
       : [];
     // Undeclared keys are plain settings the definition reads directly — an import's
     // file contents, say — not dimensions, so they only surface for an unknown type.
     const keys = focusedDefinition ? declared : Object.keys(values);
     return keys.map((key) => {
       const choices = focusedDefinition?.choiceKeys?.[key];
+      const isText = focusedDefinition?.textKeys?.includes(key) ?? false;
       return {
         key,
         label: FIELD_LABELS[`${type}.${key}`] ?? FIELD_LABELS[key] ?? key,
-        value: values[key] ?? (choices ? choices[0]! : '0'),
+        value: values[key] ?? (isText ? '' : choices ? choices[0]! : '0'),
         ...(unitFor(type, key)),
         ...(choices ? { choices } : {}),
+        ...(isText ? { text: true } : {}),
       };
     });
   })();
