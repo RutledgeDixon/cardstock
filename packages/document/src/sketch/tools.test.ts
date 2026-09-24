@@ -270,3 +270,64 @@ describe('snapping is measured in pixels, not millimetres', () => {
     expect(sketch.geometry.filter((e) => e.type === 'point').length).toBe(before);
   });
 });
+
+describe('drawing onto existing geometry', () => {
+  /**
+   * A click that lands on a curve means "from there", and it has to keep meaning that
+   * when the curve moves. Without a rule the point merely happened to sit on the curve
+   * at the moment it was drawn, and the first upstream edit pulled the two apart.
+   */
+  const ringAt = (cx: number, cy: number, r: number) => {
+    const centre = sketch.addPoint(cx, cy);
+    return sketch.addCircle(centre, r);
+  };
+
+  it('puts a line s start on a circle when the click lands on the rim', () => {
+    const ring = ringAt(0, 0, 10);
+    tools.setTool('line');
+    tools.click({ x: 10.2, y: 0.1 }); // a hair off the rim
+    const placed = points().at(-1)!;
+    expect(Math.hypot((placed as { x: number }).x, (placed as { y: number }).y)).toBeCloseTo(10, 9);
+    expect(sketch.constraints).toEqual([
+      expect.objectContaining({ type: 'pointOnCircle', point: placed.id, circle: ring }),
+    ]);
+  });
+
+  it('puts a point on a line when the click lands along it', () => {
+    const a = sketch.addPoint(0, 0), b = sketch.addPoint(40, 0);
+    const line = sketch.addLine(a, b);
+    tools.setTool('line');
+    tools.click({ x: 20, y: 0.1 });
+    const placed = points().at(-1)!;
+    expect((placed as { y: number }).y).toBeCloseTo(0, 9);
+    expect(sketch.constraints).toEqual([
+      expect.objectContaining({ type: 'pointOnLine', point: placed.id, line }),
+    ]);
+  });
+
+  it('prefers an existing point to the curve it sits on', () => {
+    // Snapping to the end of a line is how chains are built; attaching to the line
+    // itself instead would leave the chain open and add a rule nobody asked for.
+    const a = sketch.addPoint(0, 0), b = sketch.addPoint(40, 0);
+    sketch.addLine(a, b);
+    tools.setTool('line');
+    const before = points().length;
+    tools.click({ x: 40.1, y: 0 });
+    expect(points()).toHaveLength(before);
+    expect(sketch.constraints).toEqual([]);
+  });
+
+  it('names the attachment in the preview, before the click lands', () => {
+    ringAt(0, 0, 10);
+    tools.setTool('line');
+    expect(tools.preview({ x: 10.2, y: 0 }).inference).toBe('On circle');
+    expect(tools.preview({ x: 30, y: 30 }).inference).toBeNull();
+  });
+
+  it('leaves a click in open space alone', () => {
+    ringAt(0, 0, 10);
+    tools.setTool('line');
+    tools.click({ x: 30, y: 30 });
+    expect(sketch.constraints).toEqual([]);
+  });
+});

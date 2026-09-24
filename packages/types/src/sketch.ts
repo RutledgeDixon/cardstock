@@ -106,6 +106,8 @@ export type SketchConstraint =
   | { readonly id: string; readonly type: 'equal'; readonly a: SketchEntityId; readonly b: SketchEntityId }
   | { readonly id: string; readonly type: 'concentric'; readonly a: SketchEntityId; readonly b: SketchEntityId }
   | { readonly id: string; readonly type: 'pointOnLine'; readonly point: SketchEntityId; readonly line: SketchEntityId }
+  /** A point held on a circle's or an arc's rim. */
+  | { readonly id: string; readonly type: 'pointOnCircle'; readonly point: SketchEntityId; readonly circle: SketchEntityId }
   | { readonly id: string; readonly type: 'symmetric'; readonly a: SketchEntityId; readonly b: SketchEntityId; readonly line: SketchEntityId }
   // --- dimensional
   | ({ readonly type: 'distance'; readonly a: SketchEntityId; readonly b: SketchEntityId } & DimensionalBase)

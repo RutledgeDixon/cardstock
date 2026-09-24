@@ -1564,20 +1564,6 @@ export function App() {
               : `${sketchInfo.dof} DOF`}
           </span>
 
-          {/* The constrain TOOL: click geometry, and a ring offers what applies. */}
-          <span className="sketchbar-constraints">
-            <button
-              type="button"
-              className={sketchInfo.tool === 'constrain' ? 'is-open' : ''}
-              data-command="sketch.constrain"
-              aria-pressed={sketchInfo.tool === 'constrain'}
-              title={TOOL_HINTS.constrain}
-              onClick={() => run('sketch.constrain')}
-            >
-              ⌗ Constrain
-            </button>
-          </span>
-
           {sketchInfo.selected > 0 && (
             <>
               <span className="sel">{sketchInfo.selected} selected</span>
@@ -1737,6 +1723,7 @@ const TOOL_HINTS: Record<string, string> = {
   circle: 'Click the centre, then the rim',
   arc: 'Click both ends: a half circle to start; type into its sweep or radius to change it',
   dimension: 'Click two points for a length, or a circle for its radius',
+  trim: 'Click a piece of a curve to take it away; what is left keeps its dimensions',
   select: 'Click geometry to select; shift-click to add',
   constrain: 'Click geometry to gather a selection, then right-click for constraints and dimensions',
 };
@@ -1748,7 +1735,8 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
   pointLineDistance: 'point to line', lineLineDistance: 'line to line',
   circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
-  radius: 'radius', diameter: 'diameter', angle: 'angle', sweep: 'arc sweep', lockX: 'lock x', lockY: 'lock y',
+  radius: 'radius', diameter: 'diameter', angle: 'angle', sweep: 'arc sweep',
+  pointOnCircle: 'point on circle', lockX: 'lock x', lockY: 'lock y',
 };
 
 /**

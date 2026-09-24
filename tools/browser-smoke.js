@@ -456,12 +456,14 @@ window.__smoke = async function smoke() {
     check('dimensionAppears', session.dimensions().some((d) => d.id === id));
   }
   // --- constraints are a tool, and a ring ---------------------------------------
-  // The Constrain button is a sketch tool: click geometry and a ring offers exactly the
-  // constraints that apply to it. Nothing applying is said, not left as a missing ring.
+  // Constrain is a sketch tool reached from the right-click ring, not a button on the
+  // sketch bar: click geometry and a ring offers exactly the constraints that apply to
+  // it. Nothing applying is said, not left as a missing ring.
   {
-    const opener = document.querySelector('[data-command="sketch.constrain"]');
-    check('constrainButtonShown', !!opener);
-    opener?.click();
+    check('constrainNotOnSketchBar', !document.querySelector('.sketchbar [data-command="sketch.constrain"]'));
+    check('constrainInSketchRing', registry.all().some((c) => c.id === 'sketch.constrain'
+      && c.sector && typeof c.sector.sketch === 'number'));
+    window.__host.setSketchTool('constrain');
     await sleep(250);
     check('constrainIsATool', window.__host.state().sketchTool === 'constrain');
 
@@ -502,7 +504,7 @@ window.__smoke = async function smoke() {
       check('escapeLeavesConstrainTool', window.__host.state().sketchTool === 'select');
 
       // Two points gathered by left clicks, then Dimension from the ring.
-      document.querySelector('[data-command="sketch.constrain"]')?.click();
+      window.__host.setSketchTool('constrain');
       await sleep(150);
       const pts = session.sketch.geometry.filter((e) => e.type === 'point' && !e.external && !e.fixed).slice(0, 2);
       for (const p of pts) {
@@ -906,12 +908,11 @@ window.__smoke = async function smoke() {
       .reduce((n, c) => n + (c.geometry.attributes.position?.count ?? 0), 0);
     check('selectedVertexDrawnOrange', orangeCount === 1);
 
-    // The sketch bar's right-hand side: DOF, then Constrain, then Finish.
+    // The sketch bar's right-hand side: DOF, then Finish, with Finish last.
     const barClasses = [...document.querySelector('.sketchbar').children].map((c) => c.className.split(' ')[0]);
     const at = (name) => barClasses.indexOf(name);
     check('sketchBarOrder', at('sketchbar-tools') < at('sketchbar-dof')
-      && at('sketchbar-dof') < at('sketchbar-constraints')
-      && at('sketchbar-constraints') < at('sketchbar-finish')
+      && at('sketchbar-dof') < at('sketchbar-finish')
       && at('sketchbar-finish') === barClasses.length - 1);
     check('noInlineToolHint', !document.querySelector('.sketchbar-hint'));
 

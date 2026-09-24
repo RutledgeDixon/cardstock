@@ -91,3 +91,48 @@ describe('constraints from a selection', () => {
     expect(applyConstraint(sketch, 'coincident', [ids.b!, ids.d!])).toBeNull();
   });
 });
+
+describe('a point on a circle', () => {
+  const fresh = () => new Sketch({ kind: 'origin', plane: 'xy' });
+
+  it('holds the point on the rim', () => {
+    const sketch = fresh();
+    const centre = sketch.addPoint(0, 0);
+    const ring = sketch.addCircle(centre, 10);
+    const p = sketch.addPoint(25, 3);
+    expect(constraintFromSelection(sketch, 'pointOnCircle', [p, ring])).toEqual({
+      ok: true, constraints: [{ type: 'pointOnCircle', point: p, circle: ring }],
+    });
+  });
+
+  it('refuses an arc s own end, which is on it already', () => {
+    const sketch = fresh();
+    const centre = sketch.addPoint(0, 0);
+    const start = sketch.addPoint(10, 0), end = sketch.addPoint(-10, 0);
+    const arc = sketch.addArc(centre, 10, start, end, 0, Math.PI);
+    expect(constraintFromSelection(sketch, 'pointOnCircle', [start, arc]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining('already an end') });
+  });
+
+  it('is what a point and a circle get, not tangent', () => {
+    // Tangent used to accept a point and hand it to the solver as the LINE half of a
+    // line-to-circle tangency. GCS rejected the primitive outright — "Expected null or
+    // instance of Line, got an instance of Point" — and the whole sketch stopped
+    // solving, so one wrong selection took the rest of the sketch with it.
+    const sketch = fresh();
+    const centre = sketch.addPoint(0, 0);
+    const ring = sketch.addCircle(centre, 10);
+    const p = sketch.addPoint(25, 3);
+    expect(constraintFromSelection(sketch, 'tangent', [p, ring]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining('Point on circle') });
+  });
+
+  it('still allows a real tangency between a line and a circle', () => {
+    const sketch = fresh();
+    const centre = sketch.addPoint(0, 0);
+    const ring = sketch.addCircle(centre, 10);
+    const a = sketch.addPoint(-20, 10), b = sketch.addPoint(20, 10);
+    const line = sketch.addLine(a, b);
+    expect(constraintFromSelection(sketch, 'tangent', [line, ring])).toMatchObject({ ok: true });
+  });
+});

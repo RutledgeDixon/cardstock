@@ -135,9 +135,18 @@ export class SketchTools {
       kind: this.#kind,
       segments: anchor ? [{ from: anchor, to: position }] : [],
       snapPoint,
-      inference: snapPoint ? 'Coincident' : axis.axis === 'horizontal' ? 'Horizontal'
-        : axis.axis === 'vertical' ? 'Vertical' : null,
+      inference: snapPoint ? 'Coincident' : this.#attachmentAt(position)
+        ?? (axis.axis === 'horizontal' ? 'Horizontal'
+          : axis.axis === 'vertical' ? 'Vertical' : null),
     };
+  }
+
+  /** What a click here would attach to, named for the inference badge. */
+  #attachmentAt(position: Vec2): string | null {
+    const near = this.#curveNear(position);
+    if (!near) return null;
+    const curve = this.sketch.entity(near);
+    return curve?.type === 'line' ? 'On line' : curve ? 'On circle' : null;
   }
 
   /**
@@ -345,7 +354,16 @@ export class SketchTools {
   }
 
   // ------------------------------------------------------------------ helpers
-  /** Reuse an existing point when close enough, so shapes connect rather than overlap. */
+  /**
+   * Reuse an existing point when close enough, so shapes connect rather than overlap —
+   * and, failing that, ATTACH to a curve the click landed on.
+   *
+   * Clicking a circle's rim to start a line means "from there", and it has to keep
+   * meaning that when the circle moves. So the point is placed exactly on the curve and
+   * held there by a rule: pointOnCircle for a rim, pointOnLine for a line. Without it
+   * the point only happened to sit on the curve at the moment it was drawn, and the
+   * first edit anywhere upstream pulled the two apart.
+   */
   #placePoint(at: Vec2): SketchEntityId {
     // Only the point being drawn FROM is excluded: the chain's start must stay snappable,
     // because snapping back onto it is exactly how a polyline is closed.
@@ -356,7 +374,42 @@ export class SketchTools {
     const position = anchor && this.#kind === 'line'
       ? snapToAxis(anchor, at, this.options).position
       : at;
+
+    const attach = this.#curveNear(position);
+    if (attach) {
+      const curve = this.sketch.entity(attach)!;
+      const on = this.#projectOntoCurve(curve, position);
+      if (on) {
+        const id = this.sketch.addPoint(on.x, on.y);
+        this.sketch.addConstraint(curve.type === 'line'
+          ? { type: 'pointOnLine', point: id, line: attach }
+          : { type: 'pointOnCircle', point: id, circle: attach });
+        return id;
+      }
+    }
     return this.sketch.addPoint(position.x, position.y);
+  }
+
+  /** The nearest position ON a curve to `at`. */
+  #projectOntoCurve(curve: SketchGeometry, at: Vec2): Vec2 | null {
+    if (curve.type === 'line') {
+      const a = this.#positionOf(curve.p1), b = this.#positionOf(curve.p2);
+      if (!a || !b) return null;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-9) return null;
+      const t = Math.max(0, Math.min(1, ((at.x - a.x) * dx + (at.y - a.y) * dy) / (length * length)));
+      return { x: a.x + dx * t, y: a.y + dy * t };
+    }
+    if (curve.type === 'point') return null;
+    const centre = this.#positionOf(curve.centre);
+    if (!centre) return null;
+    const away = Math.hypot(at.x - centre.x, at.y - centre.y);
+    if (away < 1e-9) return null;
+    return {
+      x: centre.x + ((at.x - centre.x) / away) * curve.radius,
+      y: centre.y + ((at.y - centre.y) / away) * curve.radius,
+    };
   }
 
   #anchorPosition(): Vec2 | null {

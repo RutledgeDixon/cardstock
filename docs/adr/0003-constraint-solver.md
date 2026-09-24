@@ -197,3 +197,26 @@ built on them, and no longer depends on the order at all.
 One thing this does NOT change is what a click SELECTS. Picking a rim still selects the
 whole curve, so a constraint placed on it applies to the whole curve — which is right,
 because after a trim the piece and the curve are the same thing.
+
+## Amendment: a point on a rim, and drawing onto what is already there
+
+"Point tangent to a circle" had no constraint behind it. Selecting a point and a circle
+and asking for Tangent produced a line-to-circle tangency with the POINT as the line, and
+GCS rejected the primitive outright — "Expected null or instance of Line, got an instance
+of Point" — which failed the whole solve, so one wrong selection stopped the entire
+sketch solving rather than just declining. There is now a `pointOnCircle` constraint,
+routed by what the curve IS (`point_on_circle` for a circle, `point_on_arc` for an arc)
+the same way a radius is, and Tangent refuses a point and says where to go instead.
+
+Drawing now uses it. A click that lands on a curve rather than on a point places the new
+point exactly ON that curve and holds it there — `pointOnCircle` for a rim,
+`pointOnLine` for a line — so starting a line from a circle keeps meaning "from there"
+after the circle changes. Previously the point merely happened to sit on the curve at the
+moment it was drawn and the first upstream edit pulled the two apart. An existing point
+still wins the snap, because snapping to the end of a line is how chains are built, and
+attaching to the line instead would leave the chain open and add a rule nobody asked for.
+The preview names what a click would attach to ("On circle") before it lands.
+
+The Constrain BUTTON is gone from the sketch bar. Constrain is still a tool and still has
+its ring sector; the button was a second way to reach something the right-click ring
+already offers, and in use the ring is the one that gets used.

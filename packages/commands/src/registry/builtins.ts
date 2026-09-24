@@ -178,7 +178,7 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       sector: { sketch: 3 },
       // The children are what the ring shows once something is selected. They stay
       // listed here so they live in one place and never surface on the toolbar.
-      children: ['constrain.dimension', 'constrain.sweep', 'constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.symmetric', 'constrain.fix'],
+      children: ['constrain.dimension', 'constrain.sweep', 'constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.pointOnCircle', 'constrain.symmetric', 'constrain.fix'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('constrain'),
     },
@@ -302,6 +302,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
         ? (host.sketchConstraintBlocker('pointOnLine') ?? true)
         : 'Open a sketch first'),
       run: () => { host.applySketchConstraint('pointOnLine'); },
+    },
+    {
+      id: 'constrain.pointOnCircle',
+      title: 'Point on circle',
+      hint: 'Hold a point on a circle or an arc',
+      icon: '◌',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('pointOnCircle') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('pointOnCircle'); },
     },
     {
       id: 'constrain.symmetric',

@@ -256,6 +256,12 @@ function toGcsConstraints(
       return [{ id: c.id, type: 'c2ldistance', c_id: c.circle, l_id: c.line, dist: dim(c.value) }];
     case 'pointCircleDistance':
       return [{ id: c.id, type: 'p2cdistance', p_id: c.point, c_id: c.circle, distance: dim(c.value) }];
+    case 'pointOnCircle':
+      // Routed by what the curve IS, like a radius: an arc is a different primitive to
+      // GCS even though it is the same rim to the user.
+      return isArc(c.circle)
+        ? [{ id: c.id, type: 'point_on_arc', p_id: c.point, a_id: c.circle }]
+        : [{ id: c.id, type: 'point_on_circle', p_id: c.point, c_id: c.circle }];
     case 'radius':
       // Arcs have their own radius constraint in GCS; a circle's does not apply to them.
       return isArc(c.entity)

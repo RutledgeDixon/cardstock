@@ -281,19 +281,6 @@ kbd {
 }
 .sketchbar-tools button:hover { background: #2a303b; color: var(--ink); }
 .sketchbar-tools button.is-active { background: #2f3a4a; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
-/* Constraints, as a row of glyphs. Disabled ones stay VISIBLE and carry the selection
-   they want in their tooltip — a constraint you cannot see is one you never learn. */
-.sketchbar-constraints {
-  display: flex; gap: 1px;
-  padding-left: 10px; margin-left: 2px; border-left: 1px solid var(--panel-edge);
-}
-.sketchbar-constraints button {
-  padding: 4px 10px; border-radius: 5px;
-  color: var(--ink); font-size: 11px; line-height: 1.4;
-}
-.sketchbar-constraints button:hover { background: #2a303b; }
-.sketchbar-constraints button.is-open { background: #2f3a4a; box-shadow: inset 0 -2px 0 var(--accent); }
-
 .sketchbar-dof { font-size: 11px; color: var(--dim); margin-left: auto; white-space: nowrap; }
 .sketchbar-dof.status-fully-constrained { color: #6fd39a; }
 .sketchbar-dof.status-over-constrained { color: var(--danger); }

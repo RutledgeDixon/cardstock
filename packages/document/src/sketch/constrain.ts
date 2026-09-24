@@ -17,7 +17,7 @@ export type ConstrainResult =
 /** Constraints a user can apply to a selection, in the order they belong in a menu. */
 export const APPLICABLE_CONSTRAINTS = [
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
-  'tangent', 'equal', 'concentric', 'pointOnLine', 'symmetric', 'fix',
+  'tangent', 'equal', 'concentric', 'pointOnLine', 'pointOnCircle', 'symmetric', 'fix',
 ] as const;
 
 export type ApplicableConstraint = (typeof APPLICABLE_CONSTRAINTS)[number];
@@ -32,6 +32,7 @@ const LABELS: Record<ApplicableConstraint, string> = {
   equal: 'Equal',
   concentric: 'Concentric',
   pointOnLine: 'Point on line',
+  pointOnCircle: 'Point on circle',
   symmetric: 'Symmetric',
   fix: 'Fix in place',
 };
@@ -47,6 +48,7 @@ const NEEDS: Record<ApplicableConstraint, string> = {
   equal: 'Select two lines, or two circles',
   concentric: 'Select two circles',
   pointOnLine: 'Select a point and a line',
+  pointOnCircle: 'Select a point and a circle',
   symmetric: 'Select two points and a line',
   fix: 'Select a point',
 };
@@ -100,8 +102,16 @@ export function constraintFromSelection(
       return one({ type, a: lines[0]!.id, b: lines[1]!.id });
 
     case 'tangent':
-      if (entities.length !== 2) return no();
-      if (round.length === 0) return no();
+      // Curves only. A POINT used to be accepted here and handed to the solver as the
+      // line half of a line-to-circle tangency, which failed the whole solve with
+      // "Expected null or instance of Line, got an instance of Point" — so one bad
+      // selection stopped the sketch solving at all. A point on a rim is
+      // pointOnCircle, which is what the user meant.
+      if (entities.length !== 2 || round.length === 0) return no();
+      if (points.length > 0) {
+        return { ok: false, reason: 'A point on a circle is "Point on circle"' };
+      }
+      if (lines.length + round.length !== 2) return no();
       return one({ type, a: entities[0]!.id, b: entities[1]!.id });
 
     case 'equal':
@@ -122,6 +132,16 @@ export function constraintFromSelection(
         return { ok: false, reason: 'That point is already an end of that line' };
       }
       return one({ type, point: point.id, line: line.id });
+    }
+
+    case 'pointOnCircle': {
+      if (points.length !== 1 || round.length !== 1) return no();
+      const point = points[0]!, circle = round[0]!;
+      // An arc's own end is already on it; saying so again is one equation too many.
+      if (circle.type === 'arc' && (circle.start === point.id || circle.end === point.id)) {
+        return { ok: false, reason: 'That point is already an end of that arc' };
+      }
+      return one({ type, point: point.id, circle: circle.id });
     }
 
     case 'symmetric':
