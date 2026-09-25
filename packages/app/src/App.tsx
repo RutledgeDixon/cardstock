@@ -269,7 +269,10 @@ export function App() {
     // why there is only one activation path now.
     if (core.current) return activate(core.current.viewer, canvas);
 
-    const viewer = new Viewer(canvas);
+    // The stylesheet owns the palette: the viewport takes the same --bg as the page, so
+    // the two cannot drift apart when the background changes.
+    const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    const viewer = new Viewer(canvas, background ? { background } : {});
     // OCCT cannot be interrupted, so a fillet that will never finish is stopped by
     // killing the worker (WorkerKernel's watchdog, or the status bar's Stop). Every
     // handle is dead after that; the document forgets them and rebuilds from scratch,

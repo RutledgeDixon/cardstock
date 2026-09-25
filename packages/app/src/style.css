@@ -9,6 +9,63 @@
   --accent: #7fb2ff;
   --select: #ffa03a;
   --danger: #ff8f6a;
+
+  /* surfaces */
+  --surface: #1c1f26e6;
+  --surface-strong: #1c1f26f2;
+  --surface-label: #1c1f26e8;
+  --toolpanel: #191c22f2;
+  --flyout: #212731f7;
+  --wedge: #212731f2;
+  --wedge-disabled: #1b1f27d9;
+  --scrim: #0b0d1088;
+  --shadow: #0008;
+  --scrollbar: #333a46;
+
+  /* interaction */
+  --hover: #2a303b;
+  --hover-row: #262c36;
+  --hover-strong: #333b48;
+  --hover-muted: #23282f;
+  --rule: #23282f;
+  --active: #2f3a4a;
+  --focus: #2b3444;
+  --focus-edge: #3d4c66;
+  --focus-hover: #35415a;
+  --focus-ring: #4f77b8;
+  --related: #23304a;
+  --applied: #1f2a3a;
+  --label-hover: #232a36;
+  --inference-edge: #33507a;
+
+  /* inputs */
+  --input: #12151a;
+  --input-focus: #10141b;
+  --well: #0d1117;
+  --select-edge: #2a3240;
+  --kbd: #262a33;
+  --kbd-edge: #363b46;
+  --kbd-ink: #9aa3b2;
+
+  /* text */
+  --ink-disabled: #565d6a;
+  --ink-faint: #575e6b;
+  --ink-muted: #6a7180;
+
+  /* state */
+  --ok: #4c9b6a;
+  --blocked: #8a7d55;
+  --good: #6fd39a;
+  --good-edge: #2f6b4a;
+  --danger-edge: #5a3a32;
+  --danger-bg: #2a1f1d;
+  --danger-hover: #3a2a28;
+  --danger-hover-strong: #4a332f;
+  --hot: #ff9e38;
+  --hot-bg: #3a2a1a;
+  --hot-glow: #ff9e3855;
+  --primary: #2f5aa3;
+  --primary-hover: #3a6bbd;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body, #root { height: 100%; }
@@ -25,7 +82,7 @@ button:disabled { cursor: default; }
 #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
 .panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .notice, .about {
-  background: #1c1f26e6;
+  background: var(--surface);
   border: 1px solid var(--panel-edge);
   border-radius: 7px;
   backdrop-filter: blur(10px);
@@ -38,12 +95,12 @@ button:disabled { cursor: default; }
   position: fixed; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 6;
   display: flex; flex-direction: column; gap: 1px;
   padding: 6px 5px; overflow-y: auto; overflow-x: visible;
-  background: #191c22f2;
+  background: var(--toolpanel);
   border-left: 1px solid var(--panel-edge);
   backdrop-filter: blur(10px);
 }
 .toolpanel::-webkit-scrollbar { width: 6px; }
-.toolpanel::-webkit-scrollbar-thumb { background: #333a46; border-radius: 3px; }
+.toolpanel::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
 
 .toolslot { position: relative; flex: 0 0 auto; }
 .toolslot.is-divided { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--panel-edge); }
@@ -57,11 +114,11 @@ button:disabled { cursor: default; }
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   width: 100%; padding: 9px 2px 6px; border-radius: 6px; color: var(--ink);
 }
-.tool:hover:not(:disabled) { background: #2a303b; }
-.tool:disabled, .tool.is-unavailable { color: #565d6a; }
+.tool:hover:not(:disabled) { background: var(--hover); }
+.tool:disabled, .tool.is-unavailable { color: var(--ink-disabled); }
 /* A group with nothing available still opens, so it keeps a hover state. */
-.tool.is-unavailable:hover { background: #23282f; }
-.tool.is-open { background: #2f3a4a; box-shadow: inset 2px 0 0 var(--accent); }
+.tool.is-unavailable:hover { background: var(--hover-muted); }
+.tool.is-open { background: var(--active); box-shadow: inset 2px 0 0 var(--accent); }
 .tool-icon { font-size: 26px; line-height: 1.05; }
 .tool-name {
   font-size: 10px; line-height: 1.15; text-align: center;
@@ -85,7 +142,7 @@ button:disabled { cursor: default; }
   display: flex; flex-direction: column; gap: 8px; pointer-events: auto;
 }
 .tree, .panel-dock {
-  background: #1c1f26e6; border: 1px solid var(--panel-edge); border-radius: 7px;
+  background: var(--surface); border: 1px solid var(--panel-edge); border-radius: 7px;
   padding: 8px 10px; overflow: auto;
 }
 .tree { flex: 0 0 auto; max-height: 40%; }
@@ -103,12 +160,12 @@ button:disabled { cursor: default; }
 .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-branch { color: var(--dim); font-size: 10px; margin-right: -2px; }
 .tree-status { width: 14px; text-align: center; }
-.tree-row:hover { background: #262c36; }
-.tree-row.is-focused { background: #2b3444; outline: 1px solid #3d4c66; }
+.tree-row:hover { background: var(--hover-row); }
+.tree-row.is-focused { background: var(--focus); outline: 1px solid var(--focus-edge); }
 .tree-status { font-size: 9px; }
-.status-ok .tree-status { color: #4c9b6a; }
+.status-ok .tree-status { color: var(--ok); }
 .status-error .tree-status { color: var(--danger); }
-.status-blocked .tree-status { color: #8a7d55; }
+.status-blocked .tree-status { color: var(--blocked); }
 .status-suppressed .tree-status { color: var(--dim); }
 .status-suppressed .tree-name { color: var(--dim); text-decoration: line-through; }
 .tree-type { color: var(--dim); font-size: 10px; }
@@ -119,22 +176,22 @@ button:disabled { cursor: default; }
 .field-body { display: flex; align-items: center; gap: 5px; }
 .field select {
   flex: 1;
-  background: #0d1117;
-  border: 1px solid #2a3240;
+  background: var(--well);
+  border: 1px solid var(--select-edge);
   border-radius: 3px;
-  color: var(--fg);
+  color: var(--ink);
   font: inherit;
   font-size: 11px;
   padding: 3px 4px;
 }
-.field select:focus { outline: none; border-color: #4f77b8; }
+.field select:focus { outline: none; border-color: var(--focus-ring); }
 .field input {
   flex: 1; min-width: 0;
-  background: #12151a; color: var(--ink);
+  background: var(--input); color: var(--ink);
   border: 1px solid var(--panel-edge); border-radius: 4px;
   padding: 4px 6px; font: inherit;
 }
-.field input:focus { outline: none; border-color: #4f77b8; background: #10141b; }
+.field input:focus { outline: none; border-color: var(--focus-ring); background: var(--input-focus); }
 .field-unit { color: var(--dim); font-size: 10px; width: 20px; }
 .field-invalid input { border-color: var(--danger); }
 .field-error { color: var(--danger); font-size: 10px; margin-top: 2px; }
@@ -156,9 +213,9 @@ button:disabled { cursor: default; }
 .status-busy { color: var(--accent); }
 .status-stop {
   margin-left: 8px; padding: 0 7px; font-size: 10px; color: var(--danger);
-  border: 1px solid #5a3a32; border-radius: 4px; background: #2a1f1d;
+  border: 1px solid var(--danger-edge); border-radius: 4px; background: var(--danger-bg);
 }
-.status-stop:hover { background: #3a2a28; }
+.status-stop:hover { background: var(--danger-hover); }
 .dim { color: var(--dim); }
 .sel { color: var(--select); }
 b { color: var(--accent); font-weight: 600; }
@@ -185,17 +242,17 @@ b { color: var(--accent); font-weight: 600; }
    direction the command lives in rather than leaving you to infer it. */
 .radial-item { cursor: pointer; outline: none; }
 .radial-wedge {
-  fill: #212731f2;
+  fill: var(--wedge);
   stroke: var(--panel-edge);
   stroke-width: 1;
   transition: fill 90ms ease-out;
 }
 .radial-item:hover .radial-wedge,
-.radial-item:focus-visible .radial-wedge { fill: #2f3a4a; stroke: #4f77b8; }
+.radial-item:focus-visible .radial-wedge { fill: var(--active); stroke: var(--focus-ring); }
 .radial-item:focus-visible .radial-wedge { stroke-width: 2; }
 .radial-item.is-disabled { cursor: default; }
-.radial-item.is-disabled .radial-wedge { fill: #1b1f27d9; }
-.radial-item.is-disabled text { fill: #575e6b; }
+.radial-item.is-disabled .radial-wedge { fill: var(--wedge-disabled); }
+.radial-item.is-disabled text { fill: var(--ink-faint); }
 
 .radial-icon, .radial-label {
   fill: var(--ink); text-anchor: middle; dominant-baseline: middle;
@@ -210,9 +267,9 @@ b { color: var(--accent); font-weight: 600; }
 .submenu {
   position: fixed; z-index: 30;
   display: flex; flex-direction: column; min-width: 156px; padding: 4px;
-  background: #212731f7; border: 1px solid var(--panel-edge); border-radius: 7px;
+  background: var(--flyout); border: 1px solid var(--panel-edge); border-radius: 7px;
   backdrop-filter: blur(10px);
-  box-shadow: 0 6px 20px #0008;
+  box-shadow: 0 6px 20px var(--shadow);
 }
 /* Why the group is unavailable, said INSIDE the flyout: a group's tooltip cannot be
    reached, because hovering it opens the menu instead. */
@@ -229,17 +286,17 @@ b { color: var(--accent); font-weight: 600; }
   padding: 7px 10px; border-radius: 5px; text-align: left; white-space: nowrap;
   color: var(--ink);
 }
-.submenu-item:hover:not(:disabled) { background: #2f3a4a; }
+.submenu-item:hover:not(:disabled) { background: var(--active); }
 .submenu-item.is-active { color: var(--accent); }
 .submenu-item.is-active .submenu-icon { color: var(--accent); }
-.submenu-item:disabled { color: #565d6a; }
+.submenu-item:disabled { color: var(--ink-disabled); }
 .submenu-icon { width: 18px; text-align: center; font-size: 15px; }
 .submenu-label { font-size: 11.5px; }
 
 /* ---------------------------------------------------------------- palette */
 .palette-scrim {
   position: fixed; inset: 0; z-index: 30;
-  background: #0b0d1088; display: flex; justify-content: center; padding-top: 14vh;
+  background: var(--scrim); display: flex; justify-content: center; padding-top: 14vh;
 }
 .palette { width: min(560px, 88vw); height: fit-content; max-height: 60vh; display: flex; flex-direction: column; }
 .palette-input {
@@ -251,13 +308,13 @@ b { color: var(--accent); font-weight: 600; }
   display: grid; grid-template-columns: 18px 1fr auto auto; gap: 9px; align-items: center;
   padding: 6px 8px; border-radius: 5px; cursor: default;
 }
-.palette-row.is-cursor { background: #2b3444; }
-.palette-row.is-disabled { color: #6a7180; }
+.palette-row.is-cursor { background: var(--focus); }
+.palette-row.is-disabled { color: var(--ink-muted); }
 .palette-hint { color: var(--dim); font-size: 10px; }
 .palette-empty { color: var(--dim); padding: 10px; }
 kbd {
-  background: #262a33; border: 1px solid #363b46; border-bottom-width: 2px;
-  border-radius: 4px; padding: 0 4px; color: #9aa3b2; font-size: 10px; margin-left: 3px;
+  background: var(--kbd); border: 1px solid var(--kbd-edge); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 4px; color: var(--kbd-ink); font-size: 10px; margin-left: 3px;
 }
 
 /* ---------------------------------------------------------------- notice */
@@ -265,13 +322,13 @@ kbd {
   position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 40;
   padding: 7px 14px;
 }
-.notice-error { color: var(--danger); border-color: #5a3a32; }
+.notice-error { color: var(--danger); border-color: var(--danger-edge); }
 
 /* ---------------------------------------------------------------- sketch mode */
 .sketchbar {
   position: fixed; left: 50%; transform: translateX(-50%); top: 12px; z-index: 7;
   display: flex; align-items: center; gap: 12px; padding: 6px 12px;
-  background: #1c1f26f2; border: 1px solid var(--panel-edge); border-radius: 7px;
+  background: var(--surface-strong); border: 1px solid var(--panel-edge); border-radius: 7px;
   backdrop-filter: blur(10px);
 }
 .sketchbar-title { color: var(--accent); font-weight: 600; }
@@ -279,26 +336,26 @@ kbd {
 .sketchbar-tools button {
   padding: 4px 9px; border-radius: 5px; color: var(--dim); font-size: 11px;
 }
-.sketchbar-tools button:hover { background: #2a303b; color: var(--ink); }
-.sketchbar-tools button.is-active { background: #2f3a4a; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.sketchbar-tools button:hover { background: var(--hover); color: var(--ink); }
+.sketchbar-tools button.is-active { background: var(--active); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
 .sketchbar-dof { font-size: 11px; color: var(--dim); margin-left: auto; white-space: nowrap; }
-.sketchbar-dof.status-fully-constrained { color: #6fd39a; }
+.sketchbar-dof.status-fully-constrained { color: var(--good); }
 .sketchbar-dof.status-over-constrained { color: var(--danger); }
 .sketchbar-dof.status-unsolvable { color: var(--danger); text-decoration: underline dotted; }
 .sketchbar-inference {
   font-size: 10px; color: var(--accent);
-  border: 1px solid #33507a; border-radius: 4px; padding: 1px 6px;
+  border: 1px solid var(--inference-edge); border-radius: 4px; padding: 1px 6px;
 }
 .sketchbar-finish {
-  padding: 4px 12px; border-radius: 5px; background: #2b3444;
-  border: 1px solid #3d4c66; color: var(--ink); font-size: 11px;
+  padding: 4px 12px; border-radius: 5px; background: var(--focus);
+  border: 1px solid var(--focus-edge); color: var(--ink); font-size: 11px;
 }
-.sketchbar-finish:hover { background: #35415a; }
+.sketchbar-finish:hover { background: var(--focus-hover); }
 .sketchbar-delete {
-  padding: 4px 10px; border-radius: 5px; background: #3a2a28;
-  border: 1px solid #5a3a32; color: var(--danger); font-size: 11px;
+  padding: 4px 10px; border-radius: 5px; background: var(--danger-hover);
+  border: 1px solid var(--danger-edge); color: var(--danger); font-size: 11px;
 }
-.sketchbar-delete:hover { background: #4a332f; }
+.sketchbar-delete:hover { background: var(--danger-hover-strong); }
 
 /* ---------------------------------------------------------------- dimensions */
 /* A layer over the canvas that ignores the pointer, so only the labels catch it. */
@@ -309,24 +366,24 @@ kbd {
 }
 .dimension button {
   padding: 2px 7px; border-radius: 4px; font-size: 11px;
-  background: #1c1f26e8; border: 1px solid #3d4c66; color: var(--accent);
+  background: var(--surface-label); border: 1px solid var(--focus-edge); color: var(--accent);
   white-space: nowrap;
 }
-.dimension button:hover { border-color: var(--accent); background: #232a36; }
+.dimension button:hover { border-color: var(--accent); background: var(--label-hover); }
 /* A reference dimension only reports; a driving one — green — holds the sketch. */
 .dimension.is-reference button { color: var(--dim); border-color: var(--panel-edge); font-style: italic; }
-.dimension.is-driving button { color: #6fd39a; border-color: #2f6b4a; }
-.dimension.is-hover button { border-color: #ff9e38; color: #ff9e38; background: #3a2a1a; box-shadow: 0 0 0 2px #ff9e3855; }
-.dimension.is-invalid button { color: var(--danger); border-color: #5a3a32; }
+.dimension.is-driving button { color: var(--good); border-color: var(--good-edge); }
+.dimension.is-hover button { border-color: var(--hot); color: var(--hot); background: var(--hot-bg); box-shadow: 0 0 0 2px var(--hot-glow); }
+.dimension.is-invalid button { color: var(--danger); border-color: var(--danger-edge); }
 .dimension input {
   width: 84px; padding: 2px 6px; border-radius: 4px; font: inherit; font-size: 11px;
-  background: #12151a; color: var(--ink); border: 1px solid var(--accent); outline: none;
+  background: var(--input); color: var(--ink); border: 1px solid var(--accent); outline: none;
 }
 
 /* ---------------------------------------------------------------- about */
 .about-scrim {
   position: fixed; inset: 0; z-index: 30;
-  background: #0b0d1088; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim); display: flex; align-items: center; justify-content: center;
 }
 .about {
   width: min(400px, 88vw); padding: 20px 22px 16px;
@@ -352,9 +409,9 @@ kbd {
 .about-close {
   align-self: flex-end; margin-top: 3px;
   padding: 5px 14px; border-radius: 5px; font-size: 11px;
-  background: #2a303b; color: var(--ink);
+  background: var(--hover); color: var(--ink);
 }
-.about-close:hover { background: #333b48; }
+.about-close:hover { background: var(--hover-strong); }
 
 /* ---------------------------------------------------------------- recent files */
 .recents { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
@@ -362,10 +419,10 @@ kbd {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 5px; border-radius: 5px; color: var(--ink); text-align: left;
 }
-.recent:hover { background: #2a303b; }
+.recent:hover { background: var(--hover); }
 .recent-thumb {
   width: 44px; height: 28px; object-fit: cover; border-radius: 3px;
-  background: #0d1117; border: 1px solid var(--panel-edge); flex: 0 0 auto;
+  background: var(--well); border: 1px solid var(--panel-edge); flex: 0 0 auto;
 }
 .recent-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -376,11 +433,11 @@ kbd {
 .export-quality .field { min-width: 0; }
 .export-quality input { width: 100%; min-width: 0; }
 .export-stats { font-size: 11px; padding: 6px 0 2px; min-height: 18px; }
-.export-ok { color: #4c9b6a; }
+.export-ok { color: var(--ok); }
 .export-bad { color: var(--danger); font-weight: 600; }
 .export-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
-.export-go { background: #2f5aa3; }
-.export-go:hover { background: #3a6bbd; }
+.export-go { background: var(--primary); }
+.export-go:hover { background: var(--primary-hover); }
 .export-go:disabled { opacity: 0.5; cursor: default; }
 
 /* ---------------------------------------------------------------- print */
@@ -394,8 +451,8 @@ kbd {
 .orient { width: min(560px, 94vw); }
 .orient-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 4px 0; }
 .orient-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--panel-edge); }
-.orient-table td { padding: 5px 6px; border-bottom: 1px solid #23282f; white-space: nowrap; }
-.orient-table tr.is-applied td { background: #1f2a3a; }
+.orient-table td { padding: 5px 6px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.orient-table tr.is-applied td { background: var(--applied); }
 .orient-table .about-close { padding: 3px 9px; margin: 0; }
 .status-print { color: var(--danger); }
 .export-link { background: none; color: var(--accent); font-size: 10px; margin-left: 8px; padding: 0; text-decoration: underline; }
@@ -404,11 +461,11 @@ kbd {
 .keys { width: min(720px, 94vw); max-height: 88vh; overflow: auto; }
 .keys-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .keys-table { border-collapse: collapse; font-size: 11px; width: 100%; }
-.keys-table td { padding: 3px 6px 3px 0; vertical-align: top; border-bottom: 1px solid #23282f; }
+.keys-table td { padding: 3px 6px 3px 0; vertical-align: top; border-bottom: 1px solid var(--rule); }
 .keys-chords { white-space: nowrap; width: 1%; }
 .keys kbd {
   display: inline-block; margin-right: 4px; padding: 1px 6px; border-radius: 4px;
-  background: #12151a; border: 1px solid var(--panel-edge); color: var(--ink);
+  background: var(--input); border: 1px solid var(--panel-edge); color: var(--ink);
   font: inherit; font-size: 10.5px;
 }
 @media (max-width: 640px) { .keys-columns { grid-template-columns: 1fr; } }
@@ -419,15 +476,15 @@ kbd {
   display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center;
   padding: 2px 4px; border-radius: 4px; font-size: 11px;
 }
-.constraint:hover { background: #262c36; cursor: default; }
-.constraint.is-related { background: #23304a; }
-.constraint.is-selected { outline: 1px solid var(--accent); background: #2b3444; }
+.constraint:hover { background: var(--hover-row); cursor: default; }
+.constraint.is-related { background: var(--related); }
+.constraint.is-selected { outline: 1px solid var(--accent); background: var(--focus); }
 .constraint.is-flagged .constraint-type { color: var(--danger); }
 .constraint.is-related .constraint-type { color: var(--accent); }
 .constraint-type { color: var(--ink); }
 .constraint-entities { color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .constraint-value { color: var(--dim); font-style: italic; }
-.constraint-value.is-driving { color: #6fd39a; font-style: normal; }
+.constraint-value.is-driving { color: var(--good); font-style: normal; }
 .constraint-remove { color: var(--dim); padding: 0 5px; border-radius: 3px; }
-.constraint-remove:hover { color: var(--danger); background: #3a2a28; }
+.constraint-remove:hover { color: var(--danger); background: var(--danger-hover); }
 .constraint-empty { font-size: 11px; padding: 2px 4px; }

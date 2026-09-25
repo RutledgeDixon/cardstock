@@ -15,7 +15,8 @@ import type { AnalysisMode } from '../materials/solid.js';
 import { Grid } from './grid.js';
 
 export interface ViewerOptions {
-  background?: number;
+  /** A hex number or any CSS colour string; the app passes its `--bg` token. */
+  background?: number | string;
   grid?: boolean;
 }
 
