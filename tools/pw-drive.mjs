@@ -70,7 +70,9 @@ try {
   await page.evaluate(() => { window.confirm = () => true; });
 
   if (flag('--smoke')) {
-    await page.addScriptTag({ content: readFileSync(new URL('./browser-smoke.js', import.meta.url), 'utf8') });
+    // Evaluated over DevTools rather than added as a <script>: an inline script tag is
+    // exactly what a CSP under test refuses, and the harness is not the app.
+    await page.evaluate(readFileSync(new URL('./browser-smoke.js', import.meta.url), 'utf8'));
     const r = await page.evaluate(() => window.__smoke());
     for (const name of r.failures ?? []) console.log('FAIL', name, JSON.stringify(r.results[name]));
     console.log(`smoke: ${r.passed} passed, ${r.failed} failed`);
