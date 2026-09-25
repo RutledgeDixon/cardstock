@@ -21,7 +21,6 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "boundaries": "node tools/check-boundaries.mjs",
-    "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs",
     "fixture": "node tools/make-fixture.mjs",
     "check": "npm run typecheck && npm run lint && npm run boundaries && npm test",
     "corpus": "tsx tests/src/build-corpus.ts"

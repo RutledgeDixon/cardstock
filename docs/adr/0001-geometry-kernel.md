@@ -18,7 +18,7 @@ a Web Worker, rather than the full `opencascade.js` build.
 
 ## Measurements
 
-Run `node tools/spikes/occt-spike.mjs` to reproduce. Node 24, this machine:
+Measured with `tools/spikes/occt-spike.mjs`, since removed; recover it with `git show 4ec3fd5:tools/spikes/occt-spike.mjs`. Node 24, this machine:
 
 | | full build | trimmed build |
 |---|---|---|
