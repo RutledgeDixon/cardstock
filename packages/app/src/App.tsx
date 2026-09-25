@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SolveRequest, SolveResult, SolverPort } from '@cardstock/types';
-import { EXPORT_FORMATS, isDimensional, type ExportFormat, type FeatureId, type ShapeHandle, type OrientationSuggestion } from '@cardstock/types';
+import type { SolverPort } from '@cardstock/types';
+import { EXPORT_FORMATS, type ExportFormat, type FeatureId, type ShapeHandle, type OrientationSuggestion } from '@cardstock/types';
 import {
   Document, applyConstraint, constraintFromSelection, evaluateExpression,
   placementForFaceIndex, resolvePlacement, resolveTopoRef, bytesToBase64, IMPORT_EXTENSIONS,
   DEFAULT_PRINTER, normaliseProfile, profileEnvironment, fitsBed, printEstimates,
-  type ApplicableConstraint, type PrinterProfile, type Sketch,
+  type ApplicableConstraint, type PrinterProfile,
 } from '@cardstock/document';
-import { PlaneGcsSolver, createWorkerKernel } from '@cardstock/kernel';
-import { KeyboardCameraInput, Viewer } from '@cardstock/viewer';
+import { createWorkerKernel } from '@cardstock/kernel';
+import { Viewer } from '@cardstock/viewer';
 import {
   CommandRegistry, chordFromEvent, contextForSelection, createBuiltinCommands,
   type CommandContext, type CommandState,
@@ -20,16 +20,19 @@ import {
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
 import {
-  captureRefs, captureFaceRef, bodyFeatures, rebuild, terminalFeature,
-  type RebuildReport,
+  captureRefs, captureFaceRef, bodyFeatures, bodyShowing, rebuild, summarise, terminalFeature,
 } from './wiring/model-bridge.js';
 import { createHost } from './wiring/host.js';
 import { SketchSession } from './wiring/sketch-session.js';
+import { LazySolver, activate } from './wiring/boot.js';
+import { createFileController, type FileRef } from './wiring/file-controller.js';
+import { createExporter, type Exporter } from './wiring/exporter.js';
+import { layoutDimensionLabels } from './wiring/label-layout.js';
+import { FIELD_LABELS, FIELD_UNITS, TOOL_HINTS } from './labels.js';
+import { SketchConstraints } from './SketchConstraints.js';
 import { defaultStore } from './persistence/store.js';
-import { defaultFileAccess, downloadFallback, type FileAccess, type FileLocation, type OpenedFile } from './persistence/files.js';
-import { captureThumbnail } from './persistence/thumbnail.js';
-import { listRecents, rememberRecent, forgetRecent, type RecentEntry } from './persistence/recents.js';
-import { clearAutosave, readAutosave, startAutosave } from './persistence/autosave.js';
+import type { RecentEntry } from './persistence/recents.js';
+import type { FileAccess } from './persistence/files.js';
 
 /**
  * Build identity, injected by Vite at build time — see vite.config.ts.
@@ -39,104 +42,6 @@ import { clearAutosave, readAutosave, startAutosave } from './persistence/autosa
  */
 declare const __BUILD__: AboutInfo;
 const BUILD: AboutInfo = __BUILD__;
-
-/** Features whose output nothing else consumes — the things a boolean can combine. */
-/** Field labels, so the panel reads as dimensions rather than as variable names. */
-/**
- * Human labels for feature fields.
- *
- * Looked up as `type.key` first, then `key`: `dx` is a box's length but a linear
- * pattern's direction, and reading "length" over a direction component is worse than
- * reading the raw key.
- */
-const FIELD_LABELS: Record<string, string> = {
-  dx: 'length', dy: 'width', dz: 'height',
-  radius: 'radius', height: 'height', distance: 'distance',
-  x: 'x', y: 'y', z: 'z',
-
-  'hole.standard': 'fastener', 'hole.fit': 'fit', 'hole.style': 'style',
-  'hole.x': 'centre x', 'hole.y': 'centre y', 'hole.z': 'top of hole',
-  'hole.diameter': 'diameter (overrides fastener)',
-  'hole.compensation': 'FDM compensation',
-  'hole.counterboreDepth': 'counterbore depth',
-
-  'shell.thickness': 'wall thickness',
-
-  'text.text': 'label', 'text.font': 'font', 'text.size': 'cap height',
-  'text.depth': 'depth (negative engraves)', 'text.angle': 'angle on the face',
-
-  'draft.angle': 'taper \u00b0', 'draft.neutralZ': 'pivot height',
-  'draft.pullX': 'pull x', 'draft.pullY': 'pull y', 'draft.pullZ': 'pull z',
-
-  'loft.ruled': 'straight sides (1/0)',
-
-  'revolve.angle': 'angle °',
-  'revolve.axisX': 'axis x', 'revolve.axisY': 'axis y', 'revolve.axisZ': 'axis z',
-
-  'mirror.normalX': 'plane normal x', 'mirror.normalY': 'plane normal y',
-  'mirror.normalZ': 'plane normal z', 'mirror.keepOriginal': 'keep original (1/0)',
-  'mirror.x': 'plane through x', 'mirror.y': 'plane through y', 'mirror.z': 'plane through z',
-
-  'linearPattern.count': 'copies', 'linearPattern.spacing': 'spacing',
-  'linearPattern.dx': 'direction x', 'linearPattern.dy': 'direction y',
-  'linearPattern.dz': 'direction z',
-
-  'circularPattern.count': 'copies', 'circularPattern.angle': 'sweep °',
-  'circularPattern.x': 'centre x', 'circularPattern.y': 'centre y',
-  'circularPattern.z': 'centre z',
-  'circularPattern.axisX': 'axis x', 'circularPattern.axisY': 'axis y',
-  'circularPattern.axisZ': 'axis z',
-};
-
-/** Fields that are not lengths, by `type.key` then `key`. Everything else is mm. */
-const FIELD_UNITS: Record<string, string> = {
-  angle: '\u00b0', count: '', keepOriginal: '',
-  axisX: '', axisY: '', axisZ: '',
-  normalX: '', normalY: '', normalZ: '',
-  // A box's dx is a length; a pattern's dx is a direction component.
-  'linearPattern.dx': '', 'linearPattern.dy': '', 'linearPattern.dz': '',
-  'draft.pullX': '', 'draft.pullY': '', 'draft.pullZ': '',
-  ruled: '', symmetric: '',
-};
-
-/**
- * Loads PlaneGCS on first use.
- *
- * The Document needs a SolverPort at construction, but the WASM module is async. Waiting
- * for it before showing anything would delay the whole app for a solver most sessions
- * never touch.
- */
-class LazySolver implements SolverPort {
-  #solver: Promise<SolverPort> | null = null;
-
-  solve(request: SolveRequest): Promise<SolveResult> {
-    this.#solver ??= PlaneGcsSolver.create();
-    return this.#solver.then((solver) => solver.solve(request));
-  }
-}
-
-/**
- * Start the things that cleanup tears down: the render loop, camera keys, resize.
- *
- * One function, used by both the first effect run and every StrictMode re-run, so a
- * binding cannot be present on one path and missing on the other.
- */
-function activate(viewer: Viewer, canvas: HTMLCanvasElement): () => void {
-  viewer.resize();
-  viewer.start();
-
-  const keyboard = new KeyboardCameraInput(viewer);
-  keyboard.attach();
-
-  const observer = new ResizeObserver(() => viewer.resize());
-  observer.observe(canvas);
-
-  return () => {
-    observer.disconnect();
-    keyboard.detach();
-    viewer.stop();
-  };
-}
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -200,24 +105,9 @@ export function App() {
   });
   const [exportStats, setExportStats] = useState<ExportStats | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
-  const exportRef = useRef<{
-    stats: (quality: ExportQuality, scope: 'all' | 'selected') => Promise<ExportStats | null>;
-    write: (
-      format: ExportFormat, quality: ExportQuality, scope: 'all' | 'selected',
-      orientation: OrientationSuggestion | null,
-    ) => Promise<void>;
-    orientations: () => Promise<OrientationSuggestion[]>;
-  }>({ stats: async () => null, write: async () => {}, orientations: async () => [] });
-  /**
-   * Where the document lives, and whether it has changed since.
-   *
-   * `handle` is the file it came from, when the browser can hand one over; without it
-   * Save behaves as Save As. `savedRevision` against `doc.revision` is what "unsaved
-   * changes" means — a counter rather than a flag because autosave compares too.
-   */
-  const fileRef = useRef<{ handle: FileLocation | null; savedRevision: number }>({
-    handle: null, savedRevision: 0,
-  });
+  const exportRef = useRef<Exporter>({ stats: async () => null, write: async () => {}, orientations: async () => [] });
+  /** Where the document lives, and whether it has changed since — see FileRef. */
+  const fileRef = useRef<FileRef>({ handle: null, savedRevision: 0 });
   const [fileState, setFileState] = useState<{ name: string; dirty: boolean }>({
     name: 'Untitled', dirty: false,
   });
@@ -323,113 +213,11 @@ export function App() {
     };
 
     const store = defaultStore();
-    // Which backend depends on where we are running; it is resolved at boot, below.
-    // Until then nothing can save, and the fallback is the honest placeholder.
-    let files: FileAccess = downloadFallback;
-
-    /** The file as it should be written: the model, plus where the camera is and what
-     *  it sees. Rendered first so the thumbnail is of the current frame, not a stale one. */
-    const snapshotForSave = () => {
-      viewer.renderer.render(viewer.scene, viewer.camera);
-      const thumbnail = captureThumbnail(viewer.canvas);
-      const c = viewer.controller.target;
-      doc.setSavedView({
-        camera: { azimuth: c.azimuth, elevation: c.elevation, zoom: c.zoom, pivot: { ...c.pivot } },
-        ...(thumbnail ? { thumbnail } : {}),
-      });
-      return doc.toJSON();
-    };
-
-    const syncFileState = () => setFileState({
-      name: doc.meta.name || 'Untitled',
-      dirty: doc.revision !== fileRef.current.savedRevision,
+    const fileCtl = createFileController({
+      doc, viewer, store, fileRef, notify, rebuild: doRebuild,
+      onFileState: setFileState, onRecents: setRecents, onOpened: () => setFocused(null),
     });
-
-    const markSaved = (name: string) => {
-      fileRef.current.savedRevision = doc.revision;
-      // A saved file supersedes the autosave; keeping both means the next boot offers
-      // to "restore" work that is already safely in the file.
-      void clearAutosave(store);
-      setFileState({ name, dirty: false });
-    };
-
-    /** Ask before throwing away unsaved work. True means go ahead. */
-    const confirmDiscard = async () => {
-      if (doc.revision === fileRef.current.savedRevision) return true;
-      const message = `${doc.meta.name || 'This part'} has unsaved changes. Discard them?`;
-      return files.confirm ? files.confirm(message) : window.confirm(message);
-    };
-
-    /** Put an opened file's contents in place: model, camera, recents, title. */
-    const takeFile = async (opened: OpenedFile) => {
-      try {
-        doc.load(opened.contents);
-      } catch (e) {
-        notify(`Could not open ${opened.name}: ${e instanceof Error ? e.message : String(e)}`, 'error');
-        return;
-      }
-      fileRef.current = { handle: opened.handle, savedRevision: doc.revision };
-      setFocused(null);
-      syncFileState();
-      await doRebuild();
-      const saved = doc.meta.camera;
-      if (saved) {
-        Object.assign(viewer.controller.target, {
-          azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
-        });
-        Object.assign(viewer.controller.target.pivot, saved.pivot);
-        viewer.controller.settle();
-      } else {
-        viewer.fitAll();
-      }
-      await remember(opened.name, opened.handle);
-      notify(`Opened ${opened.name}`);
-    };
-
-    /**
-     * Note a file in the recent list. Never fatal: the list is a convenience, and an
-     * open that succeeded must not be reported as failed because a bookkeeping write
-     * could not clone a handle.
-     */
-    const remember = async (name: string, handle: FileLocation | null) => {
-      try {
-        await rememberRecent(store, {
-          name, opened: new Date().toISOString(),
-          ...(doc.meta.thumbnail ? { thumbnail: doc.meta.thumbnail } : {}),
-          ...(handle ? { handle } : {}),
-        });
-        setRecents(await listRecents(store));
-      } catch {
-        // Fall back to an entry without the handle; the name and picture still help.
-        try {
-          await rememberRecent(store, {
-            name, opened: new Date().toISOString(),
-            ...(doc.meta.thumbnail ? { thumbnail: doc.meta.thumbnail } : {}),
-          });
-          setRecents(await listRecents(store));
-        } catch { /* storage itself is unavailable; nothing to record */ }
-      }
-    };
-
-    /** Reopen something from the recent list, by handle where we have one. */
-    const openRecent = async (entry: RecentEntry) => {
-      if (!(await confirmDiscard())) return;
-      if (!entry.handle) {
-        notify(`${entry.name} was downloaded, not saved in place — use Open to find it`, 'error');
-        return;
-      }
-      try {
-        const opened = await files.reopen(entry.handle);
-        if (!opened) { notify('Permission to read the file was not granted', 'error'); return; }
-        await takeFile(opened);
-      } catch (e) {
-        // The file has moved or gone; the entry is now a lie, so drop it.
-        await forgetRecent(store, entry.name);
-        setRecents(await listRecents(store));
-        notify(`Could not reopen ${entry.name}: ${e instanceof Error ? e.message : String(e)}`, 'error');
-      }
-    };
-    openRecentRef.current = openRecent;
+    openRecentRef.current = fileCtl.openRecent;
 
     const host = createHost({
       doc, viewer,
@@ -438,52 +226,10 @@ export function App() {
         captureRefs(kernel, feature, kind, indices, (id) => handles.get(id) ?? null),
       rebuild: doRebuild,
       // ---------------------------------------------------------------- files
-      newDocument: async () => {
-        if (!(await confirmDiscard())) return;
-        loadStarter(doc);
-        fileRef.current = { handle: null, savedRevision: doc.revision };
-        syncFileState();
-        await doRebuild();
-        viewer.fitAll();
-      },
-
-      openDocument: async () => {
-        if (!(await confirmDiscard())) return;
-        let opened: OpenedFile | null;
-        try {
-          opened = await files.open();
-        } catch (e) {
-          notify(e instanceof Error ? e.message : String(e), 'error');
-          return;
-        }
-        if (opened) await takeFile(opened);
-      },
-
-      saveDocument: async () => {
-        const { handle } = fileRef.current;
-        if (!handle || !files.canOverwrite) { await host.saveDocumentAs(); return; }
-        try {
-          await files.save(handle, snapshotForSave());
-          markSaved(doc.meta.name);
-          notify(`Saved ${doc.meta.name}`);
-        } catch (e) {
-          notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
-        }
-      },
-
-      saveDocumentAs: async () => {
-        try {
-          const saved = await files.saveAs(doc.meta.name || 'part', snapshotForSave());
-          if (!saved) return;
-          doc.rename(saved.name);
-          fileRef.current.handle = saved.handle;
-          markSaved(saved.name);
-          await remember(saved.name, saved.handle);
-          notify(files.canOverwrite ? `Saved ${saved.name}` : `Downloaded ${saved.name}.card`);
-        } catch (e) {
-          notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
-        }
-      },
+      newDocument: fileCtl.newDocument,
+      openDocument: fileCtl.openDocument,
+      saveDocument: fileCtl.saveDocument,
+      saveDocumentAs: fileCtl.saveDocumentAs,
 
       openExport: () => {
         setExportScope(viewer.selection.selected.some((r) => r.kind === 'body') ? 'selected' : 'all');
@@ -522,7 +268,7 @@ export function App() {
       importModel: async () => {
         let picked: Awaited<ReturnType<FileAccess['pickImport']>>;
         try {
-          picked = await files.pickImport(Object.keys(IMPORT_EXTENSIONS));
+          picked = await fileCtl.files().pickImport(Object.keys(IMPORT_EXTENSIONS));
         } catch (e) {
           notify(e instanceof Error ? e.message : String(e), 'error');
           return;
@@ -725,163 +471,25 @@ export function App() {
 
     viewer.selection.subscribe(repaint);
 
-    // Labels follow the camera by writing transforms directly. Re-rendering React on
-    // every frame to move a few divs would be pure waste.
     viewer.onFrame.add(() => {
       const layer = dimensionLayer.current;
       const session = sessionRef.current;
-      if (!layer || !session) return;
-      const rect = viewer.canvas.getBoundingClientRect();
-      // Every label's wanted position first, then nudge any that would sit on another
-      // — down, then aside — so two dimensions near each other both stay readable.
-      const placed: { node: HTMLElement; x: number; y: number; w: number; h: number; hidden: boolean }[] = [];
-      for (const dimension of session.dimensions()) {
-        const node = layer.querySelector<HTMLElement>(`[data-dimension="${dimension.id}"]`);
-        if (!node) continue;
-        const ndc = dimension.world.clone().project(viewer.camera);
-        placed.push({
-          node,
-          x: ((ndc.x + 1) / 2) * rect.width,
-          y: ((1 - ndc.y) / 2) * rect.height,
-          w: node.offsetWidth || 40, h: node.offsetHeight || 22,
-          // Behind the camera, or off screen: hide rather than draw a label in the wrong place.
-          hidden: ndc.z > 1 || Math.abs(ndc.x) > 1.2 || Math.abs(ndc.y) > 1.2,
-        });
-      }
-      const gap = 4;
-      const overlaps = (a: (typeof placed)[number], b: (typeof placed)[number]) =>
-        Math.abs(a.x - b.x) < (a.w + b.w) / 2 + gap && Math.abs(a.y - b.y) < (a.h + b.h) / 2 + gap;
-      for (let i = 1; i < placed.length; i++) {
-        const label = placed[i]!;
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const clash = placed.slice(0, i).find((other) => !other.hidden && overlaps(label, other));
-          if (!clash) break;
-          // Below the one it clashes with, or beside it on alternate tries.
-          if (attempt % 2 === 0) label.y = clash.y + (clash.h + label.h) / 2 + gap;
-          else label.x = clash.x + (clash.w + label.w) / 2 + gap;
-        }
-      }
-      for (const label of placed) {
-        label.node.style.transform = `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`;
-        label.node.style.visibility = label.hidden ? 'hidden' : 'visible';
-      }
+      if (layer && session) layoutDimensionLabels(viewer, layer, session);
     });
 
     const teardown = activate(viewer, canvas);
 
-    let stopAutosave: (() => void) | undefined;
-    let stopDirtyWatch: (() => void) | undefined;
-    let stopOpenRequests: (() => void) | null = null;
     void (async () => {
       await kernel.whenReady();
       setReady(true);
-      files = await defaultFileAccess();
-
-      // Unsaved work from last time comes back by itself; that is what an autosave is
-      // for. `?fresh` skips it, for a clean slate and for the verification harness.
-      const fresh = new URLSearchParams(window.location.search).has('fresh');
-      const recovered = fresh ? null : await readAutosave(store).catch(() => null);
-      // A file the desktop shell was launched with outranks both: the double-click IS
-      // the instruction. Requests that arrive while running go through the discard prompt.
-      const launched = await files.launchFile?.();
-      stopOpenRequests = files.onOpenRequest?.((opened) => {
-        void confirmDiscard().then((ok) => { if (ok) return takeFile(opened); });
-      }) ?? null;
-      if (launched) {
-        await takeFile(launched);
-      } else if (recovered && recovered.file.features.length > 0) {
-        try {
-          doc.load(recovered.file);
-          notify(`Restored unsaved work from ${new Date(recovered.savedAt).toLocaleTimeString()}`);
-        } catch {
-          loadStarter(doc);
-        }
-      } else {
-        loadStarter(doc);
-      }
-      if (!launched) {
-        // Whatever we booted into is the baseline: it is not "unsaved" until it changes.
-        fileRef.current = { handle: null, savedRevision: doc.revision };
-        syncFileState();
-        await doRebuild();
-        const saved = doc.meta.camera;
-        if (recovered && saved) {
-          Object.assign(viewer.controller.target, {
-            azimuth: saved.azimuth, elevation: saved.elevation, zoom: saved.zoom,
-          });
-          Object.assign(viewer.controller.target.pivot, saved.pivot);
-        } else {
-          viewer.fitAll();
-        }
-        viewer.controller.settle();
-      }
-      setRecents(await listRecents(store).catch(() => []));
-
-      stopAutosave = startAutosave(doc, store, (message) => notify(message, 'error'), snapshotForSave);
-      stopDirtyWatch = doc.subscribe(() => syncFileState());
+      await fileCtl.boot();
     })();
 
     // ---------------------------------------------------------------- export
-    /** The shape to export: one body, or a compound of several. Compounds are
-     *  temporary and must be released, or every export leaks a kernel shape. */
-    const exportShape = async (scope: 'all' | 'selected') => {
-      const chosen = scope === 'selected'
-        ? [...new Set(viewer.selection.selected.filter((r) => r.kind === 'body').map((r) => r.bodyId as unknown as FeatureId))]
-        : bodyFeatures(doc);
-      const bodies = chosen.map((id) => handles.get(id)).filter((h): h is string => h !== undefined);
-      if (bodies.length === 0) return null;
-      if (bodies.length === 1) return { handle: bodies[0] as ShapeHandle, count: 1, release: () => {} };
-      const { handle } = await kernel.compound(bodies as ShapeHandle[]);
-      return { handle, count: bodies.length, release: () => { void kernel.release(handle); } };
-    };
-    const toKernelQuality = (q: ExportQuality) => ({
-      linearDeflection: q.linear, angularDeflection: (q.angular * Math.PI) / 180,
+    exportRef.current = createExporter({
+      doc, viewer, kernel, handles, files: fileCtl.files,
+      printer: () => printerRef.current.profile, notify, onWritten: () => setExportOpen(false),
     });
-    exportRef.current = {
-      stats: async (quality, scope) => {
-        const shape = await exportShape(scope);
-        if (!shape) return null;
-        try {
-          return await kernel.meshStats(shape.handle, toKernelQuality(quality));
-        } finally { shape.release(); }
-      },
-      write: async (format, quality, scope, orientation) => {
-        const shape = await exportShape(scope);
-        if (!shape) { notify('Nothing to export', 'error'); return; }
-        const spec = EXPORT_FORMATS[format];
-        const name = doc.meta.name || 'part';
-        let oriented: { handle: ShapeHandle; release: () => void } | null = null;
-        try {
-          if (orientation) {
-            const { handle } = await kernel.transform(shape.handle, orientation.matrix);
-            oriented = { handle, release: () => { void kernel.release(handle); } };
-          }
-          const result = await kernel.exportModel((oriented ?? shape).handle, format, {
-            quality: toKernelQuality(quality), name,
-          });
-          const written = await files.exportBytes(`${name}${spec.extension}`, result.bytes, spec.mime);
-          if (!written) return;
-          const size = `${(result.bytes.length / 1024).toFixed(0)} kB`;
-          notify(
-            result.triangles > 0
-              ? `Exported ${spec.label}: ${result.triangles.toLocaleString()} triangles, ${size}`
-              : `Exported ${spec.label}: ${size}`,
-          );
-          setExportOpen(false);
-        } catch (e) {
-          notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
-        } finally { oriented?.release(); shape.release(); }
-      },
-      orientations: async () => {
-        const shape = await exportShape('all');
-        if (!shape) return [];
-        try {
-          return await kernel.scoreOrientations(shape.handle, {
-            maxOverhangDeg: printerRef.current.profile.maxOverhang, layer: printerRef.current.profile.layer,
-          });
-        } finally { shape.release(); }
-      },
-    };
 
     // ---------------------------------------------------------------- printer
     printerRef.current = {
@@ -915,9 +523,7 @@ export function App() {
     });
 
     return () => {
-      stopAutosave?.();
-      stopDirtyWatch?.();
-      stopOpenRequests?.();
+      fileCtl.dispose();
       teardown();
     };
   }, [repaint]);
@@ -1703,180 +1309,4 @@ export function App() {
     if (rebuildGeneration.current !== generation) return;
     setEstimates(volume > 0 ? printEstimates(volume, profile) : null);
   }
-}
-
-/**
- * The starter part: a plate to build from.
- *
- * What a fresh boot and New both give you. An empty viewport teaches nothing, and a plate
- * is the first thing most printed parts begin as anyway.
- */
-function loadStarter(doc: Document): void {
-  doc.load({
-    schemaVersion: 2,
-    meta: {
-      name: 'Untitled', units: 'mm', application: 'CARDstock',
-      created: new Date().toISOString(), modified: new Date().toISOString(),
-    },
-    parameters: [{ name: 'width', expression: '60', unit: 'mm' }],
-    features: [{
-      id: 'plate', type: 'box', name: 'Plate',
-      values: { dx: 'width', dy: '40', dz: '18' }, inputs: {},
-    }],
-    sketches: {},
-  });
-}
-
-/** What each tool is waiting for. Shown in the sketch bar while that tool is active. */
-/** What each tool wants, as its button's tooltip. */
-const TOOL_HINTS: Record<string, string> = {
-  line: 'Connected lines: click each point; click the first again to close',
-  rectangle: 'Click two opposite corners',
-  circle: 'Click the centre, then the rim',
-  arc: 'Click both ends: a half circle to start; type into its sweep or radius to change it',
-  dimension: 'Click two points for a length, or a circle for its radius',
-  trim: 'Click a piece of a curve to take it away; what is left keeps its dimensions',
-  select: 'Click geometry to select; shift-click to add',
-  constrain: 'Click geometry to gather a selection, then right-click for constraints and dimensions',
-};
-
-/** Human names for constraint types, for the sketch's constraint list. */
-const CONSTRAINT_LABELS: Record<string, string> = {
-  coincident: 'coincident', horizontal: 'horizontal', vertical: 'vertical', parallel: 'parallel',
-  perpendicular: 'perpendicular', tangent: 'tangent', equal: 'equal', concentric: 'concentric',
-  pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
-  pointLineDistance: 'point to line', lineLineDistance: 'line to line',
-  circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
-  radius: 'radius', diameter: 'diameter', angle: 'angle', sweep: 'arc sweep',
-  pointOnCircle: 'point on circle', lockX: 'lock x', lockY: 'lock y',
-};
-
-/**
- * Every constraint on a sketch, in the panel, with a way to remove each.
- *
- * The sketch feature had nothing to show — no dimensions of its own — and this is what
- * it has: what pins the sketch down. A constraint you cannot see is one you cannot
- * remove when it is the reason the sketch will not move.
- */
-function SketchConstraints({ sketch, selected, selectedConstraint, flagged, onHover, onPick, onRemove }: {
-  sketch: Sketch | null;
-  /** Any change to this re-renders; the sketch itself is mutable and not React state. */
-  revision: number;
-  /** Entities selected in the open sketch, when this sketch is the one being edited. */
-  selected: ReadonlySet<string> | null;
-  /** The row picked in this list; Delete removes it. */
-  selectedConstraint: string | null;
-  /** Constraints the solver found redundant or contradictory. */
-  flagged: ReadonlySet<string>;
-  /** Point at a constraint (null when leaving): light what it ties. */
-  onHover: (constraintId: string | null, ids: string[]) => void;
-  /** Pick a constraint: select its row and the entities it ties. */
-  onPick: (constraintId: string, ids: string[]) => void;
-  onRemove: (constraintId: string) => void;
-}) {
-  if (!sketch) return null;
-  const idsOf = (c: Record<string, unknown>) =>
-    ['a', 'b', 'point', 'line', 'entity', 'circle']
-      .map((k) => c[k]).filter((v): v is string => typeof v === 'string');
-  // A line's constraints are also its endpoints' concern: selecting a vertex should
-  // show the horizontal on the line it ends, since that is what stops it moving.
-  const touches = (ids: string[]) => {
-    if (!selected || selected.size === 0) return false;
-    if (ids.some((id) => selected.has(id))) return true;
-    return ids.some((id) => {
-      const e = sketch.entity(id);
-      return e?.type === 'line' && (selected.has(e.p1) || selected.has(e.p2));
-    });
-  };
-  const all = sketch.constraints.map((c) => ({ c, ids: idsOf(c as unknown as Record<string, unknown>) }));
-  const related = all.filter(({ ids }) => touches(ids));
-  const row = ({ c, ids }: (typeof all)[number], isRelated: boolean) => {
-    const raw = c as unknown as Record<string, unknown>;
-    const value = raw.value;
-    const reference = raw.reference === true;
-    return (
-      <div
-        key={c.id}
-        className={`constraint${reference ? ' is-reference' : ''}${isRelated ? ' is-related' : ''}${
-          selectedConstraint === c.id ? ' is-selected' : ''}${flagged.has(c.id) ? ' is-flagged' : ''}`}
-        data-constraint={c.id}
-        title={flagged.has(c.id)
-          ? 'The solver finds this redundant or contradictory — remove it'
-          : 'Click to select; Delete removes it'}
-        onClick={() => onPick(c.id, ids)}
-        onPointerEnter={() => onHover(c.id, ids)}
-        onPointerLeave={() => onHover(null, [])}
-      >
-        <span className="constraint-type">{CONSTRAINT_LABELS[c.type] ?? c.type}</span>
-        <span className="constraint-entities">
-          {ids.map((id) => sketch.entity(id)?.external ?? id).join(' · ')}
-        </span>
-        {value !== undefined && (
-          <span className={`constraint-value${reference ? '' : ' is-driving'}`}>
-            {String(value)}{reference ? ' (ref)' : ''}
-          </span>
-        )}
-        <button
-          type="button"
-          className="constraint-remove"
-          title="Remove this constraint"
-          onClick={(e) => { e.stopPropagation(); onRemove(c.id); }}
-        >×</button>
-      </div>
-    );
-  };
-  // Two kinds: dimensions (a number you can type) and logical rules. Within each,
-  // what touches the selection comes first and is lit.
-  const isDim = ({ c }: (typeof all)[number]) => isDimensional(c.type);
-  const group = (title: string, items: typeof all) => (
-    <>
-      <div className="panel-section-title">
-        {title} <span className="about-dim">· {items.length}</span>
-      </div>
-      {items.length === 0 && <div className="about-dim constraint-empty">None</div>}
-      {[...items.filter((x) => related.includes(x)), ...items.filter((x) => !related.includes(x))]
-        .map((x) => row(x, related.includes(x)))}
-    </>
-  );
-  return (
-    <div className="constraints">
-      {selected && selected.size > 0 && related.length === 0 && (
-        <div className="about-dim constraint-empty">Nothing holds the selection — it is free to move</div>
-      )}
-      {group('Dimensional', all.filter(isDim))}
-      {group('Logical', all.filter((x) => !isDim(x)))}
-    </div>
-  );
-}
-
-/** The on-screen body a feature ends up in: itself if it is a leaf, else whatever
- *  consumed it, followed downstream. Null when nothing on screen carries it. */
-function bodyShowing(doc: Document, id: FeatureId): FeatureId | null {
-  const leaves = new Set(bodyFeatures(doc));
-  let current: FeatureId | null = id;
-  for (let hops = 0; current && hops < doc.features.length; hops++) {
-    if (leaves.has(current)) return current;
-    const target: FeatureId = current;
-    const consumer = doc.features.find((f) => {
-      const definition = doc.registry.get(f.type);
-      const optional = new Set(definition?.optionalShapeInputs ?? []);
-      return Object.entries(f.inputs).some(([role, input]) => input === target && !optional.has(role));
-    });
-    current = consumer?.id ?? null;
-  }
-  return null;
-}
-
-/** Roll a rebuild up into the numbers the status bar shows. */
-function summarise(result: RebuildReport) {
-  const faces = result.bodies.reduce((n, b) => n + b.faceCount, 0);
-  const triangles = result.bodies.reduce((n, b) => n + b.indices.length / 3, 0);
-  return {
-    rebuildMs: result.rebuildMs,
-    meshMs: result.bodies.length > 0 ? result.tessellateMs : null,
-    triangles: result.bodies.length > 0 ? triangles : null,
-    faces: result.bodies.length > 0 ? faces : null,
-    cached: result.result.reused.length,
-    error: result.errors[0] ?? null,
-  };
 }
