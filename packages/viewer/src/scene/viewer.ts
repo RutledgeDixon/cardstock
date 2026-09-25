@@ -9,6 +9,7 @@ import { CameraController } from '../camera/controller.js';
 import { Picker, type PickResult } from '../picking/picker.js';
 import { SelectionManager } from '../picking/selection.js';
 import { BodyView } from './body-view.js';
+import { EdgeHighlight } from './edge-highlight.js';
 import { BuildVolume } from '../analysis/build-volume.js';
 import type { AnalysisMode } from '../materials/solid.js';
 import { Grid } from './grid.js';
@@ -31,6 +32,8 @@ export class Viewer {
   readonly renderer: WebGLRenderer;
 
   readonly #bodies = new Map<string, BodyView>();
+  /** A thicker orange line over selected edges; a one-pixel one is easy to lose. */
+  readonly #selectedEdges = new EdgeHighlight();
   readonly #grid: Grid | null;
   readonly #buildVolume = new BuildVolume();
   #analysis: AnalysisMode = 'none';
@@ -63,6 +66,7 @@ export class Viewer {
     if (this.#grid) this.scene.add(this.#grid);
     this.#buildVolume.visible = false;
     this.scene.add(this.#buildVolume);
+    this.scene.add(this.#selectedEdges.object);
 
     this.picker = new Picker(() => this.#bodies.values());
     this.selection.subscribe(() => this.#syncHighlights());
@@ -184,6 +188,8 @@ export class Viewer {
       this.#width = w;
       this.#height = h;
       this.renderer.setSize(w, h, false);
+      // Fat lines are screen-space quads and size themselves from the viewport.
+      this.#selectedEdges.setViewport(w, h);
     }
   }
 
@@ -345,12 +351,18 @@ export class Viewer {
       body.edgeMaterial.setSelected(this.selection.indicesByBody('edge').get(body.bodyId) ?? []);
       body.vertexMaterial.setSelected(this.selection.indicesByBody('vertex').get(body.bodyId) ?? []);
     }
+
+    this.#selectedEdges.update(
+      [...this.#bodies].map(([id, view]) => [id, view.data] as const),
+      this.selection.indicesByBody('edge'),
+    );
   }
 
   dispose(): void {
     this.stop();
     for (const id of [...this.#bodies.keys()]) this.removeBody(id);
     this.#grid?.dispose();
+    this.#selectedEdges.dispose();
     this.renderer.dispose();
   }
 }
