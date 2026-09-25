@@ -1,6 +1,6 @@
 ---
 name: cs-release
-description: Ship CARDstock — run the full checks and the browser smoke, push to GitHub, tag a test release, and confirm the Linux and Windows installers were built. macOS is not built.
+description: Ship CARDstock — run the full checks and the browser smoke, push to GitHub, tag a test release, and confirm the Linux and Windows installers were built. macOS is not built. In cloud sessions, pushes the session branch and opens a PR instead of pushing master.
 ---
 
 # CARDstock: check, push, release
@@ -18,7 +18,19 @@ Fix anything that fails before going on. Do not push red.
 
 ## 2. Full browser smoke
 
-1. `preview_start` name `cardstock` (restart it if it was already running — stale transforms).
+Every check must pass. It takes ~1–2 minutes. Restart the dev server first if it was
+already running (stale transforms).
+
+**Without preview tools** (cloud sessions, a plain terminal) — one command, against the
+dev server started as in `/cs-change` step 4:
+
+```bash
+node tools/pw-drive.mjs --smoke          # prints "smoke: N passed, 0 failed"; non-zero exit on any failure
+```
+
+**With the preview tools** (local desktop sessions):
+
+1. `preview_start` name `cardstock`.
 2. `cp tools/browser-smoke.js packages/app/public/__smoke.js`
 3. Navigate to `http://localhost:5173/?fresh=1`, wait ~4 s, then in `javascript_tool`:
    ```js
@@ -27,18 +39,24 @@ Fix anything that fails before going on. Do not push red.
    window.__smokeResult = null;
    window.__smoke().then(r => { window.__smokeResult = r; }, e => { window.__smokeResult = { error: String(e) }; });
    ```
-   It takes ~2 minutes. Poll in separate `javascript_tool` calls of ≤40 s
+   Poll in separate `javascript_tool` calls of ≤40 s
    (`await new Promise(r => setTimeout(r, 40000)); window.__smokeResult`) until it resolves.
-   Every check must pass. `rm packages/app/public/__smoke.js` afterwards (it is gitignored).
+   `rm packages/app/public/__smoke.js` afterwards (it is gitignored).
 
 ## 3. Push
 
 ```bash
 git status --short          # must be clean
-git push origin master
 ```
 
-`~/.local/bin/gh` is installed and authenticated (scopes: repo, workflow).
+**Local session:** `git push origin master`. `~/.local/bin/gh` is installed and
+authenticated (scopes: repo, workflow).
+
+**Cloud session:** never push master. Push the branch the session was told to develop
+on (`git push -u origin <branch>`) and, if the user wants it, open a PR with the GitHub
+MCP tools (`mcp__github__create_pull_request`). Tagging a release from a cloud session
+needs the user's say-so: the tag points at whatever commit you push it from.
+
 Repo: https://github.com/RutledgeDixon/cardstock (private).
 
 ## 4. Tag and build
@@ -52,7 +70,10 @@ git tag <tag> && git push origin <tag>
 ~/.local/bin/gh run list --workflow "Desktop build" --limit 1
 ```
 
-Watch it in the background (~10 min; Windows is the slow one):
+Watch it in the background (~10 min; Windows is the slow one). Without `gh` (cloud
+sessions), the same information comes from `mcp__github__actions_list` /
+`mcp__github__actions_get` for the run and jobs, `mcp__github__get_job_logs` for a
+failure, and `mcp__github__get_release_by_tag` for the assets.
 
 ```bash
 until ~/.local/bin/gh run view <run-id> --json status --jq .status | grep -q completed; do sleep 30; done; ~/.local/bin/gh run view <run-id> --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'
