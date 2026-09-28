@@ -700,7 +700,13 @@ export function App() {
     if (!doc) return [];
     const all = doc.parameters.all();
     if (!focusedFeature) {
-      return all.map((p) => ({ key: p.name, label: p.name, value: p.expression }));
+      // Only what something reads: a parameter whose feature was deleted — the starter
+      // plate's `width` — is still in the document, but listing it describes a part
+      // that no longer exists.
+      const used = doc.usedParameters();
+      return all
+        .filter((p) => used.has(p.name))
+        .map((p) => ({ key: p.name, label: p.name, value: p.expression }));
     }
     const expressions = Object.values(focusedFeature.values).join(' ');
     return all
