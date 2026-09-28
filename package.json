@@ -1,7 +1,7 @@
 {
   "name": "cardstock",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "description": "CARDstock — Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
   "license": "UNLICENSED",
