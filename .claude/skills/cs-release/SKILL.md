@@ -70,6 +70,13 @@ git tag <tag> && git push origin <tag>
 ~/.local/bin/gh run list --workflow "Desktop build" --limit 1
 ```
 
+**Cloud session:** the session's git proxy accepts only the session branch; a tag push
+fails with "the remote end hung up". Do not make a local tag. Instead start the workflow
+by hand on the branch — `mcp__github__actions_run_trigger` with `method: run_workflow`,
+`workflow_id: release.yml`, `ref: <session branch>`, `inputs: {tag: <tag>}` — and
+tauri-action creates the tag and the release at the branch head. Find the run with
+`mcp__github__actions_list` (`list_workflow_runs` on `release.yml`).
+
 Watch it in the background (~10 min; Windows is the slow one). Without `gh` (cloud
 sessions), the same information comes from `mcp__github__actions_list` /
 `mcp__github__actions_get` for the run and jobs, `mcp__github__get_job_logs` for a
