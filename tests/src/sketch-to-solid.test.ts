@@ -99,6 +99,26 @@ describe('a sketch becomes a solid', () => {
     const volume = (await kernel.massProperties(result.states.get(EXTRUDE)!.handle!)).volume;
     expect(volume).toBeCloseTo((60 * 40 - Math.PI * 36) * 10, 3);
   });
+
+  it('twists an extrude, and a twist edit rebuilds it', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    plate(doc, '60', '40', '12');
+    await doc.recompute();
+    const before = (await doc.recompute()).states.get(EXTRUDE)!.handle!;
+
+    // A typed expression, as the panel sends it; the twist changes the shape, never the
+    // volume, and turns the flat sides into twisted surfaces.
+    const feature = doc.feature(EXTRUDE)!;
+    doc.updateFeature(EXTRUDE, { values: { ...feature.values, twist: '30' } });
+    const result = await doc.recompute();
+
+    expect(result.states.get(EXTRUDE)!.status).toBe('ok');
+    const twisted = result.states.get(EXTRUDE)!.handle!;
+    expect(twisted).not.toBe(before);
+    expect((await kernel.massProperties(twisted)).volume).toBeCloseTo(60 * 40 * 12, 1);
+    // Four sides and two caps, as before; the sides are just no longer flat.
+    expect(await kernel.topologyCounts(twisted)).toMatchObject({ faces: 6 });
+  });
 });
 
 describe('sketch failures are reported on the sketch', () => {

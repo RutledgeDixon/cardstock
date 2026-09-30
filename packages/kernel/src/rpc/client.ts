@@ -183,8 +183,8 @@ export class WorkerKernel implements KernelPort {
   makeSphere(spec: SphereSpec) { return this.#call<GeometryResult>('makeSphere', spec); }
 
   makeFace(profile: ProfileSpec) { return this.#call<GeometryResult>('makeFace', profile); }
-  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean) {
-    return this.#call<GeometryResult>('extrude', shape, distance, symmetric);
+  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean, twist?: number) {
+    return this.#call<GeometryResult>('extrude', shape, distance, symmetric, twist);
   }
 
   revolve(shape: ShapeHandle, axis: { origin: Vec3; direction: Vec3 }, angle: number) {

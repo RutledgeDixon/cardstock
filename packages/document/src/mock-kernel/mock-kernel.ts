@@ -182,8 +182,8 @@ export class MockKernel implements KernelPort {
     });
   }
 
-  async extrude(shape: ShapeHandle, distance: number, symmetric = false): Promise<GeometryResult> {
-    await this.#record('extrude', `${distance}${symmetric ? ' symmetric' : ''}`);
+  async extrude(shape: ShapeHandle, distance: number, symmetric = false, twist = 0): Promise<GeometryResult> {
+    await this.#record('extrude', `${distance}${symmetric ? ' symmetric' : ''}${twist ? ` twist ${twist}` : ''}`);
     const s = this.#require(shape, 'extrude');
     if (distance === 0) throw new KernelError('extrude distance must not be zero', 'extrude');
     if (s.description.startsWith('path(')) {
@@ -198,7 +198,7 @@ export class MockKernel implements KernelPort {
       faces: s.faces + s.edges + 1,
       edges: s.edges * 3,
       vertices: s.vertices * 2,
-      description: `extrude(${s.description},${distance})`,
+      description: `extrude(${s.description},${distance}${twist ? `,twist ${twist}` : ''})`,
     });
   }
 

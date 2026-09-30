@@ -26,6 +26,8 @@ export const FIELD_LABELS: Record<string, string> = {
 
   'loft.ruled': 'straight sides (1/0)',
 
+  'extrude.twist': 'twist ° (+ = counterclockwise)',
+
   'revolve.angle': 'angle °',
   'revolve.axisX': 'axis x', 'revolve.axisY': 'axis y', 'revolve.axisZ': 'axis z',
 
@@ -53,6 +55,7 @@ export const FIELD_UNITS: Record<string, string> = {
   'linearPattern.dx': '', 'linearPattern.dy': '', 'linearPattern.dz': '',
   'draft.pullX': '', 'draft.pullY': '', 'draft.pullZ': '',
   ruled: '', symmetric: '',
+  'extrude.twist': '\u00b0',
 };
 
 /** What each tool wants, as its button's tooltip. */
