@@ -74,7 +74,7 @@ export const TOOL_HINTS: Record<string, string> = {
 export const CONSTRAINT_LABELS: Record<string, string> = {
   coincident: 'coincident', horizontal: 'horizontal', vertical: 'vertical', parallel: 'parallel',
   perpendicular: 'perpendicular', tangent: 'tangent', equal: 'equal', concentric: 'concentric',
-  pointOnLine: 'point on line', symmetric: 'symmetric', distance: 'distance',
+  pointOnLine: 'point on line', midpoint: 'midpoint', symmetric: 'symmetric', distance: 'distance',
   pointLineDistance: 'point to line', lineLineDistance: 'line to line',
   circleLineDistance: 'circle to line', pointCircleDistance: 'point to circle',
   radius: 'radius', diameter: 'diameter', angle: 'angle', sweep: 'arc sweep',

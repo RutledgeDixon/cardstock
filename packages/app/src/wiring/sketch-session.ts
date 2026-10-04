@@ -164,7 +164,17 @@ export class SketchSession {
     const ids = [...this.selected];
     const kinds = ids.map((id) => this.sketch.entity(id)?.type);
     if (ids.length === 1) {
-      return kinds[0] === 'circle' || kinds[0] === 'arc' ? null : 'Select a circle, or two things to measure between';
+      const only = this.sketch.entity(ids[0]!);
+      if (only?.type === 'line') {
+        // A reference edge — an origin axis, a face's outline — has both ends fixed, so
+        // its length is not the sketch's to set.
+        if (only.external) return 'A reference line\'s length is fixed; dimension to it instead';
+        // A line alone means its length: the same distance as picking its two ends.
+        const measured = this.sketch.constraints.some((c) => c.type === 'distance'
+          && ((c.a === only.p1 && c.b === only.p2) || (c.a === only.p2 && c.b === only.p1)));
+        return measured ? 'This line already has a length; edit or delete that one' : null;
+      }
+      return kinds[0] === 'circle' || kinds[0] === 'arc' ? null : 'Select a circle or a line, or two things to measure between';
     }
     if (ids.length !== 2) return 'Select two things to measure between';
     if (kinds.some((k) => k === undefined)) return 'Select two things to measure between';
@@ -199,6 +209,13 @@ export class SketchSession {
     if (first.id === second.id) {
       if (isCircle(first)) {
         return this.#addDimension({ type: 'radius', entity: first.id, value: round((first as { radius: number }).radius) });
+      }
+      if (first.type === 'line') {
+        // Exactly what shift-clicking its two ends and dimensioning would make, so the
+        // two routes cannot disagree about what a line's length is.
+        const a = this.sketch.entity(first.p1), b = this.sketch.entity(first.p2);
+        if (a?.type !== 'point' || b?.type !== 'point') return null;
+        return this.#addDimension({ type: 'distance', a: a.id, b: b.id, value: round(distance2(a, b)) });
       }
       return null;
     }

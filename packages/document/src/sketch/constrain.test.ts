@@ -136,3 +136,30 @@ describe('a point on a circle', () => {
     expect(constraintFromSelection(sketch, 'tangent', [line, ring])).toMatchObject({ ok: true });
   });
 });
+
+describe('midpoint', () => {
+  it('holds a free point at the middle of a line', () => {
+    const { sketch, ids } = square();
+    const m = sketch.addPoint(9, 3);
+    expect(applyConstraint(sketch, 'midpoint', [m, ids.bottom!])).toBeNull();
+    expect(sketch.constraints.find((c) => c.type === 'midpoint'))
+      .toMatchObject({ point: m, line: ids.bottom });
+  });
+
+  it('refuses a line\'s own end, and anything but one point and one line', () => {
+    const { sketch, ids } = square();
+    expect(applyConstraint(sketch, 'midpoint', [ids.b!, ids.bottom!]))
+      .toBe('That point is an end of that line, not its middle');
+    expect(applyConstraint(sketch, 'midpoint', [ids.bottom!])).toBe('Select a point and a line');
+    expect(applyConstraint(sketch, 'midpoint', [ids.centre!, ids.bottom!, ids.top!]))
+      .toBe('Select a point and a line');
+  });
+
+  it('will not stack on a point-on-line rule it already includes', () => {
+    const { sketch, ids } = square();
+    const m = sketch.addPoint(9, 1);
+    expect(applyConstraint(sketch, 'pointOnLine', [m, ids.bottom!])).toBeNull();
+    expect(applyConstraint(sketch, 'midpoint', [m, ids.bottom!]))
+      .toBe('Remove the point-on-line rule first; midpoint includes it');
+  });
+});

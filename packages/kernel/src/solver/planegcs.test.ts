@@ -370,3 +370,48 @@ describe('geometry order', () => {
     expect(result.radii.arc).toBeCloseTo(10, 6);
   });
 });
+
+describe('midpoint', () => {
+  const geometry = (): SketchGeometry[] => [
+    { id: 'a', type: 'point', x: 0, y: 0, fixed: true },
+    { id: 'b', type: 'point', x: 40, y: 10 },
+    { id: 'l', type: 'line', p1: 'a', p2: 'b' },
+    // Drawn well off the line and off-centre, so the solve has to move it both ways.
+    { id: 'm', type: 'point', x: 5, y: 17 },
+  ];
+
+  it('puts the point on the line, halfway along', async () => {
+    const result = await solver.solve({
+      geometry: geometry(), parameters: {},
+      constraints: [
+        { id: 'lx', type: 'lockX', point: 'b', value: 40 },
+        { id: 'ly', type: 'lockY', point: 'b', value: 10 },
+        { id: 'mid', type: 'midpoint', point: 'm', line: 'l' },
+      ],
+    });
+    expect(['solved', 'converged']).toContain(result.status);
+    expect(result.points.m!.x).toBeCloseTo(20, 5);
+    expect(result.points.m!.y).toBeCloseTo(5, 5);
+  });
+
+  it('follows the line when the line moves, and takes two freedoms from the point', async () => {
+    // Free end, free point: 2 + 2 freedoms. Midpoint pins the point to the end (-2).
+    const free = await solver.solve({ geometry: geometry(), parameters: {}, constraints: [] });
+    const held = await solver.solve({
+      geometry: geometry(), parameters: {},
+      constraints: [{ id: 'mid', type: 'midpoint', point: 'm', line: 'l' }],
+    });
+    expect(held.dof).toBe(free.dof - 2);
+
+    const moved = await solver.solve({
+      geometry: geometry(), parameters: {},
+      constraints: [
+        { id: 'mid', type: 'midpoint', point: 'm', line: 'l' },
+        { id: 'h', type: 'horizontal', line: 'l' },
+        { id: 'len', type: 'distance', a: 'a', b: 'b', value: 50 },
+      ],
+    });
+    expect(Math.abs(moved.points.m!.x)).toBeCloseTo(25, 5);
+    expect(moved.points.m!.y).toBeCloseTo(0, 5);
+  });
+});

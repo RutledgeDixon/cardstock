@@ -178,14 +178,14 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       sector: { sketch: 3 },
       // The children are what the ring shows once something is selected. They stay
       // listed here so they live in one place and never surface on the toolbar.
-      children: ['constrain.dimension', 'constrain.sweep', 'constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.pointOnCircle', 'constrain.symmetric', 'constrain.fix'],
+      children: ['constrain.dimension', 'constrain.sweep', 'constrain.coincident', 'constrain.horizontal', 'constrain.vertical', 'constrain.parallel', 'constrain.perpendicular', 'constrain.tangent', 'constrain.equal', 'constrain.concentric', 'constrain.pointOnLine', 'constrain.midpoint', 'constrain.pointOnCircle', 'constrain.symmetric', 'constrain.fix'],
       enabled: (s) => (s.sketching ? true : 'Open a sketch first'),
       run: () => host.setSketchTool('constrain'),
     },
     {
       id: 'constrain.dimension',
       title: 'Dimension',
-      hint: 'Measure the selection: a circle, or the distance or angle between two things',
+      hint: 'Measure the selection: a circle, a line\'s length, or the distance or angle between two things',
       icon: '↔',
       contexts: ['sketch'],
       enabled: (s) => (s.sketching
@@ -302,6 +302,17 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
         ? (host.sketchConstraintBlocker('pointOnLine') ?? true)
         : 'Open a sketch first'),
       run: () => { host.applySketchConstraint('pointOnLine'); },
+    },
+    {
+      id: 'constrain.midpoint',
+      title: 'Midpoint',
+      hint: 'Hold a point at the middle of a line',
+      icon: '⊹',
+      contexts: ['sketch'],
+      enabled: (s) => (s.sketching
+        ? (host.sketchConstraintBlocker('midpoint') ?? true)
+        : 'Open a sketch first'),
+      run: () => { host.applySketchConstraint('midpoint'); },
     },
     {
       id: 'constrain.pointOnCircle',
