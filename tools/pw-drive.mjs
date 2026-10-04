@@ -75,6 +75,8 @@ try {
     await page.evaluate(readFileSync(new URL('./browser-smoke.js', import.meta.url), 'utf8'));
     const r = await page.evaluate(() => window.__smoke());
     for (const name of r.failures ?? []) console.log('FAIL', name, JSON.stringify(r.results[name]));
+    // The smoke leaves diagnostics under __note_ keys; they are what explains a failure.
+    if (r.failed) for (const [k, v] of Object.entries(r.results ?? {})) if (k.startsWith('__note')) console.log(k, v);
     console.log(`smoke: ${r.passed} passed, ${r.failed} failed`);
     if (r.failed) failed = true;
   }

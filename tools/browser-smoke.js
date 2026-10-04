@@ -488,8 +488,8 @@ window.__smoke = async function smoke() {
       const ids = wedges.map((w) => w.getAttribute('data-command'));
       // Only what applies to one line: horizontal and vertical, never coincident.
       check('ringShowsOnlyApplicable', ids.includes('constrain.horizontal') && !ids.includes('constrain.coincident'));
-      // One line cannot be dimensioned; two points can, and the ring then offers it.
-      check('ringHidesDimensionForOneLine', !ids.includes('constrain.dimension'));
+      // One line is dimensioned by its length — what picking its two ends would make.
+      check('ringOffersLengthForOneLine', ids.includes('constrain.dimension'));
       const before = session.sketch.constraints.length;
       // An SVG group has no click(): dispatch the event.
       wedges.find((w) => w.getAttribute('data-command') === 'constrain.vertical')
@@ -1010,6 +1010,11 @@ window.__smoke = async function smoke() {
 
     // Dragging a corner of a shape constrained in itself moves the whole shape.
     window.__host.setSketchTool('select');
+    // The camera eases into the sketch view. Mapping sketch points to pixels while it
+    // is still moving aims the drag at the wrong place: the shape moved rigidly, as it
+    // should, but by 14.89 rather than 15. Settle it first so the pixels mean what they say.
+    viewer.controller.settle();
+    window.__step(1);
     const at = (p) => {
       const v = sk.view.toWorld(p).project(viewer.camera);
       const r = viewer.canvas.getBoundingClientRect();
@@ -1028,11 +1033,16 @@ window.__smoke = async function smoke() {
       await sleep(80);
     }
     viewer.canvas.dispatchEvent(new PointerEvent('pointerup', { ...end, button: 0, pointerId: 1, bubbles: true }));
-    await sleep(400);
-    check('untiedShapeDragsAsAWhole', own.every((p) => {
+    // Each move is solved asynchronously, so the last one can still be in flight when
+    // the button comes up; a fixed sleep sampled it mid-solve on a slower machine and
+    // failed a drag that was in fact correct. Wait for the shape to arrive, bounded.
+    const arrived = () => own.every((p) => {
       const q = P(p.id);
       return Math.abs(q.x - p.x - 15) < 0.05 && Math.abs(q.y - p.y - 8) < 0.05;
-    }));
+    });
+    for (const deadline = Date.now() + 4000; !arrived() && Date.now() < deadline;) await sleep(50);
+    results.__note_drag = JSON.stringify(own.map((p) => [P(p.id).x - p.x, P(p.id).y - p.y].map((n) => +n.toFixed(3))));
+    check('untiedShapeDragsAsAWhole', arrived());
 
     // A constraint row picked in the panel is what Delete removes.
     const before = sk.sketch.constraints.length;
