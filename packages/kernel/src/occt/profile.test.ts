@@ -176,3 +176,46 @@ describe('extruding', () => {
     expect(history!.inputs[0]!.generatedFaces.size).toBeGreaterThan(0);
   });
 });
+
+describe('arcs keep the side they were drawn on', () => {
+  // A circular segment: the 90-degree arc above a chord from (-10,0) to (10,0), centred
+  // at (0,-10). Its area is r^2/2 (theta - sin theta) = 100 (pi/2 - 1); the other side of
+  // the same circle is nearly ten times that, so the wrong arc cannot pass for the right one.
+  const r = Math.SQRT2 * 10;
+  const segmentArea = 100 * (Math.PI / 2 - 1);
+  const arc = { kind: 'arc' as const, centre: { x: 0, y: -10 }, radius: r };
+
+  it('builds a counterclockwise arc on its own side', async () => {
+    const face = await kernel.makeFace({
+      placement: XY,
+      loops: [{
+        signedArea: segmentArea,
+        segments: [
+          { kind: 'line', from: { x: -10, y: 0 }, to: { x: 10, y: 0 } },
+          { ...arc, from: { x: 10, y: 0 }, to: { x: -10, y: 0 }, startAngle: Math.PI / 4, endAngle: (3 * Math.PI) / 4 },
+        ],
+      }],
+    });
+    const solid = await kernel.extrude(face.handle, 1);
+    expect((await kernel.massProperties(solid.handle)).volume).toBeCloseTo(segmentArea, 3);
+  });
+
+  it('builds an arc the profile walks backwards (a negative sweep) on its own side too', async () => {
+    // The profile tracer reverses an arc it meets end-first by swapping its angles, so
+    // the sweep goes negative: clockwise. Folding that into a positive sweep put the
+    // three-point midpoint on the far side of the circle, and a revolved pawn's 110-degree
+    // arc came out as its 250-degree complement — a torus round the whole part.
+    const face = await kernel.makeFace({
+      placement: XY,
+      loops: [{
+        signedArea: -segmentArea,
+        segments: [
+          { ...arc, from: { x: -10, y: 0 }, to: { x: 10, y: 0 }, startAngle: (3 * Math.PI) / 4, endAngle: Math.PI / 4 },
+          { kind: 'line', from: { x: 10, y: 0 }, to: { x: -10, y: 0 } },
+        ],
+      }],
+    });
+    const solid = await kernel.extrude(face.handle, 1);
+    expect((await kernel.massProperties(solid.handle)).volume).toBeCloseTo(segmentArea, 3);
+  });
+});

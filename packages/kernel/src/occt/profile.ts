@@ -124,9 +124,13 @@ function makeWire(
 
 /** A point on the arc between its ends, for three-point construction. */
 function midpointOf(segment: Extract<ProfileSpec['loops'][number]['segments'][number], { kind: 'arc' }>): Vec2 {
+  // The SIGN of the raw sweep is the direction, as the sketcher draws it: an arc the
+  // profile walks end-first arrives with its angles swapped, so a negative sweep is a
+  // clockwise arc. Forcing it positive put the midpoint on the far side of the circle
+  // and built the arc's complement. Only whole extra turns are folded away.
   let sweep = segment.endAngle - segment.startAngle;
-  // Normalise into (0, 2pi] so the midpoint lands on the drawn side of the circle.
-  while (sweep <= 0) sweep += Math.PI * 2;
+  while (sweep > Math.PI * 2) sweep -= Math.PI * 2;
+  while (sweep < -Math.PI * 2) sweep += Math.PI * 2;
   const mid = segment.startAngle + sweep / 2;
   return {
     x: segment.centre.x + segment.radius * Math.cos(mid),
