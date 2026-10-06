@@ -193,9 +193,30 @@ describe('groups are one level deep', () => {
 
     const second = new CommandRegistry();
     expect(() => second.registerAll([
-      group('modify', ['move']),
+      { ...group('modify', ['move']), contexts: ['body'] },
       cmd({ id: 'move', contexts: ['body'], sector: { body: 2 } }),
     ])).toThrow(/claims a radial sector but is a child/);
+  });
+
+  it('lets a toolbar-only group hold commands without taking them off a ring', () => {
+    // The sidebar gathers Hole and Text under Modify. No ring shows that group, so on
+    // the face ring they are still top-level, in their own sectors.
+    registry.registerAll([
+      { ...group('sidebar', ['hole']), contexts: ['always'], toolbar: { order: 1 } },
+      cmd({ id: 'hole', contexts: ['face'], sector: { face: 3 } }),
+    ]);
+    const face = registry.forContext('face', state);
+    expect(face.map((r) => r.command.id)).toContain('hole');
+    expect(face.find((r) => r.command.id === 'hole')?.sector).toBe(3);
+    expect(registry.toolbar(state).map((r) => r.command.id)).toEqual(['sidebar']);
+  });
+
+  it('still hides a child from a ring its group is on', () => {
+    registry.registerAll([
+      { ...group('edgeops', ['fillet']), contexts: ['edge'] },
+      cmd({ id: 'fillet', contexts: ['edge'] }),
+    ]);
+    expect(registry.forContext('edge', state).map((r) => r.command.id)).toEqual(['edgeops']);
   });
 
   it('rejects a group nested inside a group', () => {

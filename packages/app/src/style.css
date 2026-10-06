@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  --panel-w: 84px;
+  --panel-w: 92px;
   --bg: #141a16;
   --panel: #1c1f26;
   --panel-edge: #2c313b;
@@ -16,8 +16,9 @@
   --surface-label: #1c1f26e8;
   --toolpanel: #191c22f2;
   --flyout: #212731f7;
-  --wedge: #212731f2;
-  --wedge-disabled: #1b1f27d9;
+  /* Behind an open menu: a little darker, a little green, so the buttons stand out. */
+  --menu-glow: #0a2a188c;
+  --item-disabled: #1b1f27d9;
   --scrim: #0b0d1088;
   --shadow: #0008;
   --scrollbar: #333a46;
@@ -81,7 +82,7 @@ button:disabled { cursor: default; }
 /* The viewer is the app: it fills everything, chrome floats over the edges. */
 #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
-.panel-surface, .toolbar, .left-rail > *, .status, .palette, .radial, .notice, .about {
+.panel-surface, .toolbar, .left-rail > *, .status, .palette, .notice, .about {
   background: var(--surface);
   border: 1px solid var(--panel-edge);
   border-radius: 7px;
@@ -94,13 +95,13 @@ button:disabled { cursor: default; }
 .toolpanel {
   position: fixed; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 6;
   display: flex; flex-direction: column; gap: 1px;
-  padding: 6px 5px; overflow-y: auto; overflow-x: visible;
+  /* Never scrolls: six groups and a badge fit a 600px window at full size, and the
+     sizes below shrink a little with the window so a short one still holds them. */
+  padding: 6px 5px; overflow: hidden;
   background: var(--toolpanel);
   border-left: 1px solid var(--panel-edge);
   backdrop-filter: blur(10px);
 }
-.toolpanel::-webkit-scrollbar { width: 6px; }
-.toolpanel::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
 
 .toolslot { position: relative; flex: 0 0 auto; }
 .toolslot.is-divided { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--panel-edge); }
@@ -112,20 +113,18 @@ button:disabled { cursor: default; }
    panel grows. */
 .tool {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: 100%; padding: 9px 2px 6px; border-radius: 6px; color: var(--ink);
+  width: 100%; padding: clamp(9px, 1.9vh, 16px) 2px clamp(7px, 1.5vh, 13px);
+  border-radius: 7px; color: var(--ink);
 }
 .tool:hover:not(:disabled) { background: var(--hover); }
 .tool:disabled, .tool.is-unavailable { color: var(--ink-disabled); }
 /* A group with nothing available still opens, so it keeps a hover state. */
 .tool.is-unavailable:hover { background: var(--hover-muted); }
 .tool.is-open { background: var(--active); box-shadow: inset 2px 0 0 var(--accent); }
-.tool-icon { font-size: 26px; line-height: 1.05; }
+.tool-icon { font-size: clamp(26px, 4vh, 34px); line-height: 1.05; }
 .tool-name {
-  font-size: 10px; line-height: 1.15; text-align: center;
-  /* Wrap to two lines rather than truncating: "New shape" and "Modify edge" are the
-     labels that make the panel readable, and "New sha…" is not a label. */
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden; word-break: break-word; min-height: 2.3em;
+  font-size: 11.5px; line-height: 1.15; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 /* A badge rather than a tool: smaller, and it does not push the real tools off a short
    window. */
@@ -134,7 +133,7 @@ button:disabled { cursor: default; }
 .tool.is-compact .tool-name { font-size: 9px; min-height: 0; color: var(--dim); }
 .tool.is-compact:hover .tool-name { color: var(--ink); }
 
-.tool-caret { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--dim); }
+.tool-caret { position: absolute; left: 3px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--dim); }
 
 /* ---------------------------------------------------------------- left rail */
 .left-rail {
@@ -220,78 +219,56 @@ button:disabled { cursor: default; }
 .sel { color: var(--select); }
 b { color: var(--accent); font-weight: 600; }
 
-/* A transparent catch-all under a flyout that was opened by right-click rather than by
-   hover, so clicking anywhere else dismisses it. Sits below the flyout, above the page. */
-.flyout-scrim { position: fixed; inset: 0; z-index: 25; }
-
-/* ---------------------------------------------------------------- radial menu */
-.radial-scrim { position: fixed; inset: 0; z-index: 20; }
-.radial { position: absolute; width: 0; height: 0; }
-.radial-context {
-  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
-  color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
-  pointer-events: none;
+/* ---------------------------------------------------------------- pop-out menus */
+/* Every menu — right-click rings, groups, sidebar groups, the tree's — is a PopMenu, so
+   this block is the only place menu appearance is defined. Buttons start at the point the
+   menu came from and spread out to their places, growing as they go. */
+.radial-scrim { position: fixed; inset: 0; z-index: 40; }
+.radial { position: fixed; inset: 0; pointer-events: none; }
+.radial-glow {
+  position: fixed; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, var(--menu-glow) 0%, var(--menu-glow) 62%, transparent 100%);
+  animation: radial-glow-in 200ms ease-out both;
 }
-/* The ring itself. Centred on the click, so the SVG's own origin is the pivot. */
-.radial-ring {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  overflow: visible;
+.radial-context, .radial-blocked {
+  position: fixed; transform: translate(-50%, -50%); pointer-events: none;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em; white-space: nowrap;
+  animation: radial-fade-in 200ms ease-out both;
 }
-
-/* Each command owns a WEDGE — a far bigger target than a label, and it shows which
-   direction the command lives in rather than leaving you to infer it. */
-.radial-item { cursor: pointer; outline: none; }
-.radial-wedge {
-  fill: var(--wedge);
-  stroke: var(--panel-edge);
-  stroke-width: 1;
-  transition: fill 90ms ease-out;
+.radial-context { color: var(--dim); }
+.radial-blocked {
+  text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--danger);
+  background: var(--flyout); border: 1px solid var(--danger-edge); border-radius: 5px; padding: 3px 9px;
 }
-.radial-item:hover .radial-wedge,
-.radial-item:focus-visible .radial-wedge { fill: var(--active); stroke: var(--focus-ring); }
-.radial-item:focus-visible .radial-wedge { stroke-width: 2; }
-.radial-item.is-disabled { cursor: default; }
-.radial-item.is-disabled .radial-wedge { fill: var(--wedge-disabled); }
-.radial-item.is-disabled text { fill: var(--ink-faint); }
-
-.radial-icon, .radial-label {
-  fill: var(--ink); text-anchor: middle; dominant-baseline: middle;
-  pointer-events: none; user-select: none;
+/* POP_BUTTON in PopMenu.tsx is this size; placement depends on the two agreeing. */
+.radial-item {
+  position: fixed; left: 0; top: 0; width: 104px; height: 64px; margin: -32px 0 0 -52px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 6px; border-radius: 12px; pointer-events: auto;
+  background: var(--flyout); border: 1px solid var(--panel-edge); color: var(--ink);
+  box-shadow: 0 4px 14px #0007;
+  transform: translate(var(--x), var(--y));
+  animation: radial-pop 260ms cubic-bezier(.2, .85, .3, 1.15) var(--delay) both;
 }
-.radial-icon { font-size: 17px; }
-.radial-label { font-size: 10px; }
-/* ------------------------------------------------------------------ submenus */
-/* Every flyout in the app renders through the Submenu component, so this block is the
-   only place submenu appearance is defined. Change it here and the toolbar groups, the
-   radial groups and the radial overflow all follow. */
-.submenu {
-  position: fixed; z-index: 30;
-  display: flex; flex-direction: column; min-width: 156px; padding: 4px;
-  background: var(--flyout); border: 1px solid var(--panel-edge); border-radius: 7px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 6px 20px var(--shadow);
+.radial-item:hover:not(:disabled), .radial-item:focus-visible {
+  background: var(--active); border-color: var(--focus-ring); outline: none;
 }
-/* Why the group is unavailable, said INSIDE the flyout: a group's tooltip cannot be
-   reached, because hovering it opens the menu instead. */
-.submenu-blocked {
-  font-size: 10px; color: var(--danger); padding: 4px 9px 6px;
-  border-bottom: 1px solid var(--panel-edge); margin-bottom: 3px;
+.radial-item.is-active { border-color: var(--accent); color: var(--accent); }
+.radial-item:disabled { background: var(--item-disabled); color: var(--ink-faint); cursor: default; box-shadow: none; }
+.radial-icon { font-size: 21px; line-height: 1; }
+.radial-label {
+  font-size: 11px; line-height: 1.15; text-align: center; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.submenu-title {
-  color: var(--dim); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
-  padding: 3px 9px 6px;
+@keyframes radial-pop {
+  from { transform: translate(var(--ox), var(--oy)) scale(.2); opacity: 0; }
+  to   { transform: translate(var(--x), var(--y)) scale(1); opacity: 1; }
 }
-.submenu-item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 7px 10px; border-radius: 5px; text-align: left; white-space: nowrap;
-  color: var(--ink);
+@keyframes radial-glow-in { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
+@keyframes radial-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .radial-item, .radial-glow, .radial-context, .radial-blocked { animation: none; }
 }
-.submenu-item:hover:not(:disabled) { background: var(--active); }
-.submenu-item.is-active { color: var(--accent); }
-.submenu-item.is-active .submenu-icon { color: var(--accent); }
-.submenu-item:disabled { color: var(--ink-disabled); }
-.submenu-icon { width: 18px; text-align: center; font-size: 15px; }
-.submenu-label { font-size: 11.5px; }
 
 /* ---------------------------------------------------------------- palette */
 .palette-scrim {

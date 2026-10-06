@@ -1,6 +1,7 @@
 export { Toolbar } from './toolbar/Toolbar.js';
 export { RadialMenu, type RadialMenuProps } from './radial/RadialMenu.js';
-export { Submenu, type SubmenuAnchor, type SubmenuProps } from './submenu/Submenu.js';
+export { PopMenu, POP_BUTTON, type PopItem, type PopMenuProps } from './radial/PopMenu.js';
+export { placeFan, placeSectors, type Bounds, type Placement } from './radial/layout.js';
 export { CommandPalette } from './palette/CommandPalette.js';
 export { AboutDialog, type AboutInfo } from './about/AboutDialog.js';
 export { FeatureTree, type FeatureRow } from './tree/FeatureTree.js';

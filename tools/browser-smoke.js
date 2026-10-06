@@ -9,7 +9,7 @@
  *   - a second shape being invisible (one body id reused for every tessellation)
  *   - camera keys going dead (keyboard not re-attached on effect re-run)
  *   - the radial menu flooding with irrelevant commands
- *   - the toolbar submenu being clipped away, or jumping out from under the cursor
+ *   - a sidebar menu spilling off screen or under the sidebar, or reopening as it closes
  *   - a sketch feature never rebuilding because the graph never learned it changed
  *
  * Returns { passed, failed, results }. Anything false is a regression.
@@ -38,6 +38,12 @@ window.__smoke = async function smoke() {
       if (Date.now() >= deadline) return false;
       await sleep(50);
     }
+  };
+  /** Open a sidebar group and pick one of the commands that pops out of it. */
+  const fromSidebar = async (group, id) => {
+    document.querySelector(`.tool[data-command="${group}"]`)?.click();
+    await waitFor(`.radial-item[data-command="${id}"]`, 2000);
+    document.querySelector(`.radial-item[data-command="${id}"]`)?.click();
   };
   const results = {};
   const check = (name, value) => { results[name] = value; return value; };
@@ -116,17 +122,21 @@ window.__smoke = async function smoke() {
 
   // --- toolbar ------------------------------------------------------------------
   const tools = [...document.querySelectorAll('.tool')].map((b) => b.dataset.command);
-  check('toolbarPopulated', tools.length >= 8);
-  check('toolbarHasSketchAndExport',
-    tools.includes('sketch.new') && tools.includes('file.export'));
-  // Every group is a toolbar button that opens a submenu; a leaf that leaked onto the
-  // toolbar, or a group that lost its children, shows up here.
+  check('toolbarPopulated', tools.length >= 6);
+  // Six groups and a badge: sketch, create, modify, bodies, print, file. A leaf that
+  // leaked onto the strip, or a group that lost its place, shows up here.
   check('toolbarGroupsPresent',
-    ['create.shape', 'build.solid', 'modify.body', 'pattern.new', 'boolean.combine']
+    ['sketch.new', 'build.solid', 'tools.modify', 'tools.bodies', 'print.menu', 'file.menu']
       .every((id) => tools.includes(id)));
   check('toolbarHidesGroupedLeaves',
     !tools.includes('primitive.box') && !tools.includes('boolean.cut')
-    && !tools.includes('modify.shell'));
+    && !tools.includes('modify.shell') && !tools.includes('file.export'));
+  // The strip never scrolls, and every button is wholly on screen.
+  {
+    const strip = document.querySelector('.toolpanel');
+    check('toolbarDoesNotScroll', !!strip && strip.scrollHeight <= strip.clientHeight
+      && [...strip.querySelectorAll('.tool')].every((b) => b.getBoundingClientRect().bottom <= innerHeight));
+  }
 
   // --- selection reads as selected while still pointed at ------------------------
   // It used to only turn orange once the pointer LEFT, which made clicking look like it
@@ -193,9 +203,9 @@ window.__smoke = async function smoke() {
   // --- the about dialog ----------------------------------------------------------
   {
     const about = document.querySelector('[data-command="app.about"]');
-    const exportButton = document.querySelector('[data-command="file.export"]');
-    check('aboutSitsBelowExport', !!about && !!exportButton
-      && about.getBoundingClientRect().top > exportButton.getBoundingClientRect().top);
+    const fileButton = document.querySelector('.tool[data-command="file.menu"]');
+    check('aboutSitsBelowFile', !!about && !!fileButton
+      && about.getBoundingClientRect().top > fileButton.getBoundingClientRect().top);
 
     about?.click();
     await sleep(300);
@@ -227,54 +237,72 @@ window.__smoke = async function smoke() {
     check('aboutCloses', !document.querySelector('.about'));
   }
 
-  // --- submenu stays put and survives the pointer crossing into it ---------------
-  const slot = document.querySelector('[data-command="create.shape"]')?.closest('.toolslot');
-  slot?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-  await sleep(220);
-  const submenu = document.querySelector('.submenu');
-  check('submenuOpens', !!submenu);
-  if (submenu) {
-    const rect = () => { const r = document.querySelector('.submenu')?.getBoundingClientRect(); return r && `${Math.round(r.x)},${Math.round(r.y)}`; };
-    const atOpen = rect();
-    slot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: submenu }));
-    submenu.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-    await sleep(200);
-    check('submenuDoesNotJump', rect() === atOpen);
-    check('submenuSurvivesHover', !!document.querySelector('.submenu'));
-    check('submenuHasShapes',
-      [...document.querySelectorAll('.submenu button')].length === 3);
-    document.querySelector('.submenu')?.dispatchEvent(
-      new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+  // --- a sidebar group pops its commands out of the button ---------------------
+  // Same menu as a right-click: buttons start at the middle of the group's button and
+  // spread out to the left, over a dark glow, clear of the strip and of the screen edge.
+  const stripLeft = document.querySelector('.toolpanel').getBoundingClientRect().left;
+  const onScreenAndClear = (items) => items.every((b) => {
+    const r = b.getBoundingClientRect();
+    return r.left >= 0 && r.top >= 0 && r.bottom <= innerHeight && r.right <= stripLeft;
+  });
+  const overlapping = (items) => items.map((b) => b.getBoundingClientRect()).some((a, i, all) =>
+    all.some((c, k) => k > i && a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom));
+  const closeMenu = async () => {
+    document.querySelector('.radial-scrim')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await sleep(150);
+  };
+  {
+    const create = document.querySelector('.tool[data-command="build.solid"]');
+    create.click();
+    await waitFor('.radial-item', 2000);
     await sleep(600);
+    const popped = [...document.querySelectorAll('.radial-item')];
+    check('sidebarGroupOpensARadial', popped.length === 7);
+    check('sidebarRadialHasShapes', ['primitive.box', 'primitive.cylinder', 'primitive.sphere']
+      .every((id) => popped.some((b) => b.dataset.command === id)));
+    check('sidebarRadialHasGlow', !!document.querySelector('.radial-glow'));
+    const r = create.getBoundingClientRect();
+    check('sidebarRadialPopsFromTheButton', popped.every((b) =>
+      Math.abs(parseFloat(b.style.getPropertyValue('--ox')) - (r.left + r.width / 2)) < 1
+      && Math.abs(parseFloat(b.style.getPropertyValue('--oy')) - (r.top + r.height / 2)) < 1));
+    check('sidebarRadialIsClearOfTheStrip', onScreenAndClear(popped));
+    // The backdrop takes the press; the click that follows must close, not reopen.
+    document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    create.click();
+    await sleep(200);
+    check('sidebarGroupClosesOnSecondClick', !document.querySelector('.radial-item'));
+    // Hovering opens nothing: menus open on a click.
+    create.closest('.toolslot').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    await sleep(250);
+    check('sidebarHoverOpensNothing', !document.querySelector('.radial-item'));
   }
 
-  // --- every submenu opens, is complete, and fits on screen ----------------------
-  // A group near the foot of the strip opened a flyout that ran off the bottom of the
-  // window, and a DISABLED group could not be opened at all, so its children could not
-  // explain why they were unavailable.
+  // --- every sidebar group opens, is complete, and fits on screen ---------------
+  // A DISABLED group must still open, so its children can say why they are unavailable.
   {
-    let allOpen = true, allOnScreen = true, allPopulated = true;
+    let allOpen = true, allClear = true, allPopulated = true, noneOverlap = true;
     for (const button of [...document.querySelectorAll('.tool.is-group')]) {
-      const groupSlot = button.closest('.toolslot');
-      groupSlot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-      await sleep(250);
-      const menu = document.querySelector('.submenu');
-      if (!menu) { allOpen = false; continue; }
-      const r = menu.getBoundingClientRect();
-      if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0) allOnScreen = false;
-      if (menu.querySelectorAll('button').length < 2) allPopulated = false;
-      groupSlot.dispatchEvent(
-        new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+      button.click();
+      // Past the last button's pop-out (stagger plus animation), so they are measured
+      // where they settle rather than mid-flight.
       await sleep(600);
+      const items = [...document.querySelectorAll('.radial-item')];
+      if (items.length === 0) { allOpen = false; continue; }
+      if (!onScreenAndClear(items)) allClear = false;
+      if (overlapping(items)) noneOverlap = false;
+      if (items.length < 2) allPopulated = false;
+      await closeMenu();
     }
     check('everyGroupOpens', allOpen);
-    check('everySubmenuFitsOnScreen', allOnScreen);
-    check('everySubmenuHasItems', allPopulated);
+    check('everyGroupMenuFitsOnScreen', allClear);
+    check('everyGroupMenuIsTidy', noneOverlap);
+    check('everyGroupMenuHasItems', allPopulated);
   }
 
-  // --- the feature tree gets a flyout, not the ring ------------------------------
-  // A ring centred on a row in the top-left corner was cut off by two page edges. The
-  // radial is for 3D space, where there is room in every direction.
+  // --- the feature tree's menu is a ring too, kept on screen --------------------
+  // A ring centred on a row in the top-left corner used to be cut off by two edges; the
+  // ring now slides clear of the corner instead.
   {
     const row = [...document.querySelectorAll('.tree button')][0];
     if (row) {
@@ -282,16 +310,12 @@ window.__smoke = async function smoke() {
       row.dispatchEvent(new MouseEvent('contextmenu', {
         bubbles: true, clientX: r.left + 20, clientY: r.top + 8,
       }));
-      await sleep(300);
-      const menu = document.querySelector('.submenu');
-      const box = menu?.getBoundingClientRect();
-      check('treeContextMenuIsAFlyout', !!menu && !document.querySelector('.radial'));
-      check('treeContextMenuIsOnScreen',
-        !!box && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight);
-      document.querySelector('.flyout-scrim')?.dispatchEvent(
-        new PointerEvent('pointerdown', { bubbles: true }));
-      await sleep(200);
-      check('treeContextMenuClosesOnClickAway', !document.querySelector('.submenu'));
+      await sleep(400);
+      const items = [...document.querySelectorAll('.radial-item')];
+      check('treeContextMenuIsARing', items.length > 0);
+      check('treeContextMenuIsOnScreen', items.length > 0 && onScreenAndClear(items));
+      await closeMenu();
+      check('treeContextMenuClosesOnClickAway', !document.querySelector('.radial-item'));
     }
   }
 
@@ -300,29 +324,23 @@ window.__smoke = async function smoke() {
   await sleep(200);
   const radialItems = [...document.querySelectorAll('.radial-item')].map((b) => b.dataset.command ?? 'more');
   check('radialOpens', radialItems.length > 0);
-  // Each command owns a WEDGE of the ring, not a floating label: a far bigger target,
-  // and it shows which direction the command lives in.
-  check('radialDrawsWedges',
-    document.querySelectorAll('.radial-wedge').length === radialItems.length);
-  check('radialWedgesAreRings', (() => {
-    // Out along the rim, back along the inner edge: two arcs, or it is not a band.
-    const d = document.querySelector('.radial-wedge')?.getAttribute('d') ?? '';
-    return (d.match(/A /g) ?? []).length === 2 && d.trim().endsWith('Z');
-  })());
+  // Real buttons, popping out of the cursor over a dark glow.
+  check('radialItemsAreButtons',
+    [...document.querySelectorAll('.radial-item')].every((b) => b.tagName === 'BUTTON'));
+  check('radialPopsFromTheCursor', [...document.querySelectorAll('.radial-item')].every((b) =>
+    parseFloat(b.style.getPropertyValue('--ox')) === 300 && parseFloat(b.style.getPropertyValue('--oy')) === 200));
+  check('radialHasGlow', !!document.querySelector('.radial-glow'));
   // It flooded once with Export STL and the palette; a context menu has to stay short.
   check('radialIsShort', radialItems.length <= 8);
   document.querySelector('.radial-scrim')?.dispatchEvent(
     new PointerEvent('pointerdown', { bubbles: true }));
   await sleep(150);
-  check('radialCloses', !document.querySelector('.radial'));
+  check('radialCloses', !document.querySelector('.radial-item'));
 
   // --- adding a shape puts a NEW body on screen ---------------------------------
   const bodiesBefore = viewer.bodies.size;
   const featuresBefore = doc.features.length;
-  document.querySelector('[data-command="create.shape"]')?.closest('.toolslot')
-    ?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-  await sleep(220);
-  document.querySelector('.submenu [data-command="primitive.cylinder"]')?.click();
+  await fromSidebar('build.solid', 'primitive.cylinder');
   await sleep(1400);
   check('addingShapeAddsFeature', doc.features.length === featuresBefore + 1);
   check('addingShapeAddsVisibleBody', viewer.bodies.size === bodiesBefore + 1);
@@ -389,7 +407,7 @@ window.__smoke = async function smoke() {
         return { async write(chunk) { written = new Uint8Array(chunk); }, async close() {} };
       },
     });
-    document.querySelector('[data-command="file.export"]')?.click();
+    await fromSidebar('file.menu', 'file.export');
     check('exportOpensADialog', await waitFor('.export'));
     let statsText = '';
     for (let i = 0; i < 40; i++) {
@@ -808,7 +826,7 @@ window.__smoke = async function smoke() {
         return { async write(chunk) { oriented = new Uint8Array(chunk); }, async close() {} };
       },
     });
-    document.querySelector('[data-command="file.export"]')?.click();
+    await fromSidebar('file.menu', 'file.export');
     await waitFor('.export');
     check('exportShowsOrientation', /Oriented/.test(document.querySelector('.export')?.textContent ?? ''));
     document.querySelector('.export-go')?.click();

@@ -15,7 +15,7 @@ import {
 } from '@cardstock/commands';
 import {
   AboutDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
-  Submenu, Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown, KeysDialog,
+  Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown, KeysDialog,
   type AboutInfo, type ExportQuality, type ExportStats, type OrientationRow,
   type FeatureRow, type FieldSpec,
 } from '@cardstock/ui';
@@ -113,14 +113,6 @@ export function App() {
   });
   const [recents, setRecents] = useState<RecentEntry[]>([]);
   const openRecentRef = useRef<(entry: RecentEntry) => Promise<void>>(async () => {});
-  /**
-   * The feature tree's context menu: a plain flyout, not the radial.
-   *
-   * The radial is for things in 3D space, where there is room in every direction. A row
-   * in the top-left corner has room in one direction, and a ring centred there was cut
-   * off by the top and left edges of the page.
-   */
-  const [treeMenuAt, setTreeMenuAt] = useState<{ top: number; left: number } | null>(null);
   /** Where the sketch bar's constraint flyout sits, or null when closed. */
   const [notice, setNotice] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [sketchInfo, setSketchInfo] = useState<{
@@ -864,7 +856,9 @@ export function App() {
                 c.viewer.selection.click({ bodyId: body as never, kind: 'body', index: 0 });
               }
             }}
-            onContextMenu={(id, at) => { setFocused(id); setTreeMenuAt({ top: at.y, left: at.x }); }}
+            // The same ring as anywhere else: it slides clear of the corner the tree
+            // sits in, so nothing lands off screen.
+            onContextMenu={(id, at) => { setFocused(id); setRadial({ context: 'tree-item', at }); }}
             onReorder={(id, toIndex) => {
               const result = doc.moveFeature(id, toIndex);
               if (!result.ok) setNotice({ text: result.reason ?? 'Cannot move there', kind: 'error' });
@@ -982,6 +976,7 @@ export function App() {
           state={state}
           context={radial.context}
           at={radial.at}
+          {...(radial.context === 'tree-item' && focusedFeature ? { caption: focusedFeature.name } : {})}
           {...(radial.constrain ? {
             items: registry.childrenOf('sketch.constrain', state).filter((r) => r.enabled === true),
             label: 'Constraints for the selection',
@@ -996,23 +991,6 @@ export function App() {
           }}
           onClose={() => setRadial(null)}
         />
-      )}
-
-      {treeMenuAt && registry && (
-        <>
-          {/* A scrim so a click anywhere else closes it; the flyout stops propagation. */}
-          <div
-            className="flyout-scrim"
-            onPointerDown={() => setTreeMenuAt(null)}
-            onContextMenu={(e) => { e.preventDefault(); setTreeMenuAt(null); }}
-          />
-          <Submenu
-            items={registry.forContext('tree-item', hostState())}
-            anchor={treeMenuAt}
-            title={focusedFeature?.name ?? 'Feature'}
-            onRun={(id) => { run(id); setTreeMenuAt(null); }}
-          />
-        </>
       )}
 
       {aboutOpen && (

@@ -7,6 +7,7 @@
  *   node tools/pw-drive.mjs --js-file probe.js --shot out.png
  *   node tools/pw-drive.mjs --smoke                 # tools/browser-smoke.js, every check
  *   node tools/pw-drive.mjs --smoke --csp "default-src 'self'; ..."
+ *   node tools/pw-drive.mjs --size 1280x640 --shot small.png   # a small laptop window
  *
  * `--js` is evaluated as the body of an async function in the page, so it may `await`
  * and must `return` what it wants printed (a bare expression is returned for you).
@@ -33,6 +34,7 @@ const url = opt('--url') ?? 'http://localhost:5173/?fresh=1';
 const settle = Number(opt('--wait') ?? 4000);
 const shot = opt('--shot');
 const csp = opt('--csp');
+const [width, height] = (opt('--size') ?? '1400x900').split('x').map(Number);
 let js = opt('--js') ?? (opt('--js-file') ? readFileSync(opt('--js-file'), 'utf8') : undefined);
 
 // Playwright is not a dependency of the repo: the cloud image installs it globally with
@@ -50,7 +52,7 @@ const { chromium } = loadPlaywright();
 
 // Software GL: headless Chromium has no GPU, and three.js needs a WebGL context.
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+const page = await browser.newPage({ viewport: { width, height } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

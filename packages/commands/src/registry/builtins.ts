@@ -371,12 +371,19 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
     },
     {
       id: 'build.solid',
-      title: 'Build',
-      hint: 'Turn a sketch into a solid',
+      title: 'Create',
+      hint: 'Make a solid: from a sketch, or a box, cylinder or sphere',
       icon: '⬒',
       contexts: ['always'],
+      // The sidebar is grouped by what you are doing — sketch, create, modify, arrange
+      // bodies, print, file — so it fits a laptop screen without scrolling. The tighter
+      // groups the right-click rings use (Modify edge, Combine, Pattern) stay as they
+      // were; a command can sit in one of each.
       toolbar: { order: 11 },
-      children: ['sketch.extrude', 'build.revolve', 'build.sweep', 'build.loft'],
+      children: [
+        'sketch.extrude', 'build.revolve', 'build.sweep', 'build.loft',
+        'primitive.box', 'primitive.cylinder', 'primitive.sphere',
+      ],
       enabled: (s) => (s.sketching ? 'Finish the sketch first' : true),
       run: () => {},
     },
@@ -428,7 +435,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '◇',
       contexts: ['empty', 'always'],
       sector: { empty: 0 },
-      toolbar: { order: 20 },
       children: ['primitive.box', 'primitive.cylinder', 'primitive.sphere'],
       enabled: () => true,
       run: () => {}, // a group: opening the flyout is the action
@@ -469,7 +475,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '◟',
       contexts: ['edge'],
       sector: { edge: 0 },
-      toolbar: { order: 30 },
       children: ['modify.fillet', 'modify.chamfer'],
       enabled: needsSelection('edge', 'one or more edges'),
       run: () => {},
@@ -505,7 +510,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       // face you want to open is the natural way to reach them.
       contexts: ['body', 'face', 'always'],
       sector: { body: 0, face: 4 },
-      toolbar: { order: 31 },
       children: ['modify.shell', 'modify.draft', 'modify.mirror', 'modify.move'],
       enabled: needsModel,
       run: () => {},
@@ -555,7 +559,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Drill a sized hole from the fastener table',
       icon: '◎',
       contexts: ['face', 'always'],
-      toolbar: { order: 33 },
       keys: ['h'],
       enabled: needsModel,
       run: async () => { await host.addSolidFeature('hole'); },
@@ -566,7 +569,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Raise or sink a label on the selected face; a negative depth engraves it',
       icon: 'A',
       contexts: ['face', 'always'],
-      toolbar: { order: 35 },
       enabled: (s) => (s.selectionKind === 'face' && s.selectionCount > 0
         ? true : 'Select the face to put text on'),
       run: async () => { await host.addSolidFeature('text'); },
@@ -577,7 +579,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Repeat the body in a row or around an axis',
       icon: '⁘',
       contexts: ['body', 'always'],
-      toolbar: { order: 34 },
       children: ['pattern.linear', 'pattern.circular'],
       enabled: needsModel,
       run: () => {},
@@ -601,6 +602,38 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       run: async () => { await host.addSolidFeature('circularPattern'); },
     },
 
+    // ---------------------------------------------------------------- sidebar groups
+    // Toolbar-only: no context names them, so they never reach a right-click ring and
+    // never hide their children from one — Hole and Text stay on the face menu.
+    {
+      id: 'tools.modify',
+      title: 'Modify',
+      hint: 'Round, bevel, hollow, taper, drill or label the part',
+      icon: '◫',
+      contexts: ['always'],
+      toolbar: { order: 12 },
+      children: [
+        'modify.fillet', 'modify.chamfer', 'modify.shell', 'modify.draft',
+        'feature.hole', 'feature.text',
+      ],
+      enabled: needsModel,
+      run: () => {},
+    },
+    {
+      id: 'tools.bodies',
+      title: 'Bodies',
+      hint: 'Combine, mirror, move or repeat bodies',
+      icon: '⊕',
+      contexts: ['always'],
+      toolbar: { order: 13 },
+      children: [
+        'boolean.cut', 'boolean.union', 'boolean.intersect',
+        'modify.mirror', 'modify.move', 'pattern.linear', 'pattern.circular',
+      ],
+      enabled: needsModel,
+      run: () => {},
+    },
+
     // ---------------------------------------------------------------- combine
     {
       id: 'boolean.combine',
@@ -609,7 +642,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       icon: '⊕',
       contexts: ['body', 'always'],
       sector: { body: 2 },
-      toolbar: { order: 40 },
       children: ['boolean.cut', 'boolean.union', 'boolean.intersect'],
       enabled: combineEnabled,
       run: () => {},
@@ -728,9 +760,9 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       id: 'print.menu',
       title: 'Print',
       hint: 'See the part as the printer will: overhangs, thin walls, fit, orientation',
-      icon: '⬒',
+      icon: '⎙',
       contexts: ['always'],
-      toolbar: { order: 80 },
+      toolbar: { order: 30 },
       children: ['print.overhang', 'print.thickness', 'print.volume', 'print.orient', 'print.printer'],
       enabled: () => true,
       run: () => {},
@@ -786,11 +818,11 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
     {
       id: 'file.menu',
       title: 'File',
-      hint: 'New, open and save',
+      hint: 'New, open, save, import and export',
       icon: '▤',
       contexts: ['always'],
       toolbar: { order: 89, pin: 'end' },
-      children: ['file.new', 'file.open', 'file.save', 'file.saveAs', 'file.import'],
+      children: ['file.new', 'file.open', 'file.save', 'file.saveAs', 'file.import', 'file.export'],
       enabled: () => true,
       run: () => {},
     },
@@ -848,7 +880,6 @@ export function createBuiltinCommands(host: CommandHost): Command[] {
       hint: 'Save as STL, 3MF, OBJ or STEP',
       icon: '⭳',
       contexts: ['always'],
-      toolbar: { order: 90, pin: 'end' },
       keys: ['ctrl+e'],
       enabled: (s) => (s.hasModel ? true : 'Nothing to export yet'),
       run: () => host.openExport(),

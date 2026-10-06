@@ -101,13 +101,30 @@ describe('the built-in command set', () => {
     }
   });
 
-  it('puts every primitive behind the New shape group rather than on the toolbar', () => {
+  it('puts every primitive behind Create on the sidebar, and New shape on the empty ring', () => {
     const registry = build();
     const toolbarIds = registry.toolbar(state).map((r) => r.command.id);
-    expect(toolbarIds).toContain('create.shape');
     expect(toolbarIds).not.toContain('primitive.box');
+    expect(registry.childrenOf('build.solid', state).map((r) => r.command.id))
+      .toEqual(expect.arrayContaining(['primitive.box', 'primitive.cylinder', 'primitive.sphere']));
     expect(registry.childrenOf('create.shape', state).map((r) => r.command.id))
       .toEqual(['primitive.box', 'primitive.cylinder', 'primitive.sphere']);
+    expect(registry.forContext('empty', state).map((r) => r.command.id)).toContain('create.shape');
+  });
+
+  it('keeps the sidebar short enough to never scroll', () => {
+    // Six groups and the About badge fit a 600px-tall window at full size. Adding a
+    // seventh top-level entry is a decision, not something that should creep in.
+    const registry = build();
+    expect(registry.toolbar(state).map((r) => r.command.id)).toEqual([
+      'sketch.new', 'build.solid', 'tools.modify', 'tools.bodies', 'print.menu', 'file.menu', 'app.about',
+    ]);
+  });
+
+  it('leaves Hole and Text on the face ring though the sidebar groups them', () => {
+    const registry = build();
+    const face = registry.forContext('face', state).map((r) => r.command.id);
+    expect(face).toEqual(expect.arrayContaining(['feature.hole', 'feature.text']));
   });
 
   it('puts fillet and chamfer behind Modify edge', () => {
