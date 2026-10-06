@@ -16,8 +16,8 @@
   --surface-label: #1c1f26e8;
   --toolpanel: #191c22f2;
   --flyout: #212731f7;
-  /* Behind an open menu: a little darker, a little green, so the buttons stand out. */
-  --menu-glow: #0a2a188c;
+  /* Behind an open menu: a little darker, so the slices stand out. */
+  --menu-glow: #0000008c;
   --wedge: #212731f2;
   --item-disabled: #1b1f27d9;
   --scrim: #0b0d1088;
