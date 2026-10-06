@@ -18,6 +18,7 @@
   --flyout: #212731f7;
   /* Behind an open menu: a little darker, a little green, so the buttons stand out. */
   --menu-glow: #0a2a188c;
+  --wedge: #212731f2;
   --item-disabled: #1b1f27d9;
   --scrim: #0b0d1088;
   --shadow: #0008;
@@ -221,49 +222,45 @@ b { color: var(--accent); font-weight: 600; }
 
 /* ---------------------------------------------------------------- pop-out menus */
 /* Every menu — right-click rings, groups, sidebar groups, the tree's — is a PopMenu, so
-   this block is the only place menu appearance is defined. Buttons start at the point the
-   menu came from and spread out to their places, growing as they go. */
+   this block is the only place menu appearance is defined. Each command is a slice of a
+   band; the slices grow out of the point the menu came from, over a soft dark glow. */
 .radial-scrim { position: fixed; inset: 0; z-index: 40; }
-.radial { position: fixed; inset: 0; pointer-events: none; }
-.radial-glow {
-  position: fixed; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(closest-side, var(--menu-glow) 0%, var(--menu-glow) 62%, transparent 100%);
-  animation: radial-glow-in 200ms ease-out both;
+.radial { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
+.radial-glow { transform-box: view-box; animation: radial-glow-in 200ms ease-out both; }
+.radial-item {
+  cursor: pointer; outline: none; pointer-events: visiblePainted;
+  transform-box: view-box;
+  animation: radial-grow 240ms cubic-bezier(.2, .85, .3, 1.15) both;
 }
-.radial-context, .radial-blocked {
-  position: fixed; transform: translate(-50%, -50%); pointer-events: none;
-  font-size: 10px; text-transform: uppercase; letter-spacing: .1em; white-space: nowrap;
+.radial-wedge { fill: var(--wedge); stroke: var(--panel-edge); stroke-width: 1; transition: fill 90ms ease-out; }
+.radial-item:hover .radial-wedge,
+.radial-item:focus-visible .radial-wedge { fill: var(--active); stroke: var(--focus-ring); }
+.radial-item:focus-visible .radial-wedge { stroke-width: 2; }
+.radial-item.is-active .radial-wedge { stroke: var(--accent); }
+.radial-item.is-active text { fill: var(--accent); }
+.radial-item.is-disabled { cursor: default; }
+.radial-item.is-disabled .radial-wedge { fill: var(--item-disabled); }
+.radial-item.is-disabled text { fill: var(--ink-faint); }
+.radial-icon, .radial-label, .radial-row, .radial-context {
+  fill: var(--ink); text-anchor: middle; dominant-baseline: middle;
+  pointer-events: none; user-select: none;
+}
+.radial-icon { font-size: 17px; }
+.radial-label { font-size: 10px; }
+/* A sidebar row: icon and name on one line, as the flyout list had them. */
+.radial-row { font-size: 11px; }
+.radial-row .radial-icon { font-size: 14px; }
+.radial-context {
+  fill: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
   animation: radial-fade-in 200ms ease-out both;
 }
-.radial-context { color: var(--dim); }
 .radial-blocked {
-  text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--danger);
+  position: fixed; transform: translate(-50%, -50%); pointer-events: none; white-space: nowrap;
+  font-size: 11px; color: var(--danger);
   background: var(--flyout); border: 1px solid var(--danger-edge); border-radius: 5px; padding: 3px 9px;
+  animation: radial-fade-in 200ms ease-out both;
 }
-/* POP_BUTTON in PopMenu.tsx is this size; placement depends on the two agreeing. */
-.radial-item {
-  position: fixed; left: 0; top: 0; width: 104px; height: 64px; margin: -32px 0 0 -52px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  padding: 4px 6px; border-radius: 12px; pointer-events: auto;
-  background: var(--flyout); border: 1px solid var(--panel-edge); color: var(--ink);
-  box-shadow: 0 4px 14px #0007;
-  transform: translate(var(--x), var(--y));
-  animation: radial-pop 260ms cubic-bezier(.2, .85, .3, 1.15) var(--delay) both;
-}
-.radial-item:hover:not(:disabled), .radial-item:focus-visible {
-  background: var(--active); border-color: var(--focus-ring); outline: none;
-}
-.radial-item.is-active { border-color: var(--accent); color: var(--accent); }
-.radial-item:disabled { background: var(--item-disabled); color: var(--ink-faint); cursor: default; box-shadow: none; }
-.radial-icon { font-size: 21px; line-height: 1; }
-.radial-label {
-  font-size: 11px; line-height: 1.15; text-align: center; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-@keyframes radial-pop {
-  from { transform: translate(var(--ox), var(--oy)) scale(.2); opacity: 0; }
-  to   { transform: translate(var(--x), var(--y)) scale(1); opacity: 1; }
-}
+@keyframes radial-grow { from { transform: scale(.15); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes radial-glow-in { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
 @keyframes radial-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

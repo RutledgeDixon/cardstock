@@ -16,7 +16,7 @@ import type { Point } from './layout.js';
  * inward rather than any command changing direction.
  *
  * A group, or the "More" that overflow collects into, opens as a ring of its own,
- * popping out of the button that was clicked: one level, like every submenu in the app.
+ * growing out of the slice that was clicked: one level, like every submenu in the app.
  */
 export interface RadialMenuProps {
   registry: CommandRegistry;
@@ -63,6 +63,12 @@ export function RadialMenu({
         key={`${sub.title}@${sub.from.x},${sub.from.y}`}
         items={sub.items.map((entry) => toPopItem(registry, entry))}
         origin={sub.from}
+        // The same band as the ring it came from, filled clockwise from straight up.
+        shape={{
+          kind: 'ring',
+          sectors: sub.items.map((_, i) => i),
+          count: Math.max(RADIAL_SECTORS, sub.items.length),
+        }}
         label={sub.title}
         onPick={(id) => { onRun(id); onClose(); }}
         onClose={onClose}
@@ -81,8 +87,7 @@ export function RadialMenu({
     <PopMenu
       items={popItems}
       origin={at}
-      sectors={slots.map((slot) => slot.sector)}
-      sectorCount={RADIAL_SECTORS}
+      shape={{ kind: 'ring', sectors: slots.map((slot) => slot.sector), count: RADIAL_SECTORS }}
       label={label ?? `${context} actions`}
       caption={caption ?? context}
       onPick={(id, from) => {

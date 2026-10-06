@@ -1,89 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { placeFan, placeSectors, type Bounds, type Point, type Size } from './layout.js';
+import { RING, placeArc, placeRing, sliceBox, sliceMiddle, type Bounds, type Slice } from './layout.js';
 
-const button: Size = { width: 104, height: 64 };
-/** A small laptop window, with the sidebar's 92px taken off the right. */
-const screen: Bounds = { left: 8, top: 8, right: 1280 - 8, bottom: 640 - 8 };
+/** A small laptop window, with the 92px sidebar taken off the right. */
+const screen: Bounds = { left: 8, top: 8, right: 1272, bottom: 632 };
 const leftOfSidebar: Bounds = { ...screen, right: 1280 - 92 - 8 };
+const sidebarButton = (y: number) => ({ x: 1280 - 46, y });
 
-const onScreen = (points: readonly Point[], b: Bounds) => points.every((p) =>
-  p.x - button.width / 2 >= b.left - 1e-6 && p.x + button.width / 2 <= b.right + 1e-6
-  && p.y - button.height / 2 >= b.top - 1e-6 && p.y + button.height / 2 <= b.bottom + 1e-6);
+const onScreen = (slices: readonly Slice[], b: Bounds) => slices.every((s) => {
+  const box = sliceBox(s);
+  return box.left >= b.left - 1e-6 && box.right <= b.right + 1e-6
+    && box.top >= b.top - 1e-6 && box.bottom <= b.bottom + 1e-6;
+});
 
-const overlapping = (points: readonly Point[]) => points.some((a, i) => points.some((b, j) =>
-  i < j && Math.abs(a.x - b.x) < button.width && Math.abs(a.y - b.y) < button.height));
-
-describe('right-click ring: fixed directions', () => {
-  it('keeps every command in its own direction around the cursor', () => {
+describe('right-click ring', () => {
+  it('is the band it always was, each command in its own direction', () => {
     const at = { x: 640, y: 320 };
-    const { centre, positions } = placeSectors(at, [0, 2, 4, 6], 8, button, screen);
+    const { centre, slices } = placeRing(at, [0, 2, 4, 6], 8, screen);
     expect(centre).toEqual(at);
-    const [up, right, down, left] = positions;
+    expect(slices.every((s) => s.inner === RING.inner && s.outer === RING.outer)).toBe(true);
+    const [up, right, down, left] = slices.map(sliceMiddle);
     expect(up!.x).toBeCloseTo(at.x); expect(up!.y).toBeLessThan(at.y);
     expect(right!.y).toBeCloseTo(at.y); expect(right!.x).toBeGreaterThan(at.x);
     expect(down!.y).toBeGreaterThan(at.y);
     expect(left!.x).toBeLessThan(at.x);
-    expect(overlapping(positions)).toBe(false);
   });
 
-  it('slides the whole ring away from a corner instead of losing buttons off screen', () => {
-    const all = [0, 1, 2, 3, 4, 5, 6, 7];
-    const { centre, positions } = placeSectors({ x: 20, y: 15 }, all, 8, button, screen);
-    expect(onScreen(positions, screen)).toBe(true);
+  it('slides away from a corner rather than losing slices off screen', () => {
+    const { centre, slices } = placeRing({ x: 20, y: 15 }, [0, 1, 2, 3, 4, 5, 6, 7], 8, screen);
+    expect(onScreen(slices, screen)).toBe(true);
     expect(centre.x).toBeGreaterThan(20);
     expect(centre.y).toBeGreaterThan(15);
-    // Still a ring: sector 2 is due right of the (moved) centre.
-    expect(positions[2]!.y).toBeCloseTo(centre.y);
-    expect(positions[2]!.x).toBeGreaterThan(centre.x);
   });
 });
 
-describe('group fan', () => {
-  it('rings a point in open space, starting straight up', () => {
-    const at = { x: 640, y: 320 };
-    const { centre, positions } = placeFan(at, 5, button, screen);
-    expect(centre).toEqual(at);
-    expect(positions[0]!.x).toBeCloseTo(at.x);
-    expect(positions[0]!.y).toBeLessThan(at.y);
-    expect(onScreen(positions, screen)).toBe(true);
-    expect(overlapping(positions)).toBe(false);
-  });
-
-  it('opens beside a sidebar button, never under the sidebar, and stays close to it', () => {
-    for (const y of [40, 200, 330, 590]) {
-      const at = { x: 1280 - 46, y };
-      const { positions } = placeFan(at, 7, button, leftOfSidebar);
-      expect(onScreen(positions, leftOfSidebar)).toBe(true);
-      expect(overlapping(positions)).toBe(false);
-      // A ring centred exactly on an edge button grew past 400px before everything
-      // fitted; the menu should read as coming from the button.
-      const nearest = Math.min(...positions.map((p) => Math.hypot(p.x - at.x, p.y - at.y)));
-      expect(nearest).toBeLessThan(220);
+describe('sidebar arc', () => {
+  it('runs the list down the sidebar, gently curved, top to bottom, a little apart', () => {
+    const at = sidebarButton(300);
+    const slices = placeArc(at, 7, leftOfSidebar);
+    expect(slices).toHaveLength(7);
+    expect(onScreen(slices, leftOfSidebar)).toBe(true);
+    const mids = slices.map(sliceMiddle);
+    expect(mids.map((m) => m.y)).toEqual(mids.map((m) => m.y).sort((a, b) => a - b));
+    // Separated: each slice ends before the next begins.
+    for (let i = 1; i < slices.length; i++) expect(slices[i]!.to).toBeLessThan(slices[i - 1]!.from);
+    // Centred on the button and hugging the strip: the arc bends round the button, so
+    // its end rows meet the sidebar's edge and the middle stands off only a little — a
+    // list, curved.
+    expect(mids[3]!.y).toBeCloseTo(at.y, 0);
+    const boxes = slices.map(sliceBox);
+    const gaps = boxes.map((b) => leftOfSidebar.right - b.right);
+    expect(Math.min(...gaps)).toBeLessThan(4);
+    expect(gaps[3]).toBeLessThan(40);
+    const bow = Math.max(...mids.map((m) => m.x)) - Math.min(...mids.map((m) => m.x));
+    expect(bow).toBeGreaterThan(5);
+    expect(bow).toBeLessThan(60);
+    // Rows lean only slightly: no row turns more than 25 degrees from level.
+    for (const sl of slices) {
+      expect(Math.abs((sl.from + sl.to) / 2 - Math.PI * 1.5)).toBeLessThan((25 * Math.PI) / 180);
     }
   });
 
-  it('reads top to bottom when it has to be an arc', () => {
-    // Pinned to the left edge with no room to move in: a half ring, read downward.
-    const narrow: Bounds = { left: 8, top: 8, right: 400, bottom: 632 };
-    const { positions } = placeFan({ x: 8, y: 320 }, 4, button, narrow);
-    expect(onScreen(positions, narrow)).toBe(true);
-    const ys = positions.map((p) => p.y);
-    expect(ys).toEqual([...ys].sort((a, b) => a - b));
+  it('slides down from the top button and up from the bottom one, staying on screen', () => {
+    for (const y of [40, 600]) {
+      const at = sidebarButton(y);
+      const slices = placeArc(at, 6, leftOfSidebar);
+      expect(onScreen(slices, leftOfSidebar)).toBe(true);
+      // Still beside the button: the nearest row is within a couple of rows of it.
+      const nearest = Math.min(...slices.map((s) => Math.abs(sliceMiddle(s).y - at.y)));
+      expect(nearest).toBeLessThan(80);
+    }
   });
 
-  it('still fits from the bottom of the sidebar, in a short window', () => {
-    // The File button sits at the foot of the strip.
-    const at = { x: 1280 - 46, y: 600 };
-    const { positions } = placeFan(at, 6, button, leftOfSidebar);
-    expect(onScreen(positions, leftOfSidebar)).toBe(true);
-    expect(overlapping(positions)).toBe(false);
-  });
-
-  it('places even fifteen buttons on screen', () => {
-    // The sketch constraint list at its longest.
-    const { positions } = placeFan({ x: 300, y: 300 }, 15, button, screen);
-    expect(positions).toHaveLength(15);
-    expect(onScreen(positions, screen)).toBe(true);
-    expect(overlapping(positions)).toBe(false);
+  it('falls back to a ring when the window is too short for the list', () => {
+    const tiny: Bounds = { left: 8, top: 8, right: 900, bottom: 200 };
+    const slices = placeArc({ x: 946, y: 100 }, 7, tiny);
+    expect(slices).toHaveLength(7);
   });
 });

@@ -12,9 +12,9 @@ import type { Point } from '../radial/layout.js';
  * in sync. It is kept to a handful of groups — sketch, create, modify, bodies, print,
  * file — so it fits a laptop screen at full size and never scrolls.
  *
- * Clicking a group pops its commands out of the button, through the same PopMenu every
- * other menu uses, fanned to the left over whatever arc stays on screen. One level: a
- * child may not itself be a group, and the registry enforces that.
+ * Clicking a group grows its commands out of the button, through the same PopMenu every
+ * other menu uses: the old flyout list, curved into an arc of slices round the button.
+ * One level: a child may not itself be a group, and the registry enforces that.
  */
 export function Toolbar({
   registry, state, onRun,
@@ -91,6 +91,7 @@ export function Toolbar({
           key={openGroup.id}
           items={registry.childrenOf(open.command.id, state).map((entry) => toPopItem(registry, entry))}
           origin={openGroup.at}
+          shape={{ kind: 'arc' }}
           label={open.command.title}
           {...(open.enabled !== true ? { blocked: String(open.enabled) } : {})}
           onPick={(id) => { setOpenGroup(null); onRun(id); }}

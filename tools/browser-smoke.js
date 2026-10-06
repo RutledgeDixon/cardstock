@@ -43,8 +43,12 @@ window.__smoke = async function smoke() {
   const fromSidebar = async (group, id) => {
     document.querySelector(`.tool[data-command="${group}"]`)?.click();
     await waitFor(`.radial-item[data-command="${id}"]`, 2000);
-    document.querySelector(`.radial-item[data-command="${id}"]`)?.click();
+    // A slice is an SVG group, which has no click(): dispatch the event.
+    document.querySelector(`.radial-item[data-command="${id}"]`)
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   };
+  /** Where a menu's slices grow out from, read off their transform origin. */
+  const growsFrom = (el) => (el.style.transformOrigin.match(/-?[\d.]+/g) ?? []).map(Number);
   const results = {};
   const check = (name, value) => { results[name] = value; return value; };
 
@@ -238,15 +242,15 @@ window.__smoke = async function smoke() {
   }
 
   // --- a sidebar group pops its commands out of the button ---------------------
-  // Same menu as a right-click: buttons start at the middle of the group's button and
-  // spread out to the left, over a dark glow, clear of the strip and of the screen edge.
+  // Same menu as a right-click: slices grow out of the middle of the group's button into
+  // the old list curved round it, over a dark glow, clear of the strip and the edges.
   const stripLeft = document.querySelector('.toolpanel').getBoundingClientRect().left;
   const onScreenAndClear = (items) => items.every((b) => {
     const r = b.getBoundingClientRect();
     return r.left >= 0 && r.top >= 0 && r.bottom <= innerHeight && r.right <= stripLeft;
   });
-  const overlapping = (items) => items.map((b) => b.getBoundingClientRect()).some((a, i, all) =>
-    all.some((c, k) => k > i && a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom));
+  const topToBottom = (items) => items.map((b) => b.getBoundingClientRect().top)
+    .every((y, i, all) => i === 0 || y > all[i - 1]);
   const closeMenu = async () => {
     document.querySelector('.radial-scrim')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     await sleep(150);
@@ -262,9 +266,12 @@ window.__smoke = async function smoke() {
       .every((id) => popped.some((b) => b.dataset.command === id)));
     check('sidebarRadialHasGlow', !!document.querySelector('.radial-glow'));
     const r = create.getBoundingClientRect();
-    check('sidebarRadialPopsFromTheButton', popped.every((b) =>
-      Math.abs(parseFloat(b.style.getPropertyValue('--ox')) - (r.left + r.width / 2)) < 1
-      && Math.abs(parseFloat(b.style.getPropertyValue('--oy')) - (r.top + r.height / 2)) < 1));
+    check('sidebarRadialGrowsFromTheButton', popped.every((b) => {
+      const [x, y] = growsFrom(b);
+      return Math.abs(x - (r.left + r.width / 2)) < 1 && Math.abs(y - (r.top + r.height / 2)) < 1;
+    }));
+    check('sidebarRadialIsSlices', document.querySelectorAll('.radial-wedge').length === popped.length);
+    check('sidebarRadialReadsTopToBottom', topToBottom(popped));
     check('sidebarRadialIsClearOfTheStrip', onScreenAndClear(popped));
     // The backdrop takes the press; the click that follows must close, not reopen.
     document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
@@ -281,7 +288,7 @@ window.__smoke = async function smoke() {
   // --- every sidebar group opens, is complete, and fits on screen ---------------
   // A DISABLED group must still open, so its children can say why they are unavailable.
   {
-    let allOpen = true, allClear = true, allPopulated = true, noneOverlap = true;
+    let allOpen = true, allClear = true, allPopulated = true, allInOrder = true;
     for (const button of [...document.querySelectorAll('.tool.is-group')]) {
       button.click();
       // Past the last button's pop-out (stagger plus animation), so they are measured
@@ -290,13 +297,13 @@ window.__smoke = async function smoke() {
       const items = [...document.querySelectorAll('.radial-item')];
       if (items.length === 0) { allOpen = false; continue; }
       if (!onScreenAndClear(items)) allClear = false;
-      if (overlapping(items)) noneOverlap = false;
+      if (!topToBottom(items)) allInOrder = false;
       if (items.length < 2) allPopulated = false;
       await closeMenu();
     }
     check('everyGroupOpens', allOpen);
     check('everyGroupMenuFitsOnScreen', allClear);
-    check('everyGroupMenuIsTidy', noneOverlap);
+    check('everyGroupMenuReadsTopToBottom', allInOrder);
     check('everyGroupMenuHasItems', allPopulated);
   }
 
@@ -324,11 +331,27 @@ window.__smoke = async function smoke() {
   await sleep(200);
   const radialItems = [...document.querySelectorAll('.radial-item')].map((b) => b.dataset.command ?? 'more');
   check('radialOpens', radialItems.length > 0);
-  // Real buttons, popping out of the cursor over a dark glow.
-  check('radialItemsAreButtons',
-    [...document.querySelectorAll('.radial-item')].every((b) => b.tagName === 'BUTTON'));
-  check('radialPopsFromTheCursor', [...document.querySelectorAll('.radial-item')].every((b) =>
-    parseFloat(b.style.getPropertyValue('--ox')) === 300 && parseFloat(b.style.getPropertyValue('--oy')) === 200));
+  // Each command owns a WEDGE of the ring, not a floating label: a far bigger target,
+  // and it shows which direction the command lives in.
+  check('radialDrawsWedges',
+    document.querySelectorAll('.radial-wedge').length === radialItems.length);
+  check('radialWedgesAreRings', (() => {
+    // Out along the rim, back along the inner edge: two arcs, or it is not a band.
+    const d = document.querySelector('.radial-wedge')?.getAttribute('d') ?? '';
+    return (d.match(/A /g) ?? []).length === 2 && d.trim().endsWith('Z');
+  })());
+  // The band it always was: 48 to 116 from the centre.
+  check('radialIsItsOldSize', (() => {
+    const box = document.querySelector('.radial-ring g.radial-item')?.closest('svg')
+      && [...document.querySelectorAll('.radial-wedge')].map((w) => w.getBBox());
+    if (!box || box.length === 0) return false;
+    const right = Math.max(...box.map((b) => b.x + b.width)), left = Math.min(...box.map((b) => b.x));
+    return right - left <= 2 * 116 + 2;
+  })());
+  check('radialGrowsFromTheCursor', [...document.querySelectorAll('.radial-item')].every((b) => {
+    const [x, y] = growsFrom(b);
+    return x === 300 && y === 200;
+  }));
   check('radialHasGlow', !!document.querySelector('.radial-glow'));
   // It flooded once with Export STL and the palette; a context menu has to stay short.
   check('radialIsShort', radialItems.length <= 8);
