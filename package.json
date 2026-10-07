@@ -1,9 +1,9 @@
 {
   "name": "cardstock",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.7.1",
   "type": "module",
-  "description": "CARDstock \u2014 Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
+  "description": "CARDstock — Computer Assisted Rapid Design. Minimal, keyboard-first, print-aware parametric CAD in the browser.",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22"
@@ -21,7 +21,6 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "boundaries": "node tools/check-boundaries.mjs",
-    "spikes": "node tools/spikes/occt-spike.mjs && node tools/spikes/tessellate-spike.mjs && node tools/spikes/planegcs-spike.mjs",
     "fixture": "node tools/make-fixture.mjs",
     "check": "npm run typecheck && npm run lint && npm run boundaries && npm test",
     "corpus": "tsx tests/src/build-corpus.ts"

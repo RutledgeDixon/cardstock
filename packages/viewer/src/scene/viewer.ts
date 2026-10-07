@@ -15,7 +15,8 @@ import type { AnalysisMode } from '../materials/solid.js';
 import { Grid } from './grid.js';
 
 export interface ViewerOptions {
-  background?: number;
+  /** A hex number or any CSS colour string; the app passes its `--bg` token. */
+  background?: number | string;
   grid?: boolean;
 }
 
@@ -60,7 +61,7 @@ export class Viewer {
   constructor(readonly canvas: HTMLCanvasElement, opts: ViewerOptions = {}) {
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
-    this.scene.background = new Color(opts.background ?? 0x14161a);
+    this.scene.background = new Color(opts.background ?? 0x141a16);
 
     this.#grid = opts.grid === false ? null : new Grid({ minor: 1, majorEvery: 10, extent: 200 });
     if (this.#grid) this.scene.add(this.#grid);

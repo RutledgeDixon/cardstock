@@ -79,11 +79,15 @@ export class CommandRegistry {
             'submenus are one level deep',
           );
         }
-        if (child.sector) {
-          // A child never appears at a context menu's top level, so a sector it claims
-          // can never be used — and worse, it RESERVES that direction, so its own group
-          // cannot take it. That is how "modify.body" ended up with nowhere to sit in
-          // the face menu while its child held the slot.
+        const shadowed = Object.keys(child.sector ?? {})
+          .filter((context) => appearsIn(command, context as CommandContext));
+        if (shadowed.length > 0) {
+          // In a context where its group is shown, a child never appears at the top
+          // level, so a sector it claims there can never be used — and worse, it
+          // RESERVES that direction, so its own group cannot take it. That is how
+          // "modify.body" ended up with nowhere to sit in the face menu while its child
+          // held the slot. Where the group is NOT shown (a toolbar-only group, say), the
+          // child is at the top level and its sector is real.
           throw new Error(
             `command "${childId}" claims a radial sector but is a child of ` +
             `"${command.id}"; the group carries the sector`,
@@ -97,6 +101,21 @@ export class CommandRegistry {
         }
       }
     }
+  }
+
+  /**
+   * Ids a context's ring leaves out because a group in that same ring holds them.
+   *
+   * Per context, not global: a toolbar-only group must be free to gather Hole and Text
+   * without taking them off the face menu, where no group of theirs is shown.
+   */
+  #childIdsIn(context: CommandContext): Set<string> {
+    const ids = new Set<string>();
+    for (const command of this.#commands.values()) {
+      if (!command.children?.length || !appearsIn(command, context)) continue;
+      for (const child of command.children) ids.add(child);
+    }
+    return ids;
   }
 
   /** Ids that appear inside some group, and so must not appear at top level too. */
@@ -138,11 +157,10 @@ export class CommandRegistry {
    * stops being a short list of the things you might do to what you clicked.
    */
   forContext(context: CommandContext, state: CommandState): ResolvedCommand[] {
-    const children = this.#childIds();
+    const children = this.#childIdsIn(context);
     return [...this.#commands.values()]
       .filter((c) => !children.has(c.id))
-      .filter((c) => c.contexts.includes(context)
-        || (c.contexts.includes('always') && c.sector?.[context] !== undefined))
+      .filter((c) => appearsIn(c, context))
       .map((command) => ({
         command,
         enabled: command.enabled(state),
@@ -233,4 +251,13 @@ function fuzzyScore(needle: string, command: Command): number {
     best = Math.max(best, score * weight);
   }
   return best;
+}
+
+/**
+ * Whether a command is on a context's ring: it names the context, or it is an `always`
+ * command that declares a sector there.
+ */
+function appearsIn(command: Command, context: CommandContext): boolean {
+  return command.contexts.includes(context)
+    || (command.contexts.includes('always') && command.sector?.[context] !== undefined);
 }

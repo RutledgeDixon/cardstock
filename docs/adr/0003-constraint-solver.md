@@ -21,7 +21,7 @@ interface in `@cardstock/types` — the same treatment as OCCT, and for the same
 
 ## Measurements
 
-Run `node tools/spikes/planegcs-spike.mjs` to reproduce.
+Measured with `tools/spikes/planegcs-spike.mjs`, since removed; recover it with `git show 4ec3fd5:tools/spikes/planegcs-spike.mjs`.
 
 **Boot: 13 ms.** Negligible next to OCCT's 174 ms.
 

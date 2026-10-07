@@ -244,6 +244,13 @@ function toGcsConstraints(
       return [{ id: c.id, type: 'point_on_line_pl', p_id: c.point, l_id: c.line }];
     case 'symmetric':
       return [{ id: c.id, type: 'p2p_symmetric_ppl', p1_id: c.a, p2_id: c.b, l_id: c.line }];
+    case 'midpoint': {
+      // The line's two ends mirrored through the point: one constraint that puts the
+      // point both ON the line and halfway along it, which is what SolidWorks' Midpoint
+      // relation and FreeCAD's point-symmetric constraint both are.
+      const ends = lineEnds(c.line);
+      return ends ? [{ id: c.id, type: 'p2p_symmetric_ppp', p1_id: ends.p1, p2_id: ends.p2, p_id: c.point }] : [];
+    }
     case 'distance':
       return [{ id: c.id, type: 'p2p_distance', p1_id: c.a, p2_id: c.b, distance: dim(c.value) }];
     case 'pointLineDistance':

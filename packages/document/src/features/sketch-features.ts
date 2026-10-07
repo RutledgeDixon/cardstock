@@ -98,7 +98,7 @@ export const extrudeFeature: FeatureDefinition = {
   label: 'Extrude',
   shapeInputs: ['profile'],
   primaryInput: 'profile',
-  valueKeys: ['distance', 'symmetric'],
+  valueKeys: ['distance', 'symmetric', 'twist'],
   async compute({ kernel, shapes, values }) {
     const profile = shapes.profile;
     if (!profile) throw new Error('extrude needs a profile');
@@ -106,6 +106,8 @@ export const extrudeFeature: FeatureDefinition = {
     if (distance === 0) throw new Error('extrude distance must not be zero');
     // A numeric flag rather than a boolean: feature values are all expressions, and one
     // uniform type keeps the hash, the panel and serialisation simple.
-    return kernel.extrude(profile, distance, (values.symmetric ?? 0) !== 0);
+    // Degrees the far end turns relative to the start, about the profile's centre;
+    // positive is counterclockwise looking back down the extrude. Zero is a plain prism.
+    return kernel.extrude(profile, distance, (values.symmetric ?? 0) !== 0, values.twist ?? 0);
   },
 };

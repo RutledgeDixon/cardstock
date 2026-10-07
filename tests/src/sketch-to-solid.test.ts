@@ -99,6 +99,52 @@ describe('a sketch becomes a solid', () => {
     const volume = (await kernel.massProperties(result.states.get(EXTRUDE)!.handle!)).volume;
     expect(volume).toBeCloseTo((60 * 40 - Math.PI * 36) * 10, 3);
   });
+
+  it('builds an arc that bites into the region on its own side, whichever way it was drawn', async () => {
+    // A 20 x 20 square whose top is a 90-degree arc bulging DOWN into it, centred above:
+    // area 400 minus the circular segment, r^2/2 (pi/2 - 1). Regions are traced
+    // counter-clockwise, so an arc curving into one is walked clockwise — a negative
+    // sweep — whichever way it was drawn. That is the pawn's 110-degree arc, whose
+    // centre sat outside the shape; the kernel used to build its complement instead.
+    const expected = 400 - 100 * (Math.PI / 2 - 1);
+    for (const drawnClockwise of [false, true]) {
+      const doc = new Document(kernel, undefined, solver);
+      const { sketch, id } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+      const bl = sketch.addPoint(-10, 0), br = sketch.addPoint(10, 0);
+      const tr = sketch.addPoint(10, 20), tl = sketch.addPoint(-10, 20);
+      const centre = sketch.addPoint(0, 30);
+      sketch.addLine(bl, br); sketch.addLine(br, tr); sketch.addLine(tl, bl);
+      const r = Math.SQRT2 * 10;
+      if (drawnClockwise) sketch.addArc(centre, r, tr, tl, -Math.PI / 4, (-3 * Math.PI) / 4);
+      else sketch.addArc(centre, r, tl, tr, (-3 * Math.PI) / 4, -Math.PI / 4);
+      doc.addFeature({ id: EXTRUDE, type: 'extrude', name: 'Body', values: { distance: '1' }, inputs: { profile: id } });
+
+      const result = await doc.recompute();
+      expect(result.states.get(EXTRUDE)!.status).toBe('ok');
+      expect((await kernel.massProperties(result.states.get(EXTRUDE)!.handle!)).volume)
+        .toBeCloseTo(expected, 2);
+    }
+  });
+
+  it('twists an extrude, and a twist edit rebuilds it', async () => {
+    const doc = new Document(kernel, undefined, solver);
+    plate(doc, '60', '40', '12');
+    await doc.recompute();
+    const before = (await doc.recompute()).states.get(EXTRUDE)!.handle!;
+
+    // A typed expression, as the panel sends it; the twist changes the shape, never the
+    // volume, and turns the flat sides into twisted surfaces.
+    const feature = doc.feature(EXTRUDE)!;
+    doc.updateFeature(EXTRUDE, { values: { ...feature.values, twist: '30' } });
+    const result = await doc.recompute();
+
+    expect(result.states.get(EXTRUDE)!.status).toBe('ok');
+    const twisted = result.states.get(EXTRUDE)!.handle!;
+    expect(twisted).not.toBe(before);
+    expect((await kernel.massProperties(twisted)).volume).toBeCloseTo(60 * 40 * 12, 1);
+    // Four sides and two caps, as before; the sides are just no longer flat.
+    expect(await kernel.topologyCounts(twisted)).toMatchObject({ faces: 6 });
+  });
 });
 
 describe('sketch failures are reported on the sketch', () => {

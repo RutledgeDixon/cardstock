@@ -137,8 +137,15 @@ export interface KernelPort {
    * A sweep path is a sketch that was never meant to close, so it cannot become a face.
    */
   makePath(profile: ProfileSpec): Promise<GeometryResult>;
-  /** Sweep a face along its normal. Negative distance extrudes the other way. */
-  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean): Promise<GeometryResult>;
+  /**
+   * Sweep a face along its normal. Negative distance extrudes the other way.
+   *
+   * `twist` turns the far end relative to the start, in degrees, about an axis through
+   * the profile's centroid along the extrude direction: positive is counterclockwise
+   * looking back from the far end, negative clockwise. A symmetric extrude spreads it
+   * evenly either side of the sketch plane, so the section there still matches the sketch.
+   */
+  extrude(shape: ShapeHandle, distance: number, symmetric?: boolean, twist?: number): Promise<GeometryResult>;
 
   /** Sweep a profile around an axis. `angle` in degrees; 360 makes a full solid. */
   revolve(

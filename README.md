@@ -80,10 +80,17 @@ npm run desktop:build -w @cardstock/app
 ```
 
 produces installers under `packages/app/src-tauri/target/release/bundle/` — `.deb`,
-`.rpm` and `.AppImage` on Linux; `.msi`/`.exe` on Windows; `.dmg` on macOS. Each platform
-builds its own installer; there is no cross-compiling. Windows and macOS installers are
-unsigned until a code-signing certificate is configured, so those systems will warn on
-first run.
+`.rpm` and `.AppImage` on Linux; `.msi`/`.exe` on Windows. Each platform builds its own
+installer; there is no cross-compiling. Windows installers are unsigned until a
+code-signing certificate is configured, so Windows will warn on first run.
+
+Testers do not need any of that: pushing a `v*` tag runs `.github/workflows/release.yml`,
+which builds the Linux and Windows installers and attaches them to a pre-release.
+macOS is deliberately not built.
+
+The desktop window runs under a Content-Security-Policy (`tauri.conf.json`): only the
+app's own scripts, workers and assets, plus Tauri's IPC. It allows `unsafe-eval` because
+OCCT's bindings in the kernel worker compile functions from strings.
 
 Installing a newer build over an older one replaces it: the Windows setup detects the
 existing install and upgrades it in place (the product name and identifier are what
@@ -101,13 +108,13 @@ draft, holes from a fastener table, patterns, booleans across separate bodies, u
 live triangle count and watertight check. STEP and STL can be imported to model
 against. The print suite shades overhangs and thin walls live, draws the build volume,
 scores orientations and applies one to the export, and estimates mass and filament; the
-printer's `nozzle` and `layer` are usable in any dimension. A Tauri desktop shell with its own parts directory and `.card` association is
-written and awaits its first build (see *Desktop app* above).
+printer's `nozzle` and `layer` are usable in any dimension. A Tauri desktop shell with its
+own parts directory and `.card` association builds Linux and Windows installers from
+CI (see *Desktop app* above).
 
 See `docs/adr/` for the decisions, `tools/browser-smoke.js` for the in-browser checks,
 and `tools/bench.ts` for the measurements.
 
-Next is Phase 10: performance, polish, a tutorial for the keyboard navigation, and the
-first desktop build.
+Phase 10 is under way: performance, polish, and a tutorial for the keyboard navigation.
 
 Part files are `.card`.

@@ -17,7 +17,7 @@ export type ConstrainResult =
 /** Constraints a user can apply to a selection, in the order they belong in a menu. */
 export const APPLICABLE_CONSTRAINTS = [
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
-  'tangent', 'equal', 'concentric', 'pointOnLine', 'pointOnCircle', 'symmetric', 'fix',
+  'tangent', 'equal', 'concentric', 'pointOnLine', 'midpoint', 'pointOnCircle', 'symmetric', 'fix',
 ] as const;
 
 export type ApplicableConstraint = (typeof APPLICABLE_CONSTRAINTS)[number];
@@ -32,6 +32,7 @@ const LABELS: Record<ApplicableConstraint, string> = {
   equal: 'Equal',
   concentric: 'Concentric',
   pointOnLine: 'Point on line',
+  midpoint: 'Midpoint',
   pointOnCircle: 'Point on circle',
   symmetric: 'Symmetric',
   fix: 'Fix in place',
@@ -48,6 +49,7 @@ const NEEDS: Record<ApplicableConstraint, string> = {
   equal: 'Select two lines, or two circles',
   concentric: 'Select two circles',
   pointOnLine: 'Select a point and a line',
+  midpoint: 'Select a point and a line',
   pointOnCircle: 'Select a point and a circle',
   symmetric: 'Select two points and a line',
   fix: 'Select a point',
@@ -130,6 +132,21 @@ export function constraintFromSelection(
       // the solver would count it against the sketch.
       if (line.p1 === point.id || line.p2 === point.id) {
         return { ok: false, reason: 'That point is already an end of that line' };
+      }
+      return one({ type, point: point.id, line: line.id });
+    }
+
+    case 'midpoint': {
+      if (points.length !== 1 || lines.length !== 1 || entities.length !== 2) return no();
+      const point = points[0]!, line = lines[0]!;
+      // A line's end cannot also be its middle, short of the line having no length.
+      if (line.p1 === point.id || line.p2 === point.id) {
+        return { ok: false, reason: 'That point is an end of that line, not its middle' };
+      }
+      // Halfway along is already ON the line, so a point-on-line rule there is one
+      // equation too many and the solver would flag the pair as redundant.
+      if (sketch.constraints.some((c) => c.type === 'pointOnLine' && c.point === point.id && c.line === line.id)) {
+        return { ok: false, reason: 'Remove the point-on-line rule first; midpoint includes it' };
       }
       return one({ type, point: point.id, line: line.id });
     }

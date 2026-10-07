@@ -425,3 +425,29 @@ describe('sketch edits undo', () => {
     expect(doc.sketchFor(id)).toBeNull();
   });
 });
+
+describe('usedParameters', () => {
+  it('drops a parameter once nothing reads it, as the starter plate\'s width after the plate is gone', () => {
+    doc.setParameter({ name: 'width', expression: '60', unit: 'mm' });
+    const plate = doc.addFeature({
+      id: 'plate' as FeatureId, type: 'box', name: 'Plate',
+      values: { dx: 'width', dy: '40', dz: '18' }, inputs: {},
+    });
+    expect([...doc.usedParameters()]).toEqual(['width']);
+    doc.removeFeature(plate.id);
+    expect(doc.usedParameters().size).toBe(0);
+    // Hidden, not deleted: the document still has it.
+    expect(doc.parameters.has('width')).toBe(true);
+  });
+
+  it('counts a sketch dimension, and a parameter read only through another', () => {
+    doc.setParameter({ name: 'base', expression: '10', unit: 'mm' });
+    doc.setParameter({ name: 'gap', expression: 'base * 2', unit: 'mm' });
+    doc.setParameter({ name: 'unused', expression: '5', unit: 'mm' });
+    const { sketch } = doc.addSketch({ kind: 'origin', plane: 'xy' });
+    const a = sketch.addPoint(0, 0);
+    const b = sketch.addPoint(10, 0);
+    sketch.addConstraint({ type: 'distance', a, b, value: 'gap' });
+    expect([...doc.usedParameters()].sort()).toEqual(['base', 'gap']);
+  });
+});

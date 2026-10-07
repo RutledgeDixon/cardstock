@@ -115,7 +115,9 @@ export class OcctKernel implements KernelPort {
    * The direction comes from the face rather than being passed in, so an extrude cannot
    * end up skewed relative to the sketch it came from.
    */
-  async extrude(shape: ShapeHandle, distance: number, symmetric = false): Promise<GeometryResult> {
+  async extrude(
+    shape: ShapeHandle, distance: number, symmetric = false, twist = 0,
+  ): Promise<GeometryResult> {
     if (distance === 0) throw new KernelError('extrude distance must not be zero', 'extrude');
     let input = this.registry.get(shape);
 
@@ -143,6 +145,11 @@ export class OcctKernel implements KernelPort {
       input = new this.oc.BRepBuilderAPI_Transform(input, back, true).Shape();
     }
 
+    if (twist !== 0) {
+      const result = this.#twistedPrism(input, normal, distance, twist, symmetric);
+      return { handle: this.#wrap(result) };
+    }
+
     const vector = new this.oc.gp_Vec(
       normal.x * distance, normal.y * distance, normal.z * distance,
     );
@@ -150,6 +157,91 @@ export class OcctKernel implements KernelPort {
     const result = builder.Shape();
     const history = captureHistory(this.oc, builder, [input], result);
     return { handle: this.#wrap(result), history };
+  }
+
+  /**
+   * A prism whose section turns steadily as it rises.
+   *
+   * MakePrism can only translate, so this is a sweep along a straight spine through the
+   * profile's centroid, with a helix on a cylinder about that spine as the auxiliary
+   * guide: the section's orientation at each height is the direction to the helix, which
+   * turns linearly with height — an exact twist, not a stack of rotated slices lofted
+   * together. The helix is a straight line in the cylinder's (angle, height) parameter
+   * space, which is what makes it a true helix rather than an approximation of one.
+   *
+   * Each face is swept by its outer wire and its holes are swept the same way and cut
+   * out: a pipe shell caps a single wire, not a face with holes in it.
+   */
+  #twistedPrism(
+    input: TopoDS_Shape, normal: Vec3, distance: number, twist: number, symmetric: boolean,
+  ): TopoDS_Shape {
+    const oc = this.oc;
+    const length = Math.abs(distance);
+    const s = Math.sign(distance);
+    const direction = new oc.gp_Dir(normal.x * s, normal.y * s, normal.z * s);
+    const angle = (twist * Math.PI) / 180;
+
+    // The twist axis runs through the centroid of the WHOLE profile, so a face with a
+    // hole — a ring — turns about its own centre rather than wobbling.
+    const props = new oc.GProp_GProps();
+    oc.BRepGProp.SurfaceProperties(input, props, false, false);
+    const c = props.CentreOfMass();
+    const centre = new oc.gp_Pnt(c.X(), c.Y(), c.Z());
+    props.delete();
+
+    // Symmetric: start a half-twist back, so the section at the sketch plane is the
+    // sketch as drawn and the two ends turn equally either way from it.
+    let profile = input;
+    if (symmetric) {
+      const back = new oc.gp_Trsf();
+      back.SetRotation(new oc.gp_Ax1(centre, direction), -angle / 2);
+      profile = new oc.BRepBuilderAPI_Transform(profile, back, true).Shape();
+    }
+
+    const end = new oc.gp_Pnt(
+      c.X() + direction.X() * length, c.Y() + direction.Y() * length, c.Z() + direction.Z() * length,
+    );
+    const spine = new oc.BRepBuilderAPI_MakeWire(new oc.BRepBuilderAPI_MakeEdge(centre, end).Edge()).Wire();
+
+    // u is the angle about the axis (counterclockwise looking back down it, by the
+    // right-hand rule), v the height; the line from (0,0) to (angle, length) is the helix.
+    const surface = new oc.Geom_CylindricalSurface(new oc.gp_Ax3(centre, direction), 1);
+    const line = new oc.Geom2d_Line(new oc.gp_Pnt2d(0, 0), new oc.gp_Dir2d(angle, length));
+    const segment = new oc.Geom2d_TrimmedCurve(line, 0, Math.hypot(angle, length), true, true);
+    const helixEdge = new oc.BRepBuilderAPI_MakeEdge(segment, surface).Edge();
+    oc.BRepLib.BuildCurves3d(helixEdge);
+    const helix = new oc.BRepBuilderAPI_MakeWire(helixEdge).Wire();
+
+    const sweep = (wire: TopoDS_Shape): TopoDS_Shape => {
+      const builder = new oc.BRepOffsetAPI_MakePipeShell(spine);
+      builder.SetMode(helix, false, oc.BRepFill_TypeOfContact.BRepFill_NoContact);
+      builder.Add(wire, false, false);
+      this.#build(builder as never, 'extrude');
+      if (!builder.MakeSolid()) {
+        throw new KernelError('the twisted extrude did not close into a solid', 'extrude');
+      }
+      return builder.Shape();
+    };
+
+    const solids = subShapes(oc, profile, 'TopAbs_FACE').map((shape) => {
+      const face = oc.TopoDS.Face(shape);
+      const outer = oc.BRepTools.OuterWire(face);
+      let solid = sweep(outer);
+      for (const wire of subShapes(oc, face, 'TopAbs_WIRE')) {
+        if (wire.IsSame(outer)) continue;
+        solid = this.#build(new oc.BRepAlgoAPI_Cut(solid, sweep(wire)), 'extrude');
+      }
+      return solid;
+    });
+    if (solids.length === 0) throw new KernelError('extrude needs a planar face', 'extrude');
+    if (solids.length === 1) return solids[0]!;
+
+    // Separate regions stay separate bodies, as an untwisted extrude leaves them.
+    const builder = new oc.TopoDS_Builder();
+    const compound = new oc.TopoDS_Compound();
+    builder.MakeCompound(compound);
+    for (const solid of solids) builder.Add(compound, solid);
+    return compound;
   }
 
   async revolve(

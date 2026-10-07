@@ -6,7 +6,7 @@ import { type Feature } from './features/feature.js';
 import { createBuiltinRegistry } from './features/builtins.js';
 import { RecomputeEngine, type RecomputeResult, CancellationToken } from './graph/recompute.js';
 import { buildGraph } from './graph/build-graph.js';
-import { featureNode, paramNode, type NodeId } from './graph/dependency-graph.js';
+import { featureNode, isFeatureNode, paramNode, type NodeId } from './graph/dependency-graph.js';
 import { History } from './undo/history.js';
 import {
   CURRENT_SCHEMA_VERSION, type DocumentFile, type DocumentMeta, migrate,
@@ -144,6 +144,25 @@ export class Document {
   #markDependentsDirty(node: NodeId): void {
     const graph = buildGraph(this.parameters, this.#features, (id) => this.sketches.get(id) ?? null);
     for (const n of graph.dirtyFrom([node])) this.#dirty.add(n);
+  }
+
+  /**
+   * Parameters that some feature actually reads — directly, through a sketch dimension,
+   * or through another parameter that one of those reads.
+   *
+   * Parameters outlive what they drove: the starter plate's `width` stays in the
+   * document after the plate is deleted, and listing it forever says the part has a
+   * width it does not.
+   */
+  usedParameters(): Set<string> {
+    const graph = buildGraph(this.parameters, this.#features, (id) => this.sketches.get(id) ?? null);
+    const used = new Set<string>();
+    for (const name of this.parameters.names()) {
+      for (const node of graph.dirtyFrom([paramNode(name)])) {
+        if (isFeatureNode(node)) { used.add(name); break; }
+      }
+    }
+    return used;
   }
 
   setParameter(param: Parameter, opts: EditOptions = {}): string | null {

@@ -1,6 +1,6 @@
 [package]
 name = "cardstock"
-version = "0.7.0"
+version = "0.7.1"
 description = "CARDstock — parametric solid modelling, simplified."
 authors = ["Rutledge Dixon"]
 license = "UNLICENSED"

@@ -202,3 +202,35 @@ function meshedHandles(viewer: Viewer): Map<string, string> {
   if (!map) { map = new Map(); MESHED.set(viewer, map); }
   return map;
 }
+
+/** The on-screen body a feature ends up in: itself if it is a leaf, else whatever
+ *  consumed it, followed downstream. Null when nothing on screen carries it. */
+export function bodyShowing(doc: Document, id: FeatureId): FeatureId | null {
+  const leaves = new Set(bodyFeatures(doc));
+  let current: FeatureId | null = id;
+  for (let hops = 0; current && hops < doc.features.length; hops++) {
+    if (leaves.has(current)) return current;
+    const target: FeatureId = current;
+    const consumer = doc.features.find((f) => {
+      const definition = doc.registry.get(f.type);
+      const optional = new Set(definition?.optionalShapeInputs ?? []);
+      return Object.entries(f.inputs).some(([role, input]) => input === target && !optional.has(role));
+    });
+    current = consumer?.id ?? null;
+  }
+  return null;
+}
+
+/** Roll a rebuild up into the numbers the status bar shows. */
+export function summarise(result: RebuildReport) {
+  const faces = result.bodies.reduce((n, b) => n + b.faceCount, 0);
+  const triangles = result.bodies.reduce((n, b) => n + b.indices.length / 3, 0);
+  return {
+    rebuildMs: result.rebuildMs,
+    meshMs: result.bodies.length > 0 ? result.tessellateMs : null,
+    triangles: result.bodies.length > 0 ? triangles : null,
+    faces: result.bodies.length > 0 ? faces : null,
+    cached: result.result.reused.length,
+    error: result.errors[0] ?? null,
+  };
+}
