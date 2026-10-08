@@ -4,6 +4,7 @@ export { PopMenu, type PopItem, type PopMenuProps, type PopShape } from './radia
 export { placeArc, placeRing, type Bounds, type Slice } from './radial/layout.js';
 export { CommandPalette } from './palette/CommandPalette.js';
 export { AboutDialog, type AboutInfo } from './about/AboutDialog.js';
+export { TutorialDialog } from './about/TutorialDialog.js';
 export { FeatureTree, type FeatureRow } from './tree/FeatureTree.js';
 export { ParameterPanel, type FieldSpec } from './panels/ParameterPanel.js';
 export { StatusBar } from './shell/StatusBar.js';

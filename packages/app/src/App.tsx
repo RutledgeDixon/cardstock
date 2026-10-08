@@ -14,7 +14,7 @@ import {
   type CommandContext, type CommandState,
 } from '@cardstock/commands';
 import {
-  AboutDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
+  AboutDialog, TutorialDialog, CommandPalette, ExportDialog, FeatureTree, ParameterPanel, RadialMenu, StatusBar,
   Toolbar, QUALITY_PRESETS, PrinterDialog, OrientationDialog, describeDown, KeysDialog,
   type AboutInfo, type ExportQuality, type ExportStats, type OrientationRow,
   type FeatureRow, type FieldSpec,
@@ -69,6 +69,7 @@ export function App() {
   } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   /** A constraint picked in the panel: Delete removes it rather than sketch geometry. */
   const selectedConstraintRef = useRef<string | null>(null);
@@ -994,8 +995,15 @@ export function App() {
       )}
 
       {aboutOpen && (
-        <AboutDialog info={BUILD} author="Rutledge Dixon" onClose={() => setAboutOpen(false)} />
+        <AboutDialog
+          info={BUILD}
+          author="Rutledge Dixon"
+          onTutorial={() => { setAboutOpen(false); setTutorialOpen(true); }}
+          onClose={() => setAboutOpen(false)}
+        />
       )}
+
+      {tutorialOpen && <TutorialDialog onClose={() => setTutorialOpen(false)} />}
 
       {keysOpen && registry && (
         <KeysDialog

@@ -18,10 +18,12 @@ export interface AboutInfo {
 }
 
 export function AboutDialog({
-  info, author, onClose,
+  info, author, onTutorial, onClose,
 }: {
   info: AboutInfo;
   author: string;
+  /** Open the quick tutorial; the About popup closes in its favour. */
+  onTutorial?: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -87,7 +89,14 @@ export function AboutDialog({
             : 'Built from a clean working tree.'}
         </p>
 
-        <button type="button" className="about-close" onClick={onClose}>Close</button>
+        <div className="about-actions">
+          {onTutorial && (
+            <button type="button" className="about-close about-tutorial" onClick={onTutorial}>
+              Quick tutorial
+            </button>
+          )}
+          <button type="button" className="about-close" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );

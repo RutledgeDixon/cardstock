@@ -239,6 +239,20 @@ window.__smoke = async function smoke() {
       new PointerEvent('pointerdown', { bubbles: true }));
     await sleep(250);
     check('aboutCloses', !document.querySelector('.about'));
+
+    // The quick tutorial opens from the About popup, in its place, and closes again.
+    about?.click();
+    await waitFor('.about');
+    [...document.querySelectorAll('.about button')]
+      .find((b) => b.textContent.includes('Quick tutorial'))?.click();
+    check('tutorialOpensFromAbout', await waitFor('.tutorial', 2000)
+      && document.querySelectorAll('.about').length === 1);
+    const tutorial = document.querySelector('.tutorial')?.textContent ?? '';
+    check('tutorialCoversPanAndRightClick', /Pan the view/.test(tutorial) && /Right-click/.test(tutorial));
+    document.querySelector('.tutorial')?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(250);
+    check('tutorialCloses', !document.querySelector('.tutorial'));
   }
 
   // --- a sidebar group pops its commands out of the button ---------------------
